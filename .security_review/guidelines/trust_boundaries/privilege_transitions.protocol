@@ -1,0 +1,53 @@
+<ARCH_SCAN_V3>
+@ID: PRIVILEGE_TRANSITION_AUDIT
+@GOAL: IDENTIFY_SECURE_ELEVATION_POINTS_AND_SUDO_LOGIC
+@PARENT_CONTEXT: layered_analysis.protocol, iam_matrix.md
+
+<GLOBAL_VARS>
+# Маркеры смены контекста/прав
+ELEVATION_FUNCS: "(sudo|impersonate|loginAs|assumeRole|elevate|promote|authorizeAdmin)"
+CONTEXT_SWITCHERS: "(setuid|setgid|chmod|chown|runAs|execAs)"
+SENSITIVE_ACTIONS: "(deleteUser|changePermissions|accessVault|sysConfig|dbDrop)"
+
+# Индикаторы проверки "владения" (Ownership)
+OWNER_CHECKS: "(isOwner|checkOwnership|belongsTo|createdBy|ownerId)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[GATE]      <- {match: {{ELEVATION_FUNCS}}, scope: "METHOD"}
+[PRIV_OP]   <- {match: {{SENSITIVE_ACTIONS}}, layer: [APP]}
+[CONTEXT]   <- {match: (session|context|token|payload), usage: "IDENTITY"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты переходов
+! ([PRIV_OP]) & !([GATE] | {{GATEKEEPER_MARKERS}}) : "CRITICAL: Sensitive operation executed without explicit privilege check."
+! ([GATE] -> !MFA_VERIFIED) : "HIGH: Privilege elevation allowed without Multi-Factor Authentication (where applicable)."
+? ([PRIV_OP] -> !{{OWNER_CHECKS}}) : "MEDIUM: Resource modification without Ownership verification (Potential IDOR)."
+! (CONTEXT.role -> WRITABLE) : "HIGH: Security context/role is modifiable via Client-side input (Insecure Deserialization risk)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. MAP_PRIVILEGED_ZONES:
+   - Identify all methods/routes labeled with [PRIV_OP].
+   - Cross-reference with iam_matrix.md to see required roles.
+2. ELEVATION_TRACE:
+   - Locate all [GATE] functions.
+   - Trace the flow: Who can call [GATE]? Is there a "Step-up" authentication (re-password/MFA)?
+3. IDOR_SENSITIVITY_SCAN:
+   - For every [PRIV_OP] that takes an `id`, verify if {{OWNER_CHECKS}} is present.
+   - Flag any "Direct Reference" that doesn't check if the current user has rights to THAT specific ID.
+4. TOKEN_INTEGRITY_AUDIT:
+   - Check how roles are extracted from [CONTEXT]. 
+   - Ensure roles are not trusted from unverified JWT claims or hidden form fields.
+5. ESCALATION_SINK_HOLES:
+   - Search for logic where a low-privilege user can trigger a high-privilege background job (e.g., via Message Queue).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TRANSITION_MAP:
+  - SOURCE_ROLE | TARGET_PRIVILEGE | TRANSITION_POINT | SECURITY_CONTROL_STATION
+FILTER: RISK >= MEDIUM
+VISUALIZE: "State Machine diagram showing Role transitions and required Gates."
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

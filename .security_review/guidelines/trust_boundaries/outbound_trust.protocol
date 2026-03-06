@@ -1,0 +1,52 @@
+<ARCH_SCAN_V3>
+@ID: OUTBOUND_TRUST_AUDIT
+@GOAL: IDENTIFY_RISKS_IN_EXTERNAL_DATA_EXCHANGE_AND_SSRF_VECTORS
+@PARENT_CONTEXT: third_party_surface.protocol, critical_paths.protocol
+
+<GLOBAL_VARS>
+# Маркеры внешних вызовов и динамических URL
+OUTBOUND_CLIENTS: "(axios|fetch|request|http\.get|http\.post|resty|webClient|RestTemplate)"
+DYNAMIC_URL_PATTERNS: "(\${|concat\(|format\(|url\.parse|uri\.builder)"
+
+# Чувствительные данные для мониторинга утечек
+LEAK_CANDIDATES: "(apiKey|secret|token|password|auth_header|private_key|PII)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[EGRESS_POINT] <- {match: {{OUTBOUND_CLIENTS}}, scope: "FUNCTION_CALL"}
+[URL_BUILDER]  <- {match: {{DYNAMIC_URL_PATTERNS}}, context: "URL_CONSTRUCTION"}
+[INTERNAL_DATA] <- {match: {{LEAK_CANDIDATES}}}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты внешнего доверия
+! ([URL_BUILDER] -> [EGRESS_POINT]) & !VALIDATED : "CRITICAL: SSRF risk. Dynamic URL construction for outbound request without whitelist/sanitization."
+! ([EGRESS_POINT] -> [INTERNAL_DATA]) & !ENCRYPTED : "HIGH: Sending sensitive internal data to external API without proper masking/encryption."
+? ([EGRESS_POINT].response -> [APP]) & !VALIDATED : "MEDIUM: Implicit trust in external API response. Missing schema validation for inbound data."
+! ([EGRESS_POINT] -> !TLS) : "HIGH: Outbound communication over unencrypted channel (HTTP)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENUMERATE_EGRESS:
+   - Identify all points in the code where [EGRESS_POINT] is invoked[cite: 66].
+   - Map destinations: Are they static (hardcoded) or dynamic (user-provided)?
+2. SSRF_VECTORS_SCAN:
+   - Trace data flow from [INGRESS] (from entry_points.protocol) to [URL_BUILDER].
+   - Flag any path where a user-controlled string influences the host, port, or path of an outbound request.
+3. CREDENTIAL_LEAK_AUDIT:
+   - Analyze headers and payloads of [EGRESS_POINT][cite: 70].
+   - Ensure [INTERNAL_DATA] (like DB passwords or internal tokens) never leaks into external requests.
+4. INBOUND_TRUST_VERIFICATION:
+   - For each [EGRESS_POINT] response, check if the system validates the structure/content before using it in [APP][cite: 68, 71].
+   - Flag "Blind Trust" where response data is directly used in logic or stored in [ZONE_SEC].
+5. PROTOCOL_DOWNGRADE_CHECK:
+   - Verify if the client forces HTTPS/TLS and rejects self-signed certificates in production[cite: 64].
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_OUTBOUND_REPORT:
+  - TARGET_SERVICE | URL_TYPE (Static/Dynamic) | SENSITIVE_DATA_SENT | RESPONSE_VALIDATION
+FILTER: RISK >= MEDIUM
+VISUALIZE: "Mermaid graph showing Data_Flow: Internal_Service -> External_API (Red arrow if dynamic URL)."
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

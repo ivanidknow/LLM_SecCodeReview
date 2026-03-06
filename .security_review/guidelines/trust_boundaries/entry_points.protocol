@@ -1,0 +1,56 @@
+<ARCH_SCAN_V3>
+@ID: ENTRY_POINT_AUDIT
+@GOAL: ENUMERATE_AND_HARDEN_ALL_INGRESS_INTERFACES
+@PARENT_CONTEXT: layered_analysis.protocol, segmentation.protocol
+
+<GLOBAL_VARS>
+# Все возможные векторы внешнего ввода
+INPUT_SOURCES: {
+  "HTTP": "(request.body|request.query|request.params|headers|cookies)",
+  "RPC": "(grpc.message|protobuf.field|thrift.args)",
+  "ASYNC": "(message.payload|webhook.data|event.body)",
+  "FILES": "(multipart.file|upload.stream|fs.read)"
+}
+
+# Маркеры небезопасных типов данных
+LOOSE_TYPES: "(any|unknown|object|interface{}|dict|dynamic)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+# Фокус на компонентах ZONE_0 и ZONE_1 из segmentation.protocol
+[INGRESS] <- {zone: (0|1), match: {{IFACE_MATCH}}}
+[VALIDATOR] <- {match: (Zod|Joi|class-validator|Validator|Marshmallow|Pydantic)}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты для точек входа
+! ([INGRESS] -> {{INPUT_SOURCES}}) & !{{GATEKEEPER_MARKERS}} : "CRITICAL: Publicly exposed entry point missing Authentication/Authorization."
+! ([INGRESS] -> {{LOOSE_TYPES}}) : "HIGH: Entry point uses weak typing. Risk of Mass Assignment or Schema Poisoning."
+? ([INGRESS] -> [VALIDATOR]) : "INFO: Verify if input schema covers all fields (No hidden parameters)."
+! (ASYNC.webhook -> !SIGNATURE_CHECK) : "HIGH: Webhook entry point missing origin verification (HMAC/JWT)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. HARVEST_ROUTES: 
+   - Extract all defined routes/methods from [INGRESS].
+   - Map each to its corresponding ZONE from segmentation.protocol.
+2. INPUT_ENUMERATION:
+   - For each route, identify used {{INPUT_SOURCES}}.
+   - Flag "Hidden Inputs" (e.g., reading headers like 'X-Admin-Secret' in a public route).
+3. SCHEMA_STRICTNESS_TEST:
+   - Check if incoming data is bound to a Strict DTO/Class.
+   - Flag any use of {{LOOSE_TYPES}} in request handling logic.
+4. AUTH_BYPASS_SEARCH:
+   - Compare [INGRESS] list with [GATEKEEPER] usage. 
+   - List all "Naked" routes (no guards/middlewares).
+5. FILE_UPLOAD_AUDIT:
+   - If "FILES" source is used, check for extension/mime-type validation and size limits.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_INGRESS_INVENTORY:
+  - ROUTE | ZONE | INPUT_METHOD | AUTH_STATUS | VALIDATION_STRENGTH
+FILTER: RISK >= MEDIUM
+FORMAT: MARKDOWN_TABLE
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

@@ -9,13 +9,13 @@
 * Coupling & Cohesion (coupling_cohesion.protocol)
 * Third-party Surface (third_party_surface.protocol)
 * Critical Paths (critical_paths.protocol)
-* Shared Resources & Side-Channels
+* Shared Resources & Side-Channels (shared_resources_sidechannel.protocol)
 ##### Trust Boundaries.
-* Segmentation
-* Entry Points Analysis
-* Validation Chokepoints
-* Идентификация Privilege Transitions
-* Анализ Outbound Trust
+* Segmentation (segmentation.protocol)
+* Entry Points Analysis (entry_points.protocol)
+* Validation Chokepoints (validation_chokepoints.protocol)
+* Идентификация Privilege Transitions (privilege_transitions.protocol)
+* Анализ Outbound Trust (outbound_trust.protocol)
 ##### Interface Mapping.
 * Protocol Discovery
 * Payload Analysis

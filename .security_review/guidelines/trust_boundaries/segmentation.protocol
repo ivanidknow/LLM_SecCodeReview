@@ -1,0 +1,49 @@
+<ARCH_SCAN_V3>
+@ID: TRUST_SEGMENTATION_AUDIT
+@GOAL: MAP_SECURITY_ZONES_AND_TRUST_LEVELS
+@PARENT_CONTEXT: topology_map.md
+
+<GLOBAL_VARS>
+# Определение уровней доверия (от 0 до 3)
+ZONE_0: "EXTERNAL_INTERNET|PUBLIC_CLIENT|UNTRUSTED_NETWORK"
+ZONE_1: "DMZ|API_GATEWAY|FRONTEND_PROXY"
+ZONE_2: "INTERNAL_SERVICES|APP_LOGIC|MIDDLEWARE"
+ZONE_3: "DATA_PERSISTENCE|VAULT|KMS|SECURE_BACKEND"
+
+# Маркеры изоляции в коде/инфре
+ISOLATION_MARKERS: "(vpc_link|security_group|network_policy|cors_config|ingress_rule)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+# Маппинг компонентов из топологии на зоны
+[ZONE_EXT] <- {path: {{IFACE_PATH}}, match: "public|external|web"}
+[ZONE_INT] <- {path: {{APP_PATH}}, match: "internal|private|service"}
+[ZONE_SEC] <- {path: {{PERSIST_PATH}}, match: "db|storage|vault|secret"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты сегментации (Strict Policy)
+! ([ZONE_EXT] -> [ZONE_SEC]) : "CRITICAL: Direct access from External to Secure zone bypasses all middle-tier security."
+! ([ZONE_EXT] -> [ZONE_INT]) & !{{GATEKEEPER_MARKERS}} : "HIGH: Crossing 0->2 boundary without authentication/authorization."
+? ([ZONE_INT] -> [ZONE_SEC]) : "INFO: Verify if connection uses internal-only credentials and TLS."
+! (ANY -> [ZONE_SEC]) & {{ISOLATION_MARKERS}} == "MISSING" : "MEDIUM: No explicit infrastructure isolation for Secure Zone."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. LOAD_TOPOLOGY: Import components and links from .security_review/artifacts/topology/
+2. ASSIGN_LEVELS: Map each component to a ZONE_X based on <CONTEXT_MAP>.
+3. AUDIT_CROSSINGS:
+   - Identify data flows that jump >1 zone level (e.g., 0 to 2 or 0 to 3).
+   - Flag "Flat Network" patterns where all services can talk to the DB directly.
+4. GATEWAY_VERIFICATION: 
+   - Check if [ZONE_EXT] only communicates with [ZONE_INT] through defined {{IFACE_MATCH}}.
+5. INFRA_CORRELATION: (If Docker/K8s/Terraform present) Verify if logical segments match network definitions.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ZONE_REPORT:
+  - COMPONENT_NAME | ASSIGNED_ZONE | TRUST_LEVEL | INBOUND_ALLOWED_FROM
+VISUALIZE: "Mermaid graph: use 'subgraph' for each ZONE to show physical/logical containment."
+FORMAT: MARKDOWN
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

@@ -1,0 +1,53 @@
+<ARCH_SCAN_V3>
+@ID: VALIDATION_CHOKEPOINT_AUDIT
+@GOAL: VERIFY_CENTRALIZED_INPUT_SANITIZATION_AND_STRUCTURAL_INTEGRITY
+@PARENT_CONTEXT: entry_points.protocol, layered_analysis.protocol
+
+<GLOBAL_VARS>
+# Маркеры механизмов очистки данных
+SANITIZERS: "(escape|encode|stripHtml|dompurify|sanitize|normalize|DOMPurify\.sanitize)"
+SCHEMA_ENGINES: "(Zod|Joi|class-validator|yup|ajv|pydantic|marshmallow)"
+BYPASS_FLAGS: "(skipValidation|disableFilter|unsafe|raw|force|allowAny)"
+
+# Типы инъекций для поиска в логике валидации
+INJECTION_PATTERNS: "(SQL|NoSQL|XSS|OS_Command|LDAP|Template_Injection)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[VAL_HUB]   <- {path: (middleware|pipe|filter|interceptor|validator), match: {{SCHEMA_ENGINES}}}
+[SANITIZER] <- {match: {{SANITIZERS}}}
+[DB_LAYER]  <- {path: {{PERSIST_PATH}}}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты КПП валидации
+! ({{INPUT_SOURCES}} -> [DB_LAYER]) & !([VAL_HUB] | [SANITIZER]) : "CRITICAL: Raw input reaches Database without passing through a Validation Chokepoint."
+! (CODE -> {{BYPASS_FLAGS}}) : "HIGH: Intentional validation bypass detected. Risk of manual oversight."
+? ([VAL_HUB] -> !STRICT_SCHEMA) : "WARN: Validation hub exists but uses loose/partial schema (Incomplete Filter)."
+! ({{INPUT_SOURCES}} -> [APP]) & (TYPE == "string") & !([SANITIZER]) : "MEDIUM: String input used in logic without XSS/Injection sanitization."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. LOCATE_HUBS:
+   - Identify centralized validation points (Global Pipes, Middlewares, Base Validators).
+   - Check if they are applied globally or per-route.
+2. FLOW_INTEGRITY_CHECK:
+   - Trace {{INPUT_SOURCES}} from entry_points.protocol.
+   - Verify if EVERY path to [APP] or [DB_LAYER] intersects with a [VAL_HUB].
+3. BYPASS_ENUMERATION:
+   - Search for {{BYPASS_FLAGS}} in the codebase.
+   - Audit the reason for each bypass (e.g., admin-only vs. legacy code).
+4. SCHEMA_STRICTNESS_AUDIT:
+   - Analyze [VAL_HUB] schemas. 
+   - Flag "Unknown Properties" allowance (e.g., `stripUnknown: false` in Joi or `extra: 'allow'` in Pydantic).
+5. ESCAPE_LOGIC_VERIFICATION:
+   - Check if data is escaped for the CORRECT context (e.g., HTML escape for UI, but Parameterized Query for SQL).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CHOKEPOINT_REPORT:
+  - HUB_LOCATION | APPLIED_SCOPE (Global/Local) | ENGINE | BYPASS_POINTS_FOUND
+VISUALIZE: "Flowchart showing Data_Input -> Validation_Chokepoint -> Secure_Logic."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>
