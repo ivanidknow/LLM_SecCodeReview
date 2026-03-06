@@ -1,7 +1,8 @@
 
 # Discovery
 
-### Архитектура.
+
+### Architecture.
 
 ##### Component Topology.
 * Layered Analysis (layered_analysis.protocol)
@@ -10,6 +11,7 @@
 * Third-party Surface (third_party_surface.protocol)
 * Critical Paths (critical_paths.protocol)
 * Shared Resources & Side-Channels (shared_resources_sidechannel.protocol)
+* Fail-Safe Defaults & Resilience (resilience_failsafe.protocol)
 ##### Trust Boundaries.
 * Segmentation (segmentation.protocol)
 * Entry Points Analysis (entry_points.protocol)
@@ -34,6 +36,17 @@
 * Исследование Data in Transit (data_in_transit.protocol)
 * Secrets Management (secrets_management.protocol)
 * Data Retention (data_retention.protocol)
+##### Negative Constraints.
+* Structural Antipatterns (structural_logic_smells.protocol)
+* Connectivity & Coupling (connectivity_coupling.protocol)
+* State & Memory (state_memory_leaks.protocol)
+* Logic & Enforcement (logic_enforcement_smells.protocol)
+* Error & Feedback (error_feedback_smells.protocol)
+* Resource & Lifecycle (resource_lifecycle_smells.protocol)
+* External & Supply Chain Constraints (external_supply_chain.protocol)
+
+
+---
 
 ### Бизнес-процессы
 

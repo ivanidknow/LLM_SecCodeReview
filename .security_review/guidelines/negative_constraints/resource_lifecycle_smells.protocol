@@ -1,0 +1,56 @@
+<ARCH_SCAN_V3>
+@ID: RESOURCE_LIFECYCLE_AUDIT
+@GOAL: DETECT_RESOURCE_EXHAUSTION_VECTORS_AND_DEPRECATED_ENTRY_POINTS
+@PARENT_CONTEXT: state_analysis.protocol, entry_points.protocol
+
+<GLOBAL_VARS>
+# Лимиты ресурсов (Resource Constraints)
+MAX_BODY_SIZE: "1mb"
+MAX_FILE_SIZE: "10mb"
+MAX_ITERATIONS: 1000
+TIMEOUT_DEFAULT: "30s"
+
+# Признаки "Зомби-кода" (Stale Code)
+DEPRECATED_MARKERS: "(@deprecated|FIXME|TODO|legacy|OLD_VERSION|/v0/)"
+UNBOUNDED_MARKERS: "(\.findAll\(\)|\.map\(|\.forEach\(|while\(true\)|for\(;;\))"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[INPUT_STREAM]   <- {match: (upload|stream|body|multer), scope: "DATA_INGEST"}
+[LOOP_LOGIC]     <- {match: {{UNBOUNDED_MARKERS}}, context: "ITERATION"}
+[LEGACY_NODE]    <- {match: {{DEPRECATED_MARKERS}}, layer: [API]}
+[RESOURCES]      <- {match: (CPU|Memory|Disk|Sockets), usage: "ALLOCATION"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты ресурсов и жизненного цикла
+! ([INPUT_STREAM] -> !LIMIT) : "CRITICAL: Unbounded data ingestion. High risk of ReDoS or Disk/Memory exhaustion (DoS)."
+! ([LOOP_LOGIC] -> !{{MAX_ITERATIONS}}) : "HIGH: Potential infinite loop or unbounded iteration over user-controlled data."
+! ([LEGACY_NODE]) : "MEDIUM: Deprecated or 'Zombie' code detected. Increases attack surface and maintenance debt."
+! ({{RESOURCES}} -> !CLEANUP) : "HIGH: Resource leak detected. Files/Sockets/Memory not explicitly released after operation."
+? ({{TIMEOUT_DEFAULT}} == null) : "MEDIUM: Missing global or per-request timeout. Vulnerable to Slowloris/Thread exhaustion."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. INGESTION_LIMIT_CHECK:
+   - Identify all [INPUT_STREAM] points (API bodies, file uploads).
+   - Verify if `limit` or `maxSize` is configured in middleware (e.g., body-parser, multer).
+2. UNBOUNDED_QUERY_SCAN:
+   - Find DB calls like `db.find()` without `.limit()` or pagination. 
+   - Flag any call that could return 100,000+ records if an attacker manipulates the query.
+3. TIMEOUT_CONSISTENCY_AUDIT:
+   - Check [INTER_SERVICE_CALL] from connectivity_coupling.protocol.
+   - Ensure every outbound and inbound request has a hard timeout to prevent "Zombie Processes".
+4. ZOMBIE_ENTRY_POINT_DISCOVERY:
+   - Cross-reference active routes with [LEGACY_NODE]. 
+   - Flag routes that are "hidden" or "deprecated" but still functional and unmonitored.
+5. MEMORY_BLOAT_DETECTION:
+   - Search for large objects being read into memory (`readFileSync`) instead of being streamed (`createReadStream`).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_RESOURCE_REPORT:
+  - COMPONENT | SMELL_TYPE (DoS/Zombie/Leak) | LOCATION | RISK_LEVEL
+VISUALIZE: "Resource Dependency Graph: Highlight 'Sink' nodes (no limits) in PURPLE."
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

@@ -1,0 +1,47 @@
+<ARCH_SCAN_V3>
+@ID: RESILIENCE_FAILSAFE_AUDIT
+@GOAL: IDENTIFY_CASCADING_FAILURE_RISKS_AND_VERIFY_SECURE_FAIL_STATES
+@PARENT_CONTEXT: state_analysis.protocol, coupling_cohesion.protocol
+
+<GLOBAL_VARS>
+# Механизмы устойчивости
+RESILIENCE_PATTERNS: "(CircuitBreaker|Retries|Timeout|Bulkhead|Fallback|HealthCheck)"
+# Состояния при отказе
+FAIL_STATES: "(fail-open|fail-closed|default-allow|default-deny)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[INTER_SERVICE_CALL] <- {match: {{OUTBOUND_CLIENTS}}, scope: "NETWORK_IO"}
+[AUTH_INTEGRATION]    <- {match: (auth|identity|permission), layer: [SERVICE]}
+[ERROR_HANDLER]      <- {match: (catch|onFailure|handleError), context: "RECOVERY"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты отказоустойчивости
+! ([AUTH_INTEGRATION] -> FAIL_OPEN) : "CRITICAL: Security component fails-open. Access granted if auth-service is unreachable."
+! ([INTER_SERVICE_CALL]) & !Timeout : "HIGH: Network call missing timeout. Risk of thread pool exhaustion (DoS)."
+? ([INTER_SERVICE_CALL]) & !CircuitBreaker : "MEDIUM: Missing Circuit Breaker. High risk of cascading failure across the topology."
+! ([ERROR_HANDLER] -> SILENT_FAIL) : "HIGH: Silent failure in critical logic. System state becomes unpredictable and hard to audit."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TIMEOUT_AUDIT:
+   - Identify all [INTER_SERVICE_CALL]. 
+   - Verify if explicit timeouts are set. Flag "infinite wait" patterns.
+2. SECURITY_FAIL_STATE_CHECK:
+   - Analyze [AUTH_INTEGRATION]. 
+   - Ask: "If the connection to the DB or Identity Provider fails, what is the default return value?"
+   - Flag any `return true` or `next()` in catch blocks of auth middleware.
+3. CASCADING_FAILURE_MAPPING:
+   - For each component in `topology_map.md`, identify its "Hard Dependencies".
+   - Simulate a "Dead Node" scenario: how does the system recover?
+4. BACKPRESSURE_ANALYSIS:
+   - Check if the system has limits on incoming requests (Rate Limiting) to prevent self-DoS during recovery.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_RESILIENCE_REPORT:
+  - COMPONENT | DEPENDENCY | FAIL_MODE (Open/Closed) | RECOVERY_STRATEGY | RISK
+VISUALIZE: "Graph showing failure propagation paths."
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

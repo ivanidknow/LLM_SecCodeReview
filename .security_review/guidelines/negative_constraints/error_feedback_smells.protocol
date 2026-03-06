@@ -1,0 +1,52 @@
+<ARCH_SCAN_V3>
+@ID: ERROR_FEEDBACK_AUDIT
+@GOAL: PREVENT_INFORMATION_LEAKAGE_AND_TIMING_ORACLE_VULNERABILITIES
+@PARENT_CONTEXT: error_verbosity.protocol, protocol_discovery.protocol
+
+<GLOBAL_VARS>
+# Признаки информационной утечки
+VERBOSE_MARKERS: "(stack|trace|message\.details|err\.stack|exception\.toString())"
+INTERNAL_LEAKS: "(__dirname|path\.resolve|config\.database|db_connection_string)"
+GENERIC_ERRORS: "(InternalServerError|SomethingWentWrong|InvalidInput)"
+
+# Паттерны для Timing Attacks
+TIME_DIFFERENTIAL: "(if\suser_exists\s\{\sargon2\.verify\s\}\selse\s\{\sreturn\sfalse\s\})"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ERROR_SINK]     <- {match: (catch|onError|handleException), scope: "LOGIC"}
+[RESPONSE_NODE]  <- {match: (res\.send|res\.json|reply|return), context: "HTTP_RESPONSE"}
+[SENSITIVE_LEAK] <- {match: {{INTERNAL_LEAKS}}, layer: [INFRA]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты фидбека
+! ([RESPONSE_NODE] -> {{VERBOSE_MARKERS}}) : "CRITICAL: Stack trace or detailed error exposed to client. High Information Leakage risk."
+! ([RESPONSE_NODE] -> {{SENSITIVE_LEAK}}) : "HIGH: Internal server paths or DB metadata leaked in API response."
+! (LOGIN_FLOW -> "User not found") : "MEDIUM: Distinct error for non-existent user. Enables Username Enumeration."
+? (LOGIN_FLOW -> !CONSTANT_TIME) : "HIGH: Potential Timing Oracle. Verification time differs for existing vs non-existing users."
+! ([ERROR_SINK] -> SILENT_FAIL) : "MEDIUM: Error suppressed without logging. System state becomes invisible to auditors."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. STACK_TRACE_SCAN:
+   - Identify all [RESPONSE_NODE]. 
+   - Ensure that in `production` environment, exceptions are mapped to [GENERIC_ERRORS].
+2. DB_ERROR_LEAK_CHECK:
+   - Trace DB queries. If a query fails (e.g., Unique Constraint violation), check if the raw DB error (e.g., "Duplicate entry for table 'users'...") is sent to the client.
+3. USER_ENUMERATION_AUDIT:
+   - Analyze "Login" and "Forgot Password" flows. 
+   - Flag if the response code or message allows an attacker to guess if an email is registered.
+4. TIMING_CONSISTENCY_CHECK:
+   - Check if password hashing (Argon2/Bcrypt) is skipped if a user isn't found. 
+   - (A secure flow should perform a "dummy" hash to maintain constant response time).
+5. LOG_VS_RESPONSE_DICHOTOMY:
+   - Verify that full details are sent to Internal Logs, but sanitized versions are sent to [RESPONSE_NODE].
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ERROR_SMELL_REPORT:
+  - FLOW_NAME | LEAK_TYPE (Stack/Enum/Path/Timing) | SEVERITY | FIX_ADVICE
+VISUALIZE: "Side-by-side: Internal_Log_Detail (Green) vs External_Response_Sanitized (Red)."
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

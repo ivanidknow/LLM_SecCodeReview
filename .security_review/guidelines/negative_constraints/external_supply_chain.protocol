@@ -1,0 +1,51 @@
+<ARCH_SCAN_V3>
+@ID: EXTERNAL_SUPPLY_CHAIN_AUDIT
+@GOAL: DETECT_UNTRUSTED_EXTERNAL_FLOWS_AND_TOXIC_DEPENDENCIES
+@PARENT_CONTEXT: third_party_surface.protocol, outbound_trust.protocol
+
+<GLOBAL_VARS>
+# Признаки "Слепого доверия" (Blind Trust)
+WEBHOOK_MARKERS: "(webhook|callback|notify|stripe-signature|x-hub-signature)"
+TRUST_BYPASS: "(verify: false|checkSignature: false|ignoreExpirations)"
+
+# Токсичные зависимости (Toxic Deps)
+NATIVE_EXTENSIONS: "(\.node|\.so|\.dll|node-gyp)"
+SHADOW_CALLS: "(exec|spawn|eval|vm\.runInContext)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[WEBHOOK_HANDLER] <- {match: {{WEBHOOK_MARKERS}}, layer: [API]}
+[EXTERNAL_LIB]    <- {path: (node_modules|vendor|requirements), match: {{NATIVE_EXTENSIONS}}}
+[SIGNATURE_CHECK] <- {match: (crypto\.createHmac|verifySignature|isValidPayload)}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты внешних связей
+! ([WEBHOOK_HANDLER]) & !([SIGNATURE_CHECK]) : "CRITICAL: Unsigned Webhook. System trusts external POST data without cryptographic proof of origin (Risk of Data Injection)."
+! ([EXTERNAL_LIB] -> {{SHADOW_CALLS}}) : "HIGH: Toxic Dependency. Library uses dangerous system calls. Potential for supply-chain RCE."
+? (CLOUD_PROVIDER_LOCK) : "LOW: Architecture relies 100% on provider-specific security (e.g., IAM roles) with no internal AuthZ fallback."
+! (API_CLIENT -> !TLS_VERIFY) : "CRITICAL: Outbound MitM risk. External API client has certificate validation disabled."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. WEBHOOK_INTEGRITY_AUDIT:
+   - Identify all endpoints that receive data from 3rd parties (Stripe, GitHub, etc.).
+   - Trace the flow: Is there a `HMAC` or `Signature` check *before* the business logic starts?
+2. NATIVE_MODULE_SCAN:
+   - Find libraries that use native C++/Rust extensions. 
+   - Flag them for manual review as they bypass the language's "Sandbox" (e.g., Node.js VM).
+3. OUTBOUND_SECRET_LEAK:
+   - Check if internal `SENSITIVE_PII` is sent to external log aggregators or analytics (Sentry/Mixpanel) without masking.
+4. DEPENDENCY_POISONING_CHECK:
+   - Scan `package.json` or `requirements.txt` for "Typosquatting" (e.g., `request` vs `requeest`).
+   - Identify packages with 0 downloads or very recent creation dates.
+5. FALLBACK_AUTH_VERIFY:
+   - If the system uses Cloud-native Auth (e.g., AWS Cognito), check what happens if the cloud provider is misconfigured. Does the app have its own "Last Line of Defense"?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SUPPLY_CHAIN_REPORT:
+  - EXTERNAL_ENTITY | RISK_TYPE (Webhook/ToxicLib/Lock-in) | LOCATION | SEVERITY
+VISUALIZE: "Supply Chain Map: Highlight 'Unsigned' external inputs in YELLOW and 'Native' libs in RED."
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

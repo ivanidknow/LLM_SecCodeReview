@@ -1,0 +1,53 @@
+<ARCH_SCAN_V3>
+@ID: LOGIC_ENFORCEMENT_AUDIT
+@GOAL: DETECT_BYPASSABLE_LOGIC_AND_SECURITY_BY_OBSCURITY
+@PARENT_CONTEXT: validation_chokepoints.protocol, authorization_model.protocol
+
+<GLOBAL_VARS>
+# Признаки "Слабой логики"
+OBSCURITY_MARKERS: "(/hidden/|/internal-api/|/v1/private/|uuid\.v4\(\)|randomBytes)"
+CLIENT_SIDE_TRUST: "(localStorage\.role|cookie\.isAdmin|header\['X-User-Role'\])"
+NEGATION_LOGIC: "(!== false|!isBanned|!isGuest)"
+
+# Опасные допущения (Assumptions)
+TRUSTED_PARAMS: "(userId|price|amount|role|permissions)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CLIENT_AUTH]    <- {match: {{CLIENT_SIDE_TRUST}}, scope: "AUTHORIZATION"}
+[OBSCURE_ROUTE]  <- {match: {{OBSCURITY_MARKERS}}, layer: [API]}
+[BUSINESS_LOGIC] <- {match: {{TRUSTED_PARAMS}}, usage: "UPDATE|POST"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты исполнения (Enforcement)
+! ([CLIENT_AUTH] -> !SERVER_VERIFY) : "CRITICAL: Client-side Authorization Enforcement. Roles/Permissions trusted from client headers/storage without DB/Token verification."
+! ([OBSCURE_ROUTE] -> !{{AUTH_STRATEGY}}) : "HIGH: Security by Obscurity. Hidden route relies on its 'secret' path instead of active Authorization."
+! ({{TRUSTED_PARAMS}} -> !VALIDATION) : "CRITICAL: Parameter Trust. Critical fields (Price, Role) are accepted from client input without server-side recalculation/validation."
+! ({{NEGATION_LOGIC}}) : "MEDIUM: Dangerous Negation. Logic uses 'Not Forbidden' instead of 'Explicitly Allowed' (Fail-Open risk)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CLIENT_TRUST_AUDIT:
+   - Identify where the system gets the "Current Role" or "Permissions".
+   - Flag if they are read from an editable client-side source (Cookies/Headers) without a cryptographic signature (HMAC/JWT).
+2. PRICE_AND_ROLE_MANIPULATION_CHECK:
+   - Scan [BUSINESS_LOGIC] for fields like `price`, `discount`, or `roleId`.
+   - Verify if these values are fetched from the Database server-side or blindly accepted from `req.body`.
+3. HIDDEN_ENDPOINT_DISCOVERY:
+   - Match [OBSCURE_ROUTE] against the main API documentation.
+   - If an endpoint exists but is "hidden", check if it bypasses the standard `security_controls.protocol`.
+4. FAIL_OPEN_LOGIC_SCAN:
+   - Search for `if (!user.isBanned) { allow() }`. 
+   - Suggest refactoring to `if (user.status === 'ACTIVE') { allow() }` to prevent access for new/undefined statuses.
+5. MULTI_STEP_INTEGRITY:
+   - In flows like "Checkout" or "Registration", check if the state is verified at EVERY step. 
+   - Flag if Step 3 assumes Step 1 was completed without re-checking the session/state.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_LOGIC_ENFORCEMENT_REPORT:
+  - VULNERABILITY_TYPE | LOCATION | ATTACK_VECTOR | SEVERITY
+VISUALIZE: "Flow diagram showing where Client Input bypasses Server Logic."
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

@@ -1,0 +1,53 @@
+<ARCH_SCAN_V3>
+@ID: CONNECTIVITY_COUPLING_AUDIT
+@GOAL: DETECT_DANGEROUS_INTERDEPENDENCIES_AND_BYPASS_CHANNELS
+@PARENT_CONTEXT: topology_map.md, outbound_trust.protocol
+
+<GLOBAL_VARS>
+# Признаки "Тесной связанности" (Tight Coupling)
+DB_SHARED_ACCESS: "(db\.connection|prisma|mongoose|sequelize)"
+INTERNAL_BYPASS: "(_internal|bypassAuth|skipValidation|directAccess)"
+LATERAL_MOVE_SIGNS: "(127\.0\.0\.1|localhost|0\.0\.0\.0|kube-internal)"
+
+# Лимиты на зависимости
+MAX_DIRECT_DEPS: 5
+MAX_OUTBOUND_CHANNELS: 10
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DATABASE_CLIENT] <- {match: {{DB_SHARED_ACCESS}}, scope: "PERSISTENCE"}
+[API_CALL]         <- {match: {{OUTBOUND_CLIENTS}}, scope: "NETWORK"}
+[INTERNAL_FLOW]    <- {match: {{LATERAL_MOVE_SIGNS}}, context: "CONNECTION"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты связанности
+! (SERVICE_A -> TABLE_X) & (SERVICE_B -> TABLE_X) : "CRITICAL: Shared Database Antipattern. Services bypass API security by accessing the same tables."
+! ([API_CALL] -> !{{ENCRYPTION_MARKERS}}) : "HIGH: Unencrypted internal communication. Vulnerable to lateral movement sniffing."
+! ({{INTERNAL_BYPASS}}) : "HIGH: Internal bypass detected. Component relies on 'Internal-only' flags instead of robust token validation."
+? (COUNT([API_CALL]) > {{MAX_OUTBOUND_CHANNELS}}) : "MEDIUM: Service is too 'chatty'. Large attack surface for SSRF and dependency failure."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SHARED_RESOURCES_AUDIT:
+   - Identify all [DATABASE_CLIENT] connections.
+   - Cross-reference with `topology_map.md`: Do multiple services use the same connection string or schema?
+2. TRUST_BOUNDARY_EROSION_CHECK:
+   - Search for {{INTERNAL_BYPASS}} logic. 
+   - Flag any code that says "If source is Internal, Skip Auth". (Inside the network is NOT a trusted zone).
+3. CIRCULAR_DEPENDENCY_MAPPING:
+   - Scan for Service A calling Service B, which in turn calls Service A.
+   - Flag as "High Complexity / Potential Deadlock" risk.
+4. SPAGHETTI_INTEGRATION_SCAN:
+   - Identify "Hidden Channels": e.g., Service A writing to a file that Service B reads, or sharing a Redis key for business logic without a formal API.
+5. DEGRADED_MODE_VERIFY:
+   - For each [API_CALL], check if there is a `fallback` or `circuit-breaker`.
+   - If Service B is down, does Service A crash? (Hard Coupling).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_COUPLING_REPORT:
+  - SERVICE | COUPLED_WITH | RELATION_TYPE (DB/API/File) | BYPASS_FOUND (Y/N) | RISK
+VISUALIZE: "Coupling Matrix: Highlight cells where Services share the same Database Schema in RED."
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

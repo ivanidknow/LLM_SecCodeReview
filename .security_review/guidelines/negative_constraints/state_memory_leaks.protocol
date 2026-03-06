@@ -1,0 +1,53 @@
+<ARCH_SCAN_V3>
+@ID: STATE_MEMORY_SECURITY_AUDIT
+@GOAL: DETECT_SENSITIVE_DATA_EXPOSURE_IN_RAM_AND_STATE_POLLUTION
+@PARENT_CONTEXT: state_analysis.protocol, lifecycle_revocation.protocol
+
+<GLOBAL_VARS>
+# Признаки опасного состояния
+MUTABLE_GLOBALS: "(static\s|global\.|window\.|process\.env\.)"
+SINGLETON_SMELLS: "(@Singleton|instance\s?=\s?new|getInstance)"
+CACHE_MECHANISMS: "(lru-cache|node-cache|memory-cache|Map|Set)"
+
+# Маркеры очистки памяти
+ZEROING_MARKERS: "(.fill\(0\)|.clear()|delete\s|nullify|gc())"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[GLOBAL_STORE]  <- {match: {{MUTABLE_GLOBALS}}, scope: "STATIC_MEMBER"}
+[USER_CONTEXT]  <- {match: (currentUser|requestContext|session), context: "REQUEST"}
+[CACHE_OBJECT]  <- {match: {{CACHE_MECHANISMS}}, layer: [SERVICE]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты памяти и состояния
+! ([GLOBAL_STORE] -> [USER_CONTEXT]) : "CRITICAL: Storing User Context in Global/Static variable. High risk of Session Bleeding (User A sees User B data)."
+! ([CACHE_OBJECT] -> !TTL) : "HIGH: Cache without expiration (TTL). Risk of stale data or memory exhaustion (DoS)."
+? ([SENSITIVE_VAL] -> !{{ZEROING_MARKERS}}) : "MEDIUM: Sensitive data (Passwords/Keys) remains in memory after use. Risk of exposure via Memory Dump."
+! (SINGLETON -> [USER_DATA]) : "HIGH: Singleton service stores stateful user data. Potential for cross-request data pollution."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SESSION_ISOLATION_AUDIT:
+   - Identify how the current user is tracked (e.g., AsyncLocalStorage, Request Context).
+   - Flag any usage of global/static variables to hold request-specific data.
+2. CACHE_INTEGRITY_SCAN:
+   - Analyze [CACHE_OBJECT] keys. 
+   - Verify if keys include a unique `user_id` or `tenant_id`. 
+   - Flag "Generic Keys" like `cache.get('profile')` which might return data for the wrong user.
+3. CONCURRENCY_HAZARD_DETECTION:
+   - Search for "Check-then-Act" patterns on shared objects without locks/mutexes.
+   - Flag potential Race Conditions in balance updates or privilege elevation logic.
+4. SECRET_LIFECYCLE_IN_RAM:
+   - Trace variables from secrets_management.protocol.
+   - Check if they are kept in memory longer than the execution of a single function/request.
+5. POOL_POLLUTION_CHECK:
+   - If using object pools or persistent connections, verify that state is reset/cleared before being returned to the pool.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_MEMORY_STATE_REPORT:
+  - COMPONENT | DATA_TYPE | STORAGE_METHOD (Global/Singleton/Cache) | LEAK_RISK | REMEDIATION
+VISUALIZE: "Diagram: Data flow into shared memory and potential cross-contamination points."
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

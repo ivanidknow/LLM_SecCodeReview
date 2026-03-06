@@ -1,0 +1,51 @@
+<ARCH_SCAN_V3>
+@ID: STRUCTURAL_ANTIPATTERNS_AUDIT
+@GOAL: IDENTIFY_GOD_OBJECTS_AND_LOGIC_ENFORCEMENT_GAPS
+@PARENT_CONTEXT: coupling_cohesion.protocol, entry_points.protocol
+
+<GLOBAL_VARS>
+# Пороги сложности (Metrics)
+MAX_MODULE_LOC: 1000
+MAX_IMPORTS: 20
+MAX_INHERITANCE_DEPTH: 3
+
+# Признаки "Божественного объекта" (God Object)
+GOD_OBJECT_MARKERS: "(AuthService|MainController|AppManager|GlobalUtils|BaseModel)"
+MIXED_CONCERNS: "(db\.query & req\.user & fs\.write & mailer\.send)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[HUGE_MODULE]   <- {size: >{{MAX_MODULE_LOC}}, type: "SOURCE_FILE"}
+[DEEP_HIERARCHY] <- {depth: >{{MAX_INHERITANCE_DEPTH}}, type: "CLASS"}
+[LOGIC_FRAGMENT] <- {match: {{MIXED_CONCERNS}}, scope: "FUNCTION"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты структуры
+! ([HUGE_MODULE] -> {{GOD_OBJECT_MARKERS}}) : "MEDIUM: Potential God Object. High risk of privilege creeping and audit complexity."
+! ([LOGIC_FRAGMENT]) : "HIGH: Mixed Concerns. Security logic (Auth) is coupled with I/O (DB/FS) in a single function. Hard to verify isolation."
+! ({{ENTRY_POINT}} -> !{{VALIDATION_CHOKEPOINT}}) : "CRITICAL: Direct logic execution from Entry Point without centralized validation. Risk of bypass."
+? ([DEEP_HIERARCHY]) : "LOW: Excessive inheritance. Risk of 'Shadow Permissions' being inherited from base classes without visibility."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. COMPLEXITY_SCAN:
+   - Identify modules exceeding {{MAX_MODULE_LOC}} or {{MAX_IMPORTS}}.
+   - Check if these modules are "Chokepoints" for multiple sensitive flows.
+2. CONCERN_SEPARATION_AUDIT:
+   - Analyze functions for [LOGIC_FRAGMENT]. 
+   - Flag methods that handle both "Who is the user" (AuthN) and "Write to disk" (I/O).
+3. ENFORCEMENT_CONSISTENCY_CHECK:
+   - Pick one [SECURE_RESOURCE] (from authorization_model.protocol).
+   - Find all paths to it. If some paths use Middleware and others use inline checks -> Flag "Inconsistent Enforcement".
+4. FRAGILE_BASE_CLASS_SEARCH:
+   - Inspect base classes for security-sensitive fields (e.g., `this.isAdmin`). 
+   - Ensure children cannot override these fields to bypass checks.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_STRUCTURAL_SMELL_REPORT:
+  - MODULE_NAME | TYPE (GodObject/MixedConcerns/Hierarchy) | SEVERITY | REFACTOR_ADVICE
+VISUALIZE: "Complexity Heatmap: Highlight large, highly-connected nodes in ORANGE."
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>
