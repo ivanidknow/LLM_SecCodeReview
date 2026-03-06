@@ -1,0 +1,50 @@
+<DFD_MODELING_V3>
+@ID: EXTERNAL_INTERACTORS_IDENTIFICATION
+@GOAL: MAP_ALL_UNTRUSTED_SOURCES_OF_DATA_AND_COMMANDS
+@PARENT_CONTEXT: entry_points.protocol, identity_model.protocol
+
+<GLOBAL_VARS>
+# Типы внешних сущностей
+INTERACTOR_TYPES: {
+  "HUMAN": "(User|Admin|Support|Partner_Staff)",
+  "SYSTEM": "(External_API|SaaS_Vendor|Legacy_Core)",
+  "IOT_DEVICE": "(Sensor|Mobile_Terminal|Hardware_Wallet)",
+  "BOT": "(Crawler|Automated_Agent|Service_Principal)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[API_DEFINITIONS] <- {from: entry_points.protocol, scope: "CONTROLLERS|ROUTES"}
+[AUTH_STRATEGY]   <- {from: authentication_strategy.protocol, scope: "MIDDLEWARE"}
+[OUTBOUND_CALLS]  <- {from: outbound_trust.protocol, scope: "HTTP_CLIENTS|SDK"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты внешних сущностей
+! ([HUMAN_INTERACTOR] -> !MULTI_FACTOR_AUTH) : "HIGH: Weak Human Identification. External human actor has no MFA, increasing risk of Account Takeover (ATO)."
+! ([SYSTEM_INTERACTOR] -> SHARED_CREDENTIALS) : "CRITICAL: Identity Overlap. Multiple external systems use the same API key. Attribution of actions is impossible."
+! ([IOT_DEVICE] -> DIRECT_DB_ACCESS) : "BLOCKER: Perimeter Bypass. Untrusted hardware device has a direct path to the database, skipping the API logic layer."
+? ([BOT_INTERACTOR] -> !RATE_LIMITING) : "MEDIUM: Automation Abuse. External bot/agent is not throttled, leading to scraping or resource exhaustion."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ACTOR_ROLE_PROFILING:
+   - Проанализировать файлы конфигурации Auth (Passport, Spring Security, etc.) для выделения всех ролей.
+   - Разделить их на "Internal" (внутри нашей организации) и "External" (клиенты/партнеры).
+2. THIRD_PARTY_ECOSYSTEM_SCAN:
+   - Найти все исходящие вызовы (Outbound Calls). Каждая система, к которой мы обращаемся, является External Interactor (она может прислать вредоносный ответ).
+   - Составить список вендоров (Stripe, Twilio, AWS, etc.).
+3. UNKNOWN_INPUT_DETECTION:
+   - Поиск эндпоинтов, которые принимают данные без явной авторизации (Public Endpoints). Идентифицировать сущность "Anonymous_User".
+4. CALLBACK_&_WEBHOOK_MAPPING:
+   - Найти обработчики входящих уведомлений. Каждая точка входа для Webhook — это связь с внешней сущностью.
+5. TRUST_LEVEL_ASSIGNMENT:
+   - Присвоить каждой сущности уровень доверия (0 - Untrusted, 1 - Semi-Trusted, 2 - Managed).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ENTITY_TABLE:
+  - ENTITY_NAME | TYPE | TRUST_LEVEL | ENTRY_POINTS_USED
+VISUALIZE_DFD_ENTITIES: "Mermaid: Show External Entities as squares outside the main boundary."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

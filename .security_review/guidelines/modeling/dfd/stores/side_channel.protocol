@@ -1,0 +1,52 @@
+<DFD_MODELING_V3>
+@ID: SIDE_CHANNEL_STORAGE_DETECTION
+@GOAL: IDENTIFY_ACCIDENTAL_DATA_PERSISTENCE_IN_UNSECURED_LOCATIONS
+@PARENT_CONTEXT: error_verbosity.protocol, data_at_rest.protocol
+
+<GLOBAL_VARS>
+# Маркеры скрытых хранилищ
+HIDDEN_TARGETS: {
+  "LOGS": "(stdout|stderr|/var/log|winston|logback|fluentd)",
+  "TEMP": "(/tmp|/var/tmp|os.tmpdir|java.io.tmpdir)",
+  "CRASH": "(heapdump|coredump|crash-reports|error-logs)",
+  "CLIENT": "(localStorage|sessionStorage|IndexedDB|Cookies)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[LOGGING_CALLS]   <- {match: (log.info|console.log|logger.debug), scope: "ALL_CODE"}
+[FILE_OPERATIONS] <- {match: (fs.writeFile|tempfile.NamedTemporaryFile|mktemp), scope: "SERVICES"}
+[ERROR_HANDLERS]  <- {match: (catch|on('error')|exception), scope: "ERROR_LOGIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты скрытого хранения
+! ([LOGGING_CALLS] -> CONTAINS -> {{SENSITIVE_DATA_PATTERNS}}) : "CRITICAL: PII Leak in Logs. Plaintext sensitive data (passwords, PII, CC) is being sent to logs/stdout."
+! ([TEMP_FILES] -> !AUTO_DELETE) : "HIGH: Persistent Temp Files. Processes create temporary files but do not explicitly delete them, leaving data on disk."
+! ([ERROR_HANDLERS] -> VERBOSE_DUMP) : "MEDIUM: Verbose Error Leaks. Exceptions dump full object state (including secrets) into side-channel storage."
+? ([CLIENT_STORAGE] -> CONTAINS -> "JWT|Secret") : "HIGH: Sensitive Data in Browser. Sensitive tokens or PII are stored in localStorage/sessionStorage, vulnerable to XSS."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. LOG_SANITIZATION_AUDIT:
+   - Просканировать все вызовы логгера.
+   - Выявить передачу объектов целиком (`log.info(user_object)`). Если объект содержит поле `password` или `email`, пометить как утечку.
+2. TEMP_FILE_LIFECYCLE_TRACE:
+   - Найти места создания временных файлов.
+   - Проверить права доступа (Permissions): создаются ли они с флагом `0600` (только для владельца) или доступны всем (`0666`).
+3. CRASH_DUMP_POLICY_CHECK:
+   - Проверить конфигурацию среды (JVM/Node/Python). Куда пишутся дампы памяти при `OutOfMemory`? 
+   - Доступны ли эти папки внешним пользователям или через интерфейс мониторинга?
+4. SWAP_&_MEMORY_RESIDUE_ANALYSIS:
+   - Анализ использования чувствительных данных в памяти. Используются ли "безопасные" типы (например, `SecureString` или `char[]`), которые можно затереть после использования?
+5. BROWSER_SIDE_LEAK_DISCOVERY:
+   - Исследование фронтенд-кода на предмет записи данных в `localStorage`. 
+   - Проверка наличия механизма очистки (Clear) после Logout.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_HIDDEN_STORE_REPORT:
+  - LOCATION_TYPE | SENSITIVE_DATA_FOUND | EXPOSURE_LEVEL | REMEDIATION
+VISUALIZE: "Mermaid: Represent Hidden Stores as gray/ghosted cylinders with warning icons."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

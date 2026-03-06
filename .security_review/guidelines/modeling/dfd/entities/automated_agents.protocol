@@ -1,0 +1,51 @@
+<DFD_MODELING_V3>
+@ID: AUTOMATED_AGENTS_IDENTIFICATION
+@GOAL: DETECT_NON_HUMAN_ENTITIES_WITH_ACTIVE_SYSTEM_INTERACTION
+@PARENT_CONTEXT: external_interactors.protocol, resource_lifecycle_smells.protocol
+
+<GLOBAL_VARS>
+# Типы автоматизированных сущностей
+AGENT_TYPES: {
+  "INTERNAL": "(Cron_Jobs|Workers|Cleanup_Scripts|Archivers)",
+  "EXTERNAL_BOT": "(Search_Crawlers|Price_Scrapers|Partner_Aggregators)",
+  "ORCHESTRATION": "(K8s_Controller|CI_CD_Runner|Deployment_Script)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[JOB_SCHEDULERS]  <- {match: (cron|@Scheduled|JobDetail|agenda|bull), scope: "CONFIG|SERVICES"}
+[SERVICE_ACCOUNTS] <- {match: (service-account|api-key|token-auth), scope: "IAM|K8S_MANIFESTS"}
+[THIRD_PARTY_BOTS] <- {match: (User-Agent|robots.txt|allowed-bots), scope: "MIDDLEWARE|CONFIG"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты автоматизации
+! ([INTERNAL_AGENT] -> RUNS_AS_ROOT) : "CRITICAL: Excessive Privilege. Internal worker or cron job runs with root/admin privileges without technical necessity."
+! ([EXTERNAL_BOT] -> BYPASS_RATE_LIMIT) : "HIGH: Scraping Risk. An external agent is whitelisted for rate limiting, allowing unlimited data extraction."
+! ([ORCHESTRATION_AGENT] -> !AUDIT_LOGGING) : "MEDIUM: Invisible Action. System-level agent performs changes without leaving a trace in the audit logs."
+? ([SERVICE_ACCOUNT] -> !SECRET_ROTATION) : "HIGH: Static Credentials. Automated agent uses a non-rotating secret, increasing the impact of a potential leak."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SCHEDULED_TASK_DISCOVERY:
+   - Просканировать код на наличие аннотаций планировщиков и конфигурационных файлов (crontab, k8s CronJobs).
+   - Определить периодичность и входные данные для каждой задачи.
+2. WORKER_POOL_ANALYSIS:
+   - Идентифицировать фоновые процессы (Celery workers, Sidekiq, Bull). 
+   - Выделить их в отдельные сущности DFD, так как они часто имеют другой уровень доверия, чем основной API.
+3. EXTERNAL_BOT_WHITELIST_AUDIT:
+   - Анализ `robots.txt` и правил WAF/Middleware на предмет исключений для поисковиков или партнеров.
+   - Проверка легитимности этих сущностей (действительно ли это GoogleBot или кто-то под него маскируется?).
+4. IDENTITY_BONDING:
+   - Сопоставить каждого агента с его технической учетной записью (Service Account / API Key).
+   - Проверить, не делят ли разные боты одну и ту же "учетку".
+5. TRIGGER_SOURCE_VERIFY:
+   - Определить, что является источником команды для бота: время, событие в БД или внешний сигнал (Webhook).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_AGENT_MAP:
+  - AGENT_NAME | TYPE | PRIVILEGE_LEVEL | LIFECYCLE (Short/Long-lived)
+VISUALIZE: "Mermaid: Show Agents as hexagons to distinguish from human users."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

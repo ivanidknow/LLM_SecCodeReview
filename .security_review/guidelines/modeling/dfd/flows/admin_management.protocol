@@ -1,0 +1,52 @@
+<DFD_MODELING_V3>
+@ID: ADMIN_MANAGEMENT_FLOW_TRACING
+@GOAL: MAP_PRIVILEGED_CONTROL_CHANNELS_AND_VERIFY_ACCESS_ISOLATION
+@PARENT_CONTEXT: admin_logic_security.protocol, access_governance.protocol
+
+<GLOBAL_VARS>
+# Типы управленческих потоков
+ADMIN_FLOW_TYPES: {
+  "CONTROL_PLANE": "(K8s_API|Terraform_State|Cloud_Console)",
+  "APP_ADMIN": "(Internal_Admin_Panel|Backoffice_API|Feature_Flags)",
+  "MAINTENANCE": "(SSH|RDP|DB_Direct_Tunnel|JMX_Console)",
+  "OBSERVABILITY": "(Log_Streaming|Metrics_Scraping|Tracing_Data)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ADMIN_ENTRY]    <- {match: (/admin|/internal|/management), scope: "ROUTES|CONTROLLERS"}
+[OPS_CHANNELS]   <- {match: (ssh-key|kubeconfig|bastion), scope: "INFRA_CONFIG"}
+[TELEMETRY_SINK] <- {match: (prometheus|grafana|elk|datadog), scope: "LOGGING_CONFIG"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты путей управления
+! ([ADMIN_ENTRY] -> !IP_WHITELISTING) : "HIGH: Exposed Admin Interface. Management API is accessible from any IP, relying solely on credentials."
+! ([MAINTENANCE_FLOW] -> !MFA_ENFORCED) : "CRITICAL: Single Factor Admin. Direct access to DB or SSH lacks multi-factor authentication."
+! ([TELEMETRY_SINK] -> CONTAINS -> "Session_Token|Password") : "HIGH: Metadata Leak. Monitoring flows contain sensitive session data, exposing it to the observability team."
+? ([CONTROL_PLANE] -> SHARED_NETWORK) : "MEDIUM: Lack of Segmentation. Management traffic shares the same network segment as public user traffic."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PRIVILEGED_INTERFACE_DISCOVERY:
+   - Найти все эндпоинты с префиксами `/admin`, `/internal`, `/internal-api`.
+   - Проверить, используют ли они ту же систему аутентификации, что и обычные пользователи (риск Privilege Escalation).
+2. INFRASTRUCTURE_ACCESS_TRACE:
+   - Проанализировать пути доступа инженеров: через VPN, Bastion-хосты или прямые порты.
+   - Выявить наличие "Shadow Admin" путей (например, забытые порты отладки 8080 на проде).
+3. FEATURE_FLAG_GOVERNANCE_PATH:
+   - Проследить, как команды изменения флагов (LaunchDarkly, Unleash) попадают в приложение. 
+   - Кто может переключить флаг "Отключить проверку платежей"?
+4. LOG_&_METRIC_EXFILTRATION_AUDIT:
+   - Проверить путь логов от приложения к SIEM/ELK. 
+   - Идентифицировать риск перехвата логов, если они идут по HTTP внутри кластера.
+5. EMERGENCY_BREAK-GLASS_FLOW:
+   - Описать путь доступа в систему при падении основной системы Auth (Emergency Access). Проверить, кто получает уведомление при его использовании.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ADMIN_FLOW_MATRIX:
+  - FLOW_NAME | SOURCE_ACTOR | PROTOCOL | SEGMENTATION_TYPE | AUDIT_LEVEL
+VISUALIZE: "Mermaid: Represent Admin flows as bold/red arrows. Use a separate 'Management Zone' box."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

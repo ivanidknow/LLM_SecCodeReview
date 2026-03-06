@@ -1,0 +1,52 @@
+<DFD_MODELING_V3>
+@ID: METADATA_INDEXES_AUDIT
+@GOAL: DETECT_SENSITIVE_DATA_DUPLICATION_IN_SEARCH_ENGINES_AND_LOG_JOURNALS
+@PARENT_CONTEXT: persistent_storage.protocol, data_inventory.protocol
+
+<GLOBAL_VARS>
+# Типы метаданных и индексов
+INDEX_TYPES: {
+  "SEARCH": "(Elasticsearch|OpenSearch|Solr|Algolia|Lucene)",
+  "TRANSACTION_LOGS": "(WAL_logs|Binlog|OpLog|RedoLog)",
+  "APPLICATION_META": "(File_Attributes|EXIF|PDF_Metadata|Tags)",
+  "DATABASE_INDEX": "(B-Tree|GIN|GiST|Vector_Index)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SEARCH_QUERIES]  <- {match: (Client.search|IndexRequest|BulkRequest), scope: "SERVICES"}
+[DB_REPLICATION] <- {match: (replication_slot|binlog_format), scope: "DB_CONFIG"}
+[FILE_PARSERS]   <- {match: (exif-parser|tika|pdf-lib), scope: "DATA_LAYER"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты метаданных
+! ([SEARCH_INDEX] -> CONTAINS -> {{SENSITIVE_DATA}} & !FIELD_LEVEL_ENCRYPTION) : "HIGH: Search Index Leak. Sensitive PII is indexed in plaintext for full-text search without masking or encryption."
+! ([TRANSACTION_LOGS] -> ACCESSIBLE_BY_APP) : "CRITICAL: Journal Exposure. Application process has read access to DB transaction logs, allowing it to reconstruct data history bypassing row-level security."
+! ([METADATA_EXTRACTOR] -> !STRIP_SENSITIVE) : "MEDIUM: Metadata Leakage. System stores original file metadata (GPS, Author, Device ID) along with user uploads, creating a privacy risk."
+? ([VECTOR_INDEX] -> !ACCESS_CONTROL) : "HIGH: AI/LLM Context Leak. Vector embeddings of sensitive documents are stored in a vector DB with weak authorization."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SEARCH_SYNC_TRACE:
+   - Найти процессы синхронизации данных (например, Logstash, Debezium или кастомные воркеры).
+   - Определить, какие поля из БД «улетают» в [SEARCH_INDEX]. Проверить их на наличие в `data_inventory.protocol`.
+2. DB_JOURNAL_PRIVILEGE_AUDIT:
+   - Проверить права доступа к системным таблицам и файлам логов транзакций (WAL/Binlog).
+   - Убедиться, что технический аккаунт приложения не может читать историю изменений других пользователей.
+3. VECTOR_STORE_EXPOSURE_CHECK:
+   - Если в проекте есть ИИ (RAG/Embeddings), найти векторные БД (Pinecone, Weaviate, Milvus).
+   - Оценить риск восстановления исходного текста из векторов (Inversion Attack).
+4. UPLOAD_METADATA_SCRUBBING:
+   - Проанализировать пайплайн обработки файлов (картинок, документов). 
+   - Проверить наличие шага очистки (Sanitization) метаданных перед сохранением или показом другим пользователям.
+5. REPLICATION_SECURITY:
+   - Проверить, зашифрован ли канал передачи логов транзакций между мастером и репликой.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_METADATA_RISK_MAP:
+  - INDEX_TYPE | DATA_SOURCE | SYNC_METHOD | RISK_SUMMARY
+VISUALIZE: "Mermaid: Represent Metadata Stores as small stacked rectangles attached to main Data Stores."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

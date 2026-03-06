@@ -1,0 +1,52 @@
+<DFD_MODELING_V3>
+@ID: ASYNC_EVENT_DRIVEN_FLOW_TRACING
+@GOAL: MAP_DECOUPLED_DATA_PATHS_AND_VERIFY_MESSAGE_INTEGRITY
+@PARENT_CONTEXT: ipc_identification.protocol, state_analysis.protocol
+
+<GLOBAL_VARS>
+# Маркеры асинхронного взаимодействия
+ASYNC_INDICATORS: {
+  "BROKERS": "(Kafka|RabbitMQ|ActiveMQ|Amazon_SQS|NATS)",
+  "PATTERNS": "(Producer_Consumer|Pub_Sub|Event_Sourcing|Saga_Orchestration)",
+  "LIFECYCLE": "(Emit|Publish|SendAsync|OnMessage|Subscribe|Ack|Nack)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PRODUCER]       <- {match: (publish|sendToQueue|emit), scope: "SERVICES|CONTROLLERS"}
+[MESSAGE_BROKER] <- {match: (exchange|topic|queue_name), scope: "CONFIG|INFRA"}
+[CONSUMER]       <- {match: (subscribe|on|handleMessage|@RabbitListener|@KafkaListener), scope: "WORKERS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты асинхронных путей
+! ([PRODUCER] -> [MESSAGE_BROKER] & !MESSAGE_ENCRYPTION) : "HIGH: Cleartext Queue. Sensitive data is stored in the message broker in plaintext, accessible to anyone with broker access."
+! ([CONSUMER] -> !INPUT_VALIDATION) : "CRITICAL: Async Injection. Worker trusts the message content without re-validation, assuming the Producer already checked it (Classic DFD error)."
+! ([MESSAGE_BROKER] -> !MESSAGE_SIGNING) : "MEDIUM: Integrity Risk. Messages lack digital signatures, allowing an attacker to inject fraudulent events directly into the broker."
+? ([RETRY_POLICY] == "infinite") : "HIGH: Poison Pill Risk. A malformed message causes infinite retries, leading to worker resource exhaustion and DoS."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PUB_SUB_TOPOLOGY_MAP:
+   - Составить карту: кто пишет в топик, а кто его слушает.
+   - Выявить "фантомных потребителей" (Shadow Consumers), которые могут несанкционированно читать данные.
+2. CONTEXT_TRANSFER_AUDIT:
+   - Проверить, передаются ли метаданные безопасности (CorrelationID, UserID, TraceID) внутри сообщения.
+   - Убедиться, что Consumer может восстановить контекст прав пользователя (Impersonation).
+3. SERIALIZATION_FORMAT_CHECK:
+   - Анализ формата (JSON, Avro, Protobuf).
+   - Проверка безопасности десериализации на стороне Consumer (запрет на выполнение кода из сообщения).
+4. DEAD_LETTER_QUEUE (DLQ) ANALYSIS:
+   - Найти, куда уходят "битые" сообщения. 
+   - Проверить, не хранятся ли в DLQ конфиденциальные данные в открытом виде после сбоя обработки.
+5. IDEMPOTENCY_VERIFICATION:
+   - Проверить, как система обрабатывает дубликаты (особенно в финансовых транзакциях).
+   - Ссылка на `idempotency_protection.protocol`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ASYNC_FLOW_MAP:
+  - FLOW_ID | PRODUCER | BROKER_TOPIC | CONSUMERS_LIST | ENCRYPTION_TYPE | IDEMPOTENCY (Y/N)
+VISUALIZE: "Mermaid: Use dashed arrows (-.->) for Asynchronous flows to distinguish from Sync."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -136,25 +136,25 @@
 ### DFD (Data Flow Diagram)
 
 ##### Entity & Process Mapping
-* External Interactors Identification
-* Automated Agents & Bots
-* Process Decomposition (Logic Units)
-* Inter-Process Communication (IPC) Identification
+* External Interactors Identification (external_interactors.protocol)
+* Automated Agents & Bots (automated_agents.protocol)
+* Process Decomposition (process_decomposition.protocol)
+* Inter-Process Communication (IPC) Identification (ipc_identification.protocol)
 ##### Data Store Inventory
-* Persistent Storage
-* Volatile & Cache Storage
-* Side-Channel & Hidden Storage
-* Metadata & Indexes
+* Persistent Storage (persistent_storage.protocol)
+* Volatile & Cache Storage (volatile_storage.protocol)
+* Side-Channel & Hidden Storage (side_channel.protocol)
+* Metadata & Indexes (metadata_indexes.protocol)
 ##### Flow Path Tracing
-* Synchronous Request-Response Paths
-* Asynchronous & Event-Driven Flows
-* Outbound & Third-Party Integration Paths
-* Administrative & Management Flows
+* Synchronous Request-Response Paths (sync_request_response.protocol)
+* Asynchronous & Event-Driven Flows (async_event_driven.protocol)
+* Outbound & Third-Party Integration Paths (outbound_integration.protocol)
+* Administrative & Management Flows (admin_management.protocol)
 ##### Trust Boundary Crossing
-* External-to-Internal Transitions
-* Network & Infrastructure Boundaries
-* Privilege & Logical Boundaries
-* Integrity & Validation Chokepoints
+* External-to-Internal Transitions (external_internal.protocol)
+* Network & Infrastructure Boundaries (network_infra.protocol)
+* Privilege & Logical Boundaries (privilege_logical.protocol)
+* Integrity & Validation Chokepoints (validation_chokepoints.protocol)
 ### Threat Modeling
 
 # Deep Scan

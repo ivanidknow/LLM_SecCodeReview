@@ -1,0 +1,50 @@
+<DFD_MODELING_V3>
+@ID: NETWORK_INFRA_BOUNDARY_AUDIT
+@GOAL: MAP_ISOLATION_LAYERS_BETWEEN_CONTAINERS_VPC_AND_CLUSTERS
+@PARENT_CONTEXT: segmentation.protocol, shared_resources_sidechannel.protocol
+
+<GLOBAL_VARS>
+# Типы инфраструктурных границ
+INFRA_BOUNDARIES: {
+  "SEGMENT": "(DMZ|Trusted_Zone|PCI_DSS_Scope|Management_Network)",
+  "COMPUTE": "(Container_Boundary|Pod_Isolation|VM_Boundary|Lambda_Execution_Env)",
+  "CLOUD": "(VPC_Peering|Cross_Account_Flow|On-Prem_to_Cloud_Hybrid)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[INFRA_CONFIG]  <- {match: (NetworkPolicy|SecurityGroup|VPC_Config|ingress), scope: "IAC_TERRAFORM|K8S_YAML"}
+[SERVICE_MESH]  <- {match: (Istio|Linkerd|Consul), scope: "INFRA_SERVICES"}
+[IPC_TRAFFIC]   <- {from: ipc_identification.protocol, type: "CROSS_NODE_CALLS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты сетевых границ
+! ([SEGMENT] == "PCI_DSS" & [NETWORK_POLICY] == "Allow_All") : "CRITICAL: Flat Network Violation. The payment segment is not isolated from the general application network."
+! ([CONTAINER] -> CAPABILITY -> "NET_ADMIN") : "HIGH: Boundary Escape Risk. Container has excessive network privileges, allowing it to sniff traffic from other containers in the same pod."
+! ([CROSS_VPC_FLOW] -> !ENCRYPTION) : "HIGH: Unprotected Inter-VPC Path. Data travels between different virtual networks over unencrypted channels."
+? ([POD_ISOLATION] == missing) : "MEDIUM: No Micro-segmentation. Kubernetes pods can communicate with each other by default (Default Allow), increasing lateral movement risk."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SEGMENTATION_MAP_VERIFY:
+   - Сопоставить логическую схему DFD с реальными Network Policies или AWS Security Groups.
+   - Идентифицировать "мосты" между изолированными зонами.
+2. ORCHESTRATOR_PLANE_ISOLATION:
+   - Проверить, отделен ли трафик приложения от трафика управления (K8s Control Plane).
+   - Выявить наличие доступа из приложения к Metadata API (например, IMDSv2 в AWS), что является классическим вектором SSRF-атак.
+3. SERVICE_MESH_MTLS_AUDIT:
+   - Если используется Service Mesh, проверить статус mTLS (Mutual TLS). 
+   - Выполняется ли проверка личности сервиса на сетевом уровне при пересечении границы пода?
+4. INGRESS_EGRESS_CONTROLLER_TRACE:
+   - Проследить путь данных через Ingress-контроллеры. Являются ли они точками терминации протоколов или просто проксируют трафик?
+5. LEGACY_BRIDGE_DETECTION:
+   - Поиск "дыр" в облачном периметре, таких как VPN-туннели к старым дата-центрам или незащищенные Direct Connect соединения.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SEGMENTATION_REPORT:
+  - BOUNDARY_TYPE | SOURCE_ZONE | TARGET_ZONE | ENFORCEMENT_TOOL | RISK_LEVEL
+VISUALIZE: "Mermaid: Represent Network Boundaries as dashed boxes enclosing groups of processes and stores."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

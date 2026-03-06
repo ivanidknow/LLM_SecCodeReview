@@ -1,0 +1,50 @@
+<DFD_MODELING_V3>
+@ID: SYNC_REQUEST_RESPONSE_TRACING
+@GOAL: MAP_IMMEDIATE_DATA_EXCHANGE_AND_VERIFY_ENFORCEMENT_CONTINUITY
+@PARENT_CONTEXT: entry_points.protocol, trust_boundary_crossing.protocol
+
+<GLOBAL_VARS>
+# Маркеры синхронных вызовов
+SYNC_INDICATORS: {
+  "WEB": "(HTTP/1.1|HTTP/2|HTTP/3|REST|GraphQL)",
+  "RPC": "(gRPC|Thrift|tRPC)",
+  "INTERNAL": "(Function_Call|Method_Invocation|Blocking_Queue_Wait)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CLIENT_ENTRY] <- {from: entry_points.protocol, scope: "API_GATEWAY|CONTROLLERS"}
+[SERVICE_HOP]  <- {match: (HttpClient.send|grpc.Call|fetch), scope: "SERVICES"}
+[RESPONSE_SINK] <- {match: (res.send|return_dto|reply), scope: "CONTROLLERS|HANDLERS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты синхронных путей
+! ([CLIENT_ENTRY] -> [SERVICE_HOP] & !CONTEXT_PROPAGATION) : "HIGH: Lost Context. User identity or TraceID is not propagated between services, creating 'blind spots' in the audit trail."
+! ([SERVICE_HOP] -> !CONNECTION_TIMEOUT) : "MEDIUM: Resource Exhaustion Risk. Synchronous call lacks timeouts, potentially leading to 'Thread Hanging' and DoS during service degradation."
+! ([RESPONSE_SINK] -> CONTAINS -> "Password|Hash|Internal_IP") : "CRITICAL: Response Leak. Sensitive internal data is leaked back to the client in the synchronous response body."
+? ([PATH_LENGTH] > 5) : "INFO: High Latency/Complexity. Request passes through too many synchronous hops. Consider refactoring to async to improve resilience."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. REQUEST_ANATOMY_TRACE:
+   - Проследить путь объекта запроса от сериализации на клиенте до десериализации на сервере.
+   - Проверить наличие и целостность заголовков безопасности (HSTS, CSP, Auth-Headers) на каждом этапе.
+2. INTER-SERVICE_AUTH_VERIFY:
+   - Как Сервис А доказывает Сервису Б, что он действует от имени конкретного Юзера? 
+   - Проверить механизм передачи токенов (Token Exchange) или использование mTLS.
+3. DATA_TRANSFORMATION_AUDIT:
+   - Идентифицировать точки, где данные запроса меняют формат (например, JSON -> Protobuf).
+   - Оценить риск потери атрибутов безопасности при конвертации.
+4. ERROR_PATH_MAPPING:
+   - Проследить «обратный путь» в случае ошибки. Не возвращает ли синхронный ответ слишком подробный Stack Trace или детали инфраструктуры?
+5. SIDE-EFFECT_IDENTIFICATION:
+   - Какие процессы запускаются синхронно «под капотом» (например, запись в БД перед ответом). Являются ли они частью транзакции?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SYNC_FLOW_MAP:
+  - HOP_ID | SOURCE | TARGET | PROTOCOL | AUTH_MECHANISM | LATENCY_IMPACT
+VISUALIZE: "Mermaid: Use solid lines with arrows for Synchronous flows. Highlight 'Unprotected' segments in red."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,52 @@
+<DFD_MODELING_V3>
+@ID: OUTBOUND_INTEGRATION_TRACING
+@GOAL: MAP_DATA_EXFILTRATION_POINTS_AND_VERIFY_THIRD_PARTY_TRUST_LEVELS
+@PARENT_CONTEXT: outbound_trust.protocol, third_party_surface.protocol
+
+<GLOBAL_VARS>
+# Типы внешних интеграций
+OUTBOUND_TYPES: {
+  "API": "(REST_Client|GraphQL_Client|SDK_Call)",
+  "WEBHOOK": "(Notification_Push|Event_Forwarding)",
+  "INFRA": "(Log_Shipping|Telemetry_Export|SMTP_Relay)",
+  "STORAGE": "(External_S3_Mount|FTP_Upload|CDN_Push)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[EXTERNAL_CLIENT] <- {match: (axios|request|boto3|stripe|google-cloud), scope: "SERVICES|ADAPTERS"}
+[SENSITIVE_DATA]  <- {from: data_inventory.protocol, type: "PII|SECRETS|BUSINESS_LOGIC"}
+[EGRESS_GATEWAY]  <- {match: (proxy|nat_gateway|service_mesh_egress), scope: "INFRA"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты исходящих путей
+! ([SENSITIVE_DATA] -> [EXTERNAL_CLIENT] & !DATA_MASKING) : "CRITICAL: Data Exfiltration Risk. Raw sensitive data is sent to a third-party API without masking or tokenization."
+! ([EXTERNAL_CLIENT] -> !CERTIFICATE_PINNING) : "MEDIUM: MitM Risk. Outbound connection relies on system CA only; sensitive integrations should consider certificate pinning for high-risk targets."
+! ([EXTERNAL_CLIENT] -> !TIMEOUT_CONFIGURATION) : "HIGH: Dependency Hanging. Outbound call lacks strict timeouts. If the third-party service hangs, it can exhaust local threads (Cascading Failure)."
+? ([DATA_FLOW] -> "Uncommon_Country_IP") : "HIGH: Geographical Risk. Data is sent to a server located in a high-risk jurisdiction (potential compliance violation)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. EGRESS_SURFACE_ENUMERATION:
+   - Идентифицировать все домены и IP-адреса, к которым обращается код.
+   - Классифицировать их: "Trusted Cloud" (AWS/Azure), "Public SaaS" (Stripe/Twilio), "Unknown/Custom".
+2. DATA_LEAKAGE_TRACE:
+   - Проследить путь [SENSITIVE_DATA] до вызова [EXTERNAL_CLIENT].
+   - Проверить наличие этапа "De-identification" (удаление имен, телефонов, реальных ID) перед отправкой в аналитику.
+3. RESPONSE_TRUST_AUDIT:
+   - Проверить, как система обрабатывает данные, возвращаемые внешним API. 
+   - Считает ли она их доверенными? (Риск: Внешний сервис взломан и шлет XSS/SQLi в ответ на ваш легитимный запрос).
+4. CREDENTIAL_EXPOSURE_CHECK:
+   - Проверить, не передаются ли API-ключи или токены в URL (Query Parameters).
+   - Убедиться, что для каждого вендора используются уникальные credentials.
+5. CIRCUIT_BREAKER_VERIFY:
+   - Проверить наличие паттернов устойчивости (Circuit Breaker, Retries with Jitter) для всех внешних путей.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_OUTBOUND_MATRIX:
+  - DESTINATION_NAME | DATA_TYPES_SENT | ENCRYPTION_LEVEL | RISK_SCORE
+VISUALIZE: "Mermaid: Represent Outbound paths as arrows pointing to 'Cloud' clouds or 'External Building' icons outside the main DFD box."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

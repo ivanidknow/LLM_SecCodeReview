@@ -1,0 +1,52 @@
+<DFD_MODELING_V3>
+@ID: VOLATILE_STORAGE_INVENTORY
+@GOAL: DETECT_SENSITIVE_DATA_IN_EPHEMERAL_STORES_AND_CACHE_LAYERS
+@PARENT_CONTEXT: state_analysis.protocol, secrets_management.protocol
+
+<GLOBAL_VARS>
+# Типы временных хранилищ
+VOLATILE_TYPES: {
+  "DISTRIBUTED_CACHE": "(Redis|Memcached|Hazelcast)",
+  "LOCAL_CACHE": "(Guava|LruCache|Ehcache|In-Memory-Map)",
+  "BUFFER": "(Message_Buffer|Stream_Buffer|Pipe)",
+  "SESSION_STORE": "(Cookie_Session|Server_Side_Session)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CACHE_CLIENTS] <- {match: (redis.createClient|cache.get|Memcached.set), scope: "SERVICES|INFRA"}
+[SESSION_CONFIG] <- {match: (sessionStore|express-session|cookie-session), scope: "MIDDLEWARE"}
+[MEMORY_MAPS]    <- {match: (new Map()|ConcurrentHashMap|static_variable), scope: "DATA_STRUCTURES"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты временного хранения
+! ([DISTRIBUTED_CACHE] -> !TLS_AUTH) : "HIGH: Plaintext Cache Interaction. Interaction with Redis/Memcached occurs without TLS or password, allowing internal sniffing."
+! ([LOCAL_CACHE] -> CONTAINS -> "Password|Secret|Key") : "CRITICAL: Secrets in Memory. Sensitive credentials found in an unencrypted local cache or static map."
+! ([CACHE_KEYS] == USER_INPUT) : "HIGH: Cache Poisoning Potential. Input from external interactors is used directly as a cache key without sanitization."
+? ([CACHE_TTL] == "infinite") : "MEDIUM: Stale Data Risk. Cache has no expiration (TTL), increasing the window for data misuse if the storage is compromised."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CACHE_TOPOLOGY_DISCOVERY:
+   - Идентифицировать все экземпляры Redis/Memcached.
+   - Определить, является ли кэш общим для нескольких микросервисов (Shared Cache) — это риск бокового перемещения (Lateral Movement).
+2. SENSITIVE_OBJECT_TRACING:
+   - Проследить, какие объекты попадают в `cache.set()`. 
+   - Если в кэш пишутся объекты `User` или `Session`, проверить наличие маскирования чувствительных полей.
+3. SESSION_SECURITY_AUDIT:
+   - Анализ настроек сессий: где хранится сессионный ID, зашифровано ли тело сессии в Volatile Store.
+   - Проверка флагов `HttpOnly` и `Secure` для клиентских кук, связанных с этими хранилищами.
+4. IN-MEMORY_LEAK_DETECTION:
+   - Поиск глобальных статических переменных, которые используются как «самодельные» хранилища. 
+   - Оценка риска переполнения памяти (DoS) при бесконтрольном росте этих структур.
+5. BUFFER_OVERFLOW_SURFACE:
+   - Идентификация буферов, принимающих данные из [IPC_CHANNELS].
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_VOLATILE_MAP:
+  - STORE_NAME | TYPE | DATA_RESIDENCY_TIME (TTL) | ENCRYPTION_REQUIRED (Y/N)
+VISUALIZE: "Mermaid: Represent Volatile Stores as dashed cylinders to indicate ephemerality."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

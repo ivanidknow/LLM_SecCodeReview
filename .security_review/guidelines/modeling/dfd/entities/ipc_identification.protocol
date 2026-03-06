@@ -1,0 +1,52 @@
+<DFD_MODELING_V3>
+@ID: IPC_IDENTIFICATION
+@GOAL: MAP_COMMUNICATION_CHANNELS_BETWEEN_LOGICAL_UNITS
+@PARENT_CONTEXT: entry_points.protocol, layered_analysis.protocol, data_in_transit.protocol
+
+<GLOBAL_VARS>
+# Типы взаимодействия
+COMMUNICATION_MODES: {
+  "SYNC": "(REST|gRPC|GraphQL|SOAP|Thrift)",
+  "ASYNC": "(AMQP|MQTT|Kafka_Topic|Redis_PubSub|NATS)",
+  "LOCAL": "(Unix_Socket|Shared_Memory|Named_Pipe|Signals)",
+  "INTERNAL_BUS": "(Event_Emitter|In_Memory_Queue|PubSub_JS)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CLIENT_CALLS]    <- {match: (axios|fetch|grpc_client|http.Client), scope: "SERVICES|CLIENTS"}
+[MESSAGE_BROKERS] <- {match: (publish|subscribe|emit|on|ack), scope: "WORKERS|INFRA"}
+[IPC_HANDLES]     <- {match: (ipcRenderer|ipcMain|shmget|mkfifo), scope: "SYSTEM_LEVEL"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты IPC
+! ([SYNC_PATH] -> !TLS_ENCRYPTION) : "CRITICAL: Unencrypted Channel. Data is sent between processes over plaintext HTTP/gRPC. High MitM risk."
+! ([ASYNC_PATH] -> !MESSAGE_SIGNING) : "HIGH: Message Tampering. Data in the queue (Kafka/Rabbit) is not signed or encrypted. An attacker with access to the broker can inject commands."
+! ([LOCAL_IPC] -> WORLD_WRITABLE) : "CRITICAL: Shared Resource Poisoning. Unix socket or Named Pipe has '777' permissions, allowing any local process to inject data."
+? ([IPC_RETRY_LOGIC] == "exponential") : "INFO: Resilience Check. IPC uses proper backoff strategy, preventing self-inflicted DoS during service instability."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TRANSPORT_PROTOCOL_AUDIT:
+   - Определить физический протокол (HTTP/2, TCP, UDP).
+   - Проверить конфигурацию стека: используется ли взаимная TLS-аутентификация (mTLS).
+2. MESSAGE_TOPOLOGY_MAPPING:
+   - Для очередей: составить карту "Topic -> Producer -> Consumer".
+   - Выявить "фантомных потребителей", которые слушают очередь, но не описаны в документации.
+3. SERIALIZATION_SAFETY_CHECK:
+   - Проверить формат данных (JSON, Protobuf, Avro).
+   - Выявить риски десериализации (например, использование `pickle` в Python или небезопасного `FastJSON`).
+4. BOUNDARY_TRAVERSAL_ANALYSIS:
+   - Понять, какие IPC вызовы выходят за пределы одного контейнера/хоста.
+   - Отметить их как "High Risk" в DFD из-за пересечения физических границ.
+5. AUTHENTICATION_HANDSHAKE_VERIFY:
+   - Проверить, как сервисы доверяют друг другу: через фиксированные API-ключи, JWT или сервисные токены (Istio/Linkerd).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_IPC_MATRIX:
+  - SOURCE | TARGET | PROTOCOL | ENCRYPTION (Y/N) | AUTH_TYPE
+VISUALIZE: "Mermaid: Represent IPC as labeled arrows with different styles for Sync (solid) and Async (dashed)."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

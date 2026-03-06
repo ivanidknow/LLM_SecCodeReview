@@ -1,0 +1,53 @@
+<DFD_MODELING_V3>
+@ID: PRIVILEGE_LOGICAL_BOUNDARY_AUDIT
+@GOAL: VERIFY_CONTEXT_ISOLATION_AND_SECURE_PRIVILEGE_TRANSITION
+@PARENT_CONTEXT: privilege_transitions.protocol, identity_model.protocol, authorization_model.protocol
+
+<GLOBAL_VARS>
+# Типы логических границ
+LOGICAL_BOUNDARIES: {
+  "AUTH_STATE": "(Guest_to_User|User_to_Admin|System_to_Superuser)",
+  "TENANCY": "(Organization_A_to_Organization_B|User_Private_Zone)",
+  "EXECUTION": "(Sandboxed_Code_to_Main_Process|Kernel_to_User_Space)",
+  "DATA_SENSITIVITY": "(Public_Data_to_PII_Vault|Cleartext_to_HSM)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AUTH_CHECK]      <- {from: authorization_model.protocol, scope: "DECORATORS|GUARDS"}
+[SUDO_OPERATIONS] <- {match: (sudo|impersonate|runAs|elevate), scope: "SERVICES|CLI"}
+[TENANT_FILTER]   <- {match: (where_tenant_id|filter_by_owner), scope: "ORM_MIDDLEWARE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты привилегий
+! ([USER_CONTEXT] -> [ADMIN_PROCESS] & !RE_AUTHENTICATION) : "CRITICAL: Missing Step-Up Auth. Critical admin process is reachable from user session without additional MFA or password re-entry."
+! ([TENANT_A_DATA] -> [TENANT_B_PROCESS]) : "BLOCKER: Cross-Tenant Leak. Data from one organization is being processed by a component in another organization's context. Potential mass IDOR."
+! ([SUDO_OPERATIONS] -> !AUDIT_LOG) : "HIGH: Ghost Elevation. System performs privilege escalation without recording WHO initiated it and WHY."
+? ([AUTH_STATE_CHANGE] -> "In_Memory_Variable") : "MEDIUM: Fragile Session State. Privilege level is stored in a mutable client-side or non-persistent variable, prone to tampering."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. AUTH_TRANSITION_MAPPING:
+   - Найти все точки "Login" и "Sudo". 
+   - Проверить, очищается ли старый контекст безопасности перед созданием нового (защита от Session Fixation).
+2. MULTI-TENANCY_ENFORCEMENT_CHECK:
+   - Если приложение обслуживает разных клиентов (SaaS), проверить, как реализована граница между ними. 
+   - Используется ли Row-Level Security (RLS) в БД или фильтрация происходит в коде (риск ошибки разработчика).
+3. IMPERSONATION_AUDIT:
+   - Найти функции "Войти под пользователем" (для техподдержки). 
+   - Проверить наличие жестких ограничений по времени и обязательного логирования действий "под маской".
+4. SANDBOX_ESCAPE_ANALYSIS:
+   - Если приложение исполняет скрипты пользователей или плагины, проверить границы "песочницы". 
+   - Может ли плагин дотянуться до переменных окружения основного процесса?
+5. TRUSTED_SUBSYSTEM_BOUNDARY:
+   - Идентификация "доверенных" внутренних сервисов, которые работают без Auth (например, генератор PDF). 
+   - Проверить, не может ли обычный пользователь спровоцировать этот сервис на атаку (SSRF).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PRIVILEGE_BOUNDARY_MAP:
+  - BOUNDARY_TYPE | SOURCE_PRIVILEGE | TARGET_PRIVILEGE | TRANSITION_TRIGGER | SECURITY_LEVEL
+VISUALIZE: "Mermaid: Draw boundaries as colored gradients (e.g., Green to Red) between DFD nodes."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

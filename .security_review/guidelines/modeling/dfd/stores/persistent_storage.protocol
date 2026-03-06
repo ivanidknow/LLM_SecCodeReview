@@ -1,0 +1,52 @@
+<DFD_MODELING_V3>
+@ID: PERSISTENT_STORAGE_INVENTORY
+@GOAL: MAP_ALL_LONG_TERM_DATA_REPOSITORIES_AND_ENFORCEMENT_POLICIES
+@PARENT_CONTEXT: data_at_rest.protocol, data_inventory.protocol
+
+<GLOBAL_VARS>
+# Типы постоянных хранилищ
+STORAGE_TYPES: {
+  "RDBMS": "(PostgreSQL|MySQL|Oracle|MSSQL)",
+  "NOSQL": "(MongoDB|DynamoDB|Cassandra|CouchDB)",
+  "OBJECT": "(S3|AzureBlob|GCS|Minio)",
+  "FILESYSTEM": "(NFS|EFS|LocalVolume|ConfigMap)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DB_CONNECTIONS] <- {match: (DriverManager|TypeORM|Mongoose|Sequelize), scope: "CONFIG|DATA_LAYER"}
+[STORAGE_SDK]    <- {match: (aws-sdk|boto3|google-cloud-storage), scope: "SERVICES"}
+[MOUNT_POINTS]   <- {match: (volumeMounts|mount_path), scope: "K8S_MANIFESTS|DOCKER_COMPOSE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты постоянного хранения
+! ([STORAGE_TYPE] == "OBJECT" & !ENCRYPTION_AT_REST) : "CRITICAL: Unencrypted Cloud Storage. Sensitive objects in S3/GCS are stored without server-side or client-side encryption."
+! ([RDBMS] -> ACCESSIBLE_FROM_INTERNET) : "BLOCKER: Exposed Database. Persistent storage is directly reachable from external IPs, bypassing the API layer."
+! ([STORAGE_TYPE] == "FILESYSTEM" & RUNS_AS_ROOT) : "HIGH: Privilege Overlap. File storage is managed by a root process, increasing impact of a Directory Traversal attack."
+? ([NOSQL] -> !SCHEMA_VALIDATION) : "MEDIUM: Data Integrity Risk. NoSQL store lacks schema enforcement at the DB level, allowing 'data poisoning' by malicious processes."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CONNECTION_STRING_PARSING:
+   - Извлечь все эндпоинты БД из конфигов. 
+   - Проверить наличие параметров безопасности (SSL=true, AuthMechanism).
+2. OBJECT_STORE_BUCKET_ENUMERATION:
+   - Идентифицировать использование облачных бакетов. 
+   - Сопоставить бакеты с типами данных из `data_inventory.protocol` (например, "Бакет А" -> "Сканы паспортов").
+3. PERSISTENT_VOLUME_TRACE:
+   - Анализ инфраструктурных файлов (K8s/Docker) на предмет маппинга локальных путей хоста внутрь контейнеров.
+   - Поиск "брошенных" томов, которые сохраняют данные после удаления пода.
+4. BACKUP_PATH_IDENTIFICATION:
+   - Найти процессы создания бэкапов (pg_dump, rsync). 
+   - Бэкап — это тоже Persistent Storage, часто защищенный слабее оригинала.
+5. ACCESS_CONTROL_MAPPING:
+   - Определить, использует ли база данных IAM-роли или статические пароли.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_STORAGE_TABLE:
+  - STORE_NAME | TYPE | DATA_CRITICALITY | ENCRYPTION_STATUS | BACKUP_POLICY
+VISUALIZE: "Mermaid: Represent Persistent Stores as 'two-line' cylinders in the DFD."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>
