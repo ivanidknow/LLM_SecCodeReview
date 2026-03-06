@@ -1,0 +1,50 @@
+<THREAT_MODELING_V3>
+@ID: STRIDE_SPOOFING_ANALYSIS
+@GOAL: IDENTIFY_IDENTITY_VALIDATION_FLAWS_IN_ALL_DFD_NODES
+@PARENT_CONTEXT: identity_model.protocol, external_interactors.protocol
+
+<GLOBAL_VARS>
+# Основные векторы подмены
+SPOOFING_VECTORS: {
+  "CLIENT_TO_SERVER": "(Session_Fixation|Credential_Stuffing|JWT_None_Algorithm)",
+  "SERVER_TO_SERVER": "(Lack_of_mTLS|Insecure_Service_Token|DNS_Poisoning)",
+  "THIRD_PARTY": "(Webhook_Replay|OAuth_State_Omission|Header_Injection)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AUTH_FLOWS]    <- {from: identity_model.protocol, scope: "LOGIN|TOKEN_EXCHANGE"}
+[TRUST_BORDERS] <- {from: trust_boundary_crossing.protocol, scope: "EXTERNAL_INTERNAL"}
+[INTER_PROCESS] <- {from: ipc_identification.protocol, scope: "SYNC|ASYNC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты от Spoofing
+! ([EXTERNAL_ENTITY] -> [PROCESS] & !MULTI_FACTOR_AUTH) : "HIGH: Weak Peer Identity. External entity can be spoofed via stolen static credentials."
+! ([SERVICE_A] -> [SERVICE_B] & !MUTUAL_TLS) : "MEDIUM: Inter-service Spoofing. Service B trusts Service A based on IP/Network location only, which is spoofable in a compromised cluster."
+! ([WEBHOOK_ENDPOINT] -> !SIGNATURE_VERIFICATION) : "CRITICAL: Third-party Spoofing. External provider identity is not verified via HMAC/RSA signatures."
+? ([JWT_TOKEN] -> !AUDIENCE_CLAIM) : "MEDIUM: Token Replay Risk. JWT lacks 'aud' claim, allowing a token from one service to be used to spoof identity in another."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENTRY_POINT_IDENTITY_AUDIT:
+   - Проверить, как система отличает "Человека" от "Бота". Идентифицировать риски Credential Stuffing.
+   - Анализ защиты от Session Hijacking: используются ли флаги HttpOnly, Secure и SameSite для кук.
+2. INTER-SERVICE_HANDSHAKE_TRACE:
+   - Как `Service_B` понимает, что запрос пришел именно от `Service_A`? 
+   - Поиск жестко зашитых (Hardcoded) токенов или проверку доверия "по IP".
+3. OAUTH/OIDC_IMPLEMENTATION_SCAN:
+   - Если используется OAuth2: проверить наличие и валидацию параметра `state` (защита от Login CSRF/Spoofing).
+   - Проверить валидацию подписи токена (alg: none, public key confusion).
+4. HEADER_INJECTION_VULNERABILITY:
+   - Может ли атакующий подделать `X-Forwarded-For` или `X-Real-IP`, чтобы обойти IP-вайтлистинг админки?
+5. IMPERSONATION_LOGIC_REVIEW:
+   - Проверить функции "Login as user". Кто может их вызывать и как проверяется личность "админа", инициирующего подмену?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SPOOFING_LOG:
+  - DFD_ELEMENT | VECTOR | EXPLOITABILITY | IMPACT | MITIGATION_HINT
+VISUALIZE: "Mermaid: Show 'Mask' icons on flows where Spoofing is possible."
+</OUTPUT_SPEC>
+</THREAT_MODELING_V3>

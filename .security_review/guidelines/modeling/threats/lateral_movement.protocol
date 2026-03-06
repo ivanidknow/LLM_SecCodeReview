@@ -1,0 +1,52 @@
+<THREAT_MODELING_V3>
+@ID: LATERAL_MOVEMENT_SCENARIOS
+@GOAL: MAP_INTERNAL_ATTACK_PATHS_AND_SERVICE_DEPENDENCIES
+@PARENT_CONTEXT: network_infrastructure_boundaries.protocol, ipc_identification.protocol, identity_model.protocol
+
+<GLOBAL_VARS>
+# Техники бокового перемещения
+MOVEMENT_TECHNIQUES: {
+  "CREDENTIAL_DUMPING": "(Env_Vars_Extraction|Memory_Scraping|Config_File_Parsing)",
+  "PIVOTING": "(SSRF_Abuse|Proxy_Chaining|VPN_Tunnel_Exploitation)",
+  "TRUST_EXPLOITATION": "(Service_Token_Replay|Impersonation_via_Internal_API)",
+  "CLOUD_METADATA": "(IAM_Role_Theft_via_IMDS|K8s_ServiceAccount_Token_Stealing)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[VULNERABLE_NODES] <- {from: stride_assessment.protocol, severity: "HIGH|CRITICAL"}
+[NETWORK_MAP]      <- {from: network_infrastructure_boundaries.protocol, scope: "SEGMENTS"}
+[SERVICE_IDENT]    <- {from: identity_model.protocol, scope: "SERVICE_ACCOUNTS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты от бокового перемещения
+! ([NODE_A] -> [NODE_B] & !INTERNAL_AUTH) : "CRITICAL: Blind Trust. Node B trusts Node A based on network location alone. If Node A is compromised, Node B is automatically lost."
+! ([COMPUTE_UNIT] -> CAN_READ -> [GLOBAL_SECRETS]) : "BLOCKER: Overprivileged Infrastructure. A compromised pod can read secrets intended for other services (e.g., via Shared Vault Path or K8s Secrets)."
+! ([SERVICE_A] -> CAN_REACH -> [ADMIN_NET]) : "HIGH: Segment Leakage. A non-privileged application service has network visibility into the management/admin network."
+? ([LONG_LIVED_TOKEN] == "true") : "MEDIUM: Persistence Risk. Service tokens do not expire, allowing an attacker to maintain access indefinitely after a single theft."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. INITIAL_FOOTHOLD_IDENTIFICATION:
+   - Выбрать узлы DFD с наибольшей поверхностью атаки (Public API, File Uploads, Third-party Webhooks).
+   - Принять, что один из этих узлов уже скомпрометирован («Assume Breach»).
+2. CREDENTIAL_HARVESTING_TRACE:
+   - Проверить, какие секреты доступны в этом узле: переменные окружения, примонтированные тома, доступ к KMS/Vault.
+   - Может ли взломщик использовать эти секреты для обращения к другим узлам?
+3. INTERNAL_SSRF_PROBING:
+   - Идентифицировать функции, которые делают исходящие вызовы. 
+   - Моделирование SSRF: может ли атакующий заставить сервис «прощупать» внутреннюю сеть или обратиться к облачному сервису метаданных (IMDS)?
+4. SERVICE-TO-SERVICE_HOP_ANALYSIS:
+   - Построить граф: Сервис А -> Сервис Б -> БД. 
+   - Проверить «транзитивное доверие»: если я захвачу А, могу ли я отправить команду в Б, которая выполнит действие в БД?
+5. TRUST_BOUNDARY_BYPASS_SCENARIOS:
+   - Поиск путей в обход «КПП» (Chokepoints). Есть ли маршруты IPC, которые не проходят через централизованную авторизацию?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_LATERAL_MOVEMENT_GRAPH:
+  - START_NODE | TECHNIQUE | TARGET_NODE | PRIVILEGE_GAINED | PROBABILITY
+VISUALIZE: "Mermaid: Represent attack paths as red jagged arrows connecting DFD nodes."
+</OUTPUT_SPEC>
+</THREAT_MODELING_V3>

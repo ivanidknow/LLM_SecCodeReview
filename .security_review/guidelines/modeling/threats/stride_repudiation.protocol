@@ -1,0 +1,52 @@
+<THREAT_MODELING_V3>
+@ID: STRIDE_REPUDIATION_ANALYSIS
+@GOAL: IDENTIFY_GAPS_IN_AUDIT_TRAILS_AND_LOG_INTEGRITY
+@PARENT_CONTEXT: side_channel_storage.protocol, identity_model.protocol
+
+<GLOBAL_VARS>
+# Векторы отказа от авторства
+REPUDIATION_VECTORS: {
+  "LOG_GAPS": "(Missing_Critical_Events|Incomplete_Context|Anonymous_Actions)",
+  "LOG_TAMPERING": "(Log_Deletion|Log_Injection|Timestamp_Manipulation)",
+  "IDENTITY_DENIAL": "(Shared_Accounts|Weak_Attribution|Session_Impersonation)",
+  "INFRA_BLINDNESS": "(Lack_of_CloudTrail|Missing_DB_Audit|No_Proxy_Logs)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AUDIT_LOGS]     <- {from: side_channel_storage.protocol, scope: "LOGS|JOURNALS"}
+[CRITICAL_PATH]  <- {from: flow_path_tracing.protocol, scope: "ADMIN|PAYMENT"}
+[IDENTITY_DATA]  <- {from: identity_model.protocol, scope: "USER_ID|SESSION_ID"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты от Repudiation
+! ([CRITICAL_ACTION] -> !LOG_EVENT) : "CRITICAL: Audit Blindness. A high-value business action occurs without being recorded in the audit log."
+! ([LOG_STORAGE] -> CAN_BE_MODIFIED_BY -> [APP_PROCESS]) : "HIGH: Log Self-Tampering. The application has permissions to delete or edit its own logs, allowing an attacker to hide their tracks."
+! ([LOG_EVENT] -> !CONTAINS -> [USER_ID]) : "MEDIUM: Ambiguous Attribution. Log entry exists but does not clearly link the action to a specific authenticated identity."
+? ([LOG_RETENTION] < 90_DAYS) : "LOW: Short Memory. Audit logs are rotated too quickly, making post-incident investigation impossible for older attacks."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. AUDIT_TRAIL_COMPLETENESS_CHECK:
+   - Сопоставить "Critical Path" из Discovery с реальными вызовами логгера.
+   - Проверить: логируются ли попытки входа (успех/провал), изменение прав, удаление данных, изменение конфигов?
+2. ATTRIBUTION_VERIFY:
+   - Проверить структуру лога. Содержит ли он: Timestamp, Actor_ID, Source_IP, Action_Type, Status, Request_ID?
+   - Выявить использование "Shared Accounts" (например, все действия в БД идут под одним юзером `app_user`).
+3. LOG_PROTECTION_AUDIT:
+   - Как защищены логи? Используется ли Append-only хранилище (S3 Object Lock, WORM)?
+   - Пересылаются ли логи в реальном времени на удаленный сервер (SIEM/ELK) или хранятся локально?
+4. NON-REPUDIATION_MECHANISMS:
+   - Для сверхкритичных действий: используется ли цифровая подпись пользователя под транзакцией (например, в Финтехе или Крипто)?
+   - Проверка "Proof of Action": может ли система доказать, что пользователь нажал "Согласен с условиями"?
+5. LOG_INJECTION_SCAN:
+   - Может ли пользователь протащить символы переноса строки (`\n`) в лог через User-Agent или другие поля, чтобы подделать записи (Log Forging)?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REPUDIATION_REPORT:
+  - ACTION_NAME | LOGGED (Y/N) | ATTRIBUTION_STRENGTH | LOG_INTEGRITY | RISK
+VISUALIZE: "Mermaid: Represent audit logs as a 'Shielded Ledger' icon. Mark flows without logging with a 'Blind Eye' icon."
+</OUTPUT_SPEC>
+</THREAT_MODELING_V3>

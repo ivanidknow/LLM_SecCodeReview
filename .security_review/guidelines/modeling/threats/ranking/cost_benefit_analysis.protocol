@@ -1,0 +1,36 @@
+<RANKING_V3>
+@ID: REMEDIATION_COST_BENEFIT_ANALYSIS
+@GOAL: CALCULATE_ROI_OF_SECURITY_CONTROLS
+@FORMULA: ROI = (Risk_Reduced - Cost_of_Control) / Cost_of_Control
+
+<GLOBAL_VARS>
+# Метрики для анализа
+METRICS: {
+  "SLE": "Single Loss Expectancy (Asset_Value * Exposure_Factor)",
+  "ARO": "Annual Rate of Occurrence (Likelihood from DREAD)",
+  "ALE": "Annual Loss Expectancy (SLE * ARO)",
+  "TCO": "Total Cost of Ownership (Implementation + Maintenance + Perf_Impact)"
+}
+</GLOBAL_VARS>
+
+<EXECUTION_PIPELINE>
+1. CALCULATE_ALE_BEFORE_FIX:
+   - Взять данные из BIA (стоимость актива) и DREAD (вероятность).
+   - Определить годовой риск в денежном эквиваленте.
+2. ESTIMATE_IMPLEMENTATION_COST:
+   - ИИ оценивает сложность кода: сколько файлов нужно изменить, нужны ли новые инфраструктурные узлы (Vault, WAF).
+   - Оценка влияния на производительность (Performance Overhead).
+3. CALCULATE_RESIDUAL_RISK:
+   - Насколько предложенная мера снижает риск? (Например, mTLS снижает риск Spoofing на 95%, но не на 100%).
+4. CBA_DECISION_ENGINE:
+   - **Recommended**: ALE_Reduction > TCO (Защита окупается).
+   - **Accept Risk**: TCO > ALE_Reduction (Замок дороже квартиры).
+   - **Alternative Search**: Если TCO слишком высок, ИИ должен предложить компенсационный контроль (Compensating Control).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REMEDIATION_PLAN:
+  - THREAT_ID | RECOMMENDED_FIX | EST_DEV_EFFORT (M/H/L) | RISK_REDUCED ($) | ROI_SCORE
+VISUALIZE: "Mermaid: Bar Chart comparing 'Cost of Inaction' vs 'Cost of Mitigation'."
+</OUTPUT_SPEC>
+</RANKING_V3>

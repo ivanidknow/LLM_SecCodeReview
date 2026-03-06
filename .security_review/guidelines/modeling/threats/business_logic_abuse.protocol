@@ -1,0 +1,51 @@
+<THREAT_MODELING_V3>
+@ID: BUSINESS_LOGIC_ABUSE_SCENARIOS
+@GOAL: DETECT_DESIGN_FLAWS_IN_WORKFLOWS_PRICING_AND_INCENTIVE_SYSTEMS
+@PARENT_CONTEXT: business_processes.protocol, validation_chokepoints.protocol, state_analysis.protocol
+
+<GLOBAL_VARS>
+# Векторы злоупотребления логикой
+LOGIC_ABUSE_VECTORS: {
+  "WORKFLOW_BYPASS": "(Step_Skipping|Status_Manipulation|Parameter_Pollution)",
+  "RESOURCE_EXHAUSTION": "(Coupon_Brute_Force|Inventory_Locking|Mass_Account_Creation)",
+  "FINANCIAL_FRAUD": "(Rounding_Errors|Currency_Switching|Price_Tampering)",
+  "AUTH_ABUSE": "(Password_Reset_Poisoning|Trial_Period_Extension)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CRITICAL_WORKFLOWS] <- {from: business_processes.protocol, scope: "CHECKOUT|REGISTRATION|REFUND"}
+[STATE_MACHINE]     <- {from: state_analysis.protocol, scope: "ORDER_STATUS|USER_SUBSCRIPTION"}
+[VALIDATION_RULES]   <- {from: validation_chokepoints.protocol, scope: "LIMITS|CONSTRAINTS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты бизнес-логики
+! ([STEP_3] -> !CHECK([STEP_2_COMPLETED])) : "CRITICAL: Workflow Skipping. User can access the final step of a process (e.g., Download) without completing previous steps (e.g., Payment)."
+! ([PRICE_CALCULATION] -> !SERVER_SIDE_ENFORCEMENT) : "BLOCKER: Client-side Trust. The system accepts the total price from the frontend request instead of recalculating it on the server."
+! ([LIMIT_CHECK] -> !RACE_CONDITION_PROTECTION) : "HIGH: Atomic Inconsistency. User can exceed limits (e.g., use a one-time coupon twice) by sending simultaneous requests."
+? ([REFUND_LOGIC] -> !VALIDATE_ORIGINAL_PAYMENT) : "HIGH: Money Leak. Refund can be triggered for an amount greater than the original payment or to a different account."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. MULTI-STEP_FLOW_ANALYSIS:
+   - Проанализировать процессы: Регистрация -> Оплата -> Доставка.
+   - Моделирование: Что будет, если вызвать эндпоинт `/api/v1/ship` сразу после `/api/v1/register`, минуя оплату?
+2. NUMERIC_&_BOUNDARY_TESTING:
+   - Проверка операций с числами: отрицательные значения в поле `quantity`, дробные числа там, где ожидаются целые.
+   - Анализ ошибок округления (Rounding Attacks) в финансовых транзакциях.
+3. INCENTIVE_SYSTEM_GAMING:
+   - Как работает реферальная система или промокоды? 
+   - Моделирование: Создание 1000 фейковых аккаунтов для получения бонусов (Account Farming).
+4. INVENTORY_&_LOCKING_ABUSE:
+   - Может ли пользователь положить 10 000 товаров в корзину и «заморозить» остатки на складе для других покупателей, не оплачивая их?
+5. TIME-BASED_LOGIC_ATTACK:
+   - Манипуляция временем: использование истекших токенов, продление триал-периода через изменение часового пояса или повторную активацию.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_LOGIC_ABUSE_MATRIX:
+  - WORKFLOW_NAME | ABUSE_SCENARIO | BUSINESS_IMPACT | COMPLEXITY | MITIGATION
+VISUALIZE: "Mermaid: Use State Diagrams to show 'Illegal Transitions' between application states."
+</OUTPUT_SPEC>
+</THREAT_MODELING_V3>

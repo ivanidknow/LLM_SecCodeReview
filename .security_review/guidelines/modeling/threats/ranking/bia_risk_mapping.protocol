@@ -1,0 +1,37 @@
+<RANKING_V3>
+@ID: BIA_DRIVEN_RISK_MAPPING
+@GOAL: ALIGN_TECHNICAL_THREATS_WITH_BUSINESS_SURVIVAL_CRITERIA
+@PARENT_CONTEXT: business_impact_analysis.protocol, data_inventory.protocol
+
+<MAPPING_RULES>
+# Повышение приоритета на основе бизнес-метрик
+
+IF (Threat.Impacts == BIA.Critical_Path) 
+   THEN Priority = BLOCKER; # Угроза основному денежному потоку
+
+IF (Threat.Data_Type == DATA_INVENTORY.PII_SENSITIVE) 
+   THEN Regulatory_Risk = CRITICAL; # Нарушение GDPR/152-ФЗ
+
+IF (Threat.Potential_Downtime > BIA.RTO) 
+   THEN Availability_Risk = CRITICAL; # Время восстановления превышает допустимое
+</MAPPING_RULES>
+
+<EXECUTION_PIPELINE>
+1. BUSINESS_CONTEXT_INJECTION:
+   - ИИ извлекает из Discovery данные о стоимости часа простоя и типах хранимых данных.
+2. FINANCIAL_LOSS_ESTIMATION:
+   - Расчет вероятного ущерба: (Вероятность атаки) x (Потенциальный убыток от инцидента).
+   - Учет косвенных потерь: репутация, отток клиентов (Churn Rate).
+3. REGULATORY_ANCHOR_CHECK:
+   - Проверка: попадает ли узел DFD под действие PCI DSS, HIPAA или локальных законов о данных.
+   - Если да, любая угроза Integrity/Disclosure получает статус "Non-Compliant".
+4. PRIORITY_RE-RANKING:
+   - Если DREAD дал 5 (Medium), но угроза бьет по единственной БД с транзакциями — поднять до 9 (Critical).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_BUSINESS_RISK_SUMMARY:
+  - THREAT_ID | BUSINESS_IMPACT_TYPE | RECOVERY_LIMIT_BREACH (Y/N) | FINAL_RANK
+VISUALIZE: "Mermaid: Heatmap showing Technical Severity vs. Business Criticality."
+</OUTPUT_SPEC>
+</RANKING_V3>

@@ -1,0 +1,45 @@
+<COUNTERMEASURES_V3>
+@ID: SECURITY_BY_DESIGN_PATTERNS
+@GOAL: ENFORCE_STRUCTURAL_SECURITY_PRINCIPLES_DURING_ARCHITECTURAL_MODELING
+@PARENT_CONTEXT: trust_boundary_crossing.protocol, privilege_logical_boundaries.protocol
+
+<CORE_PATTERNS>
+1. LEAST_PRIVILEGE (Принцип наименьших привилегий):
+   - Каждый процесс/сервис имеет доступ только к тем ресурсам, которые необходимы для выполнения его задачи.
+   - *Реализация:* Отдельные DB_Users для Read/Write, Scoped Tokens.
+
+2. DEFENSE_IN_DEPTH (Эшелонированная защита):
+   - Использование нескольких независимых слоев безопасности.
+   - *Реализация:* WAF + API Gateway Auth + Service Mesh mTLS + App Validation.
+
+3. FAIL-SAFE_DEFAULTS (Безопасность по умолчанию):
+   - При сбое или отсутствии конфига система переходит в максимально закрытое состояние.
+   - *Реализация:* Default Deny в Network Policies, закрытые порты.
+
+4. SEPARATION_OF_CONCERNS / COMPARTMENTALIZATION (Изоляция):
+   - Разделение критических и публичных функций на разные компоненты/сегменты.
+   - *Реализация:* Вынос обработки PII в отдельный изолированный микросервис (Vault-like).
+
+5. SECURE_BY_DIRECT_OBJECT_ISOLATION:
+   - Использование UUID/Opaque tokens вместо инкрементальных ID для защиты от перебора.
+</CORE_PATTERNS>
+
+<EXECUTION_PIPELINE>
+1. PATTERN_GAP_ANALYSIS:
+   - ИИ сравнивает текущую DFD-схему с "Идеальной моделью" (Golden Image).
+   - Выявление "монолитного доверия", где один компонент делает слишком много.
+2. TRUST_ZONING_REORGANIZATION:
+   - Предложение по пересмотру границ (Trust Boundaries).
+   - *Пример:* "Предлагаю вынести логику Auth из основного API в отдельный сервис (Identity Provider), чтобы снизить риск компрометации сессий".
+3. CHOKEPOINT_DESIGN:
+   - Проектирование централизованных точек контроля (Policy Enforcement Points), через которые проходит весь трафик.
+4. ZERO_TRUST_ADAPTATION:
+   - Переход от модели "доверенной внутренней сети" к проверке каждого запроса, даже внутри кластера.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ARCHITECTURAL_ADVISORY:
+  - PATTERN_NAME | CURRENT_STATE | PROPOSED_RESTRUCTURING | BENEFIT
+VISUALIZE: "Mermaid: Before/After comparison of the architecture."
+</OUTPUT_SPEC>
+</COUNTERMEASURES_V3>

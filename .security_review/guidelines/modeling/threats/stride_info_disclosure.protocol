@@ -1,0 +1,52 @@
+<THREAT_MODELING_V3>
+@ID: STRIDE_INFO_DISCLOSURE_ANALYSIS
+@GOAL: DETECT_DATA_LEAKS_IN_TRANSIT_AT_REST_AND_VIA_SIDE_CHANNELS
+@PARENT_CONTEXT: data_inventory.protocol, side_channel_storage.protocol, metadata_indexes.protocol
+
+<GLOBAL_VARS>
+# Векторы раскрытия информации
+DISCLOSURE_VECTORS: {
+  "INSECURE_STORAGE": "(Plaintext_DB|Unencrypted_S3|Backup_Exposure)",
+  "VERBOSITY_LEAKS": "(Stack_Traces|Verbose_Errors|Debug_Headers)",
+  "SIDE_CHANNEL": "(Timing_Attacks|Log_Leaks|Metadata_Residue)",
+  "NETWORK_SNIFFING": "(HTTP_instead_of_HTTPS|Internal_Plaintext_IPC)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SENSITIVE_DATA]  <- {from: data_inventory.protocol, scope: "PII|SECRETS|FINANCE"}
+[STORES]          <- {from: data_store_inventory.protocol, scope: "ALL"}
+[ERROR_HANDLERS]  <- {match: (catch|exception|errorHandler), scope: "ALL_LAYERS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты конфиденциальности
+! ([SENSITIVE_DATA] -> [EXTERNAL_FLOW] & !ENCRYPTION) : "CRITICAL: Plaintext Exfiltration. Sensitive data is sent over an unencrypted channel."
+! ([ERROR_RESPONSE] -> CONTAINS -> [SYSTEM_PATHS|DB_SCHEMA]) : "HIGH: Infrastructure Disclosure. Error messages reveal internal file paths or database structure to the user."
+! ([PUBLIC_BUCKET] -> CONTAINS -> [PRIVATE_USER_FILES]) : "BLOCKER: Direct Access Leak. Private files are stored in a publicly accessible cloud bucket without signed URLs."
+? ([PII_DATA] -> !DATA_MASKING_IN_LOGS) : "MEDIUM: Log Leakage. Personally Identifiable Information is written to logs in cleartext."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DATA_EXPOSURE_TRACE:
+   - Проследить путь [SENSITIVE_DATA] из базы до клиента. 
+   - Проверить: не возвращает ли API больше полей, чем нужно фронтенду (например, `id`, `name`, и внезапно `password_hash`).
+2. CRYPTO_STRENGTH_AUDIT:
+   - Проверить алгоритмы шифрования в покое (At-Rest). Используется ли устаревший DES/MD5 вместо AES-256/SHA-3?
+   - Проверка TLS-конфигурации: поддержка старых версий (TLS 1.0/1.1), которые уязвимы к перехвату.
+3. ERROR_VERBOSITY_SCAN:
+   - Имитировать сбои (неверный JSON, 404, 500). Что видит пользователь? 
+   - Выявление "болтливых" серверов, которые в заголовке `Server` выдают версию ОС и библиотеки (например, `X-Powered-By: Express`).
+4. SIDE-CHANNEL_ANALYSIS:
+   - Анализ метаданных: очищаются ли GPS-теги из загружаемых аватарок? 
+   - Проверка Timing Attacks: дает ли сервер разное время ответа при вводе существующего и несуществующего логина (User Enumeration)?
+5. SECURE_DISPOSAL_CHECK:
+   - Как данные удаляются? Затираются ли они в кэше/памяти или просто помечаются как `deleted=true` в БД, оставаясь доступными через API?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_DISCLOSURE_LOG:
+  - DATA_TYPE | LEAK_CHANNEL | SEVERITY | REGULATORY_IMPACT (GDPR/PII)
+VISUALIZE: "Mermaid: Represent Disclosure as an 'Open Envelope' icon on stores and flows. Highlight PII flows in purple."
+</OUTPUT_SPEC>
+</THREAT_MODELING_V3>

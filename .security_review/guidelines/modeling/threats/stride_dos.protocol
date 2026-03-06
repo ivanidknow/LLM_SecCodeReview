@@ -1,0 +1,50 @@
+<THREAT_MODELING_V3>
+@ID: STRIDE_DOS_ANALYSIS
+@GOAL: IDENTIFY_RESOURCE_EXHAUSTION_AND_LOGIC_BLOCKING_VECTORS
+@PARENT_CONTEXT: business_impact_analysis.protocol, async_event_driven_flows.protocol
+
+<GLOBAL_VARS>
+# Векторы отказа в обслуживании
+DOS_VECTORS: {
+  "ASYMMETRIC_LOAD": "(Complex_Regex|Large_Payload_Parsing|Heavy_DB_Queries)",
+  "RESOURCE_STARVATION": "(Connection_Pool_Leak|Memory_Leak|Thread_Hanging)",
+  "AMPLIFICATION": "(Recursive_API_Calls|Webhook_Loops|Mass_Email_Trigger)",
+  "LOGIC_LOCKOUT": "(Account_Lockout_Abuse|Distributed_Lock_Hanging)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[EXTERNAL_INGRESS] <- {from: external_internal_transitions.protocol, scope: "GATEWAYS"}
+[HEAVY_PROCESSES]  <- {match: (report|export|upload|process_image|zip), scope: "SERVICES"}
+[LIMITS_CONFIG]    <- {match: (rateLimit|timeout|maxPayload|memoryLimit), scope: "INFRA|MIDDLEWARE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты доступности
+! ([API_ENDPOINT] -> !RATE_LIMITING) : "CRITICAL: Flood Vulnerability. Public endpoint lacks throttling, allowing a single bot to overwhelm the service."
+! ([FILE_UPLOAD] -> !MAX_SIZE_LIMIT) : "HIGH: Disk/Memory Exhaustion. System accepts files of unlimited size, enabling 'Disk Filling' or 'Buffer Overflow' attacks."
+! ([DB_QUERY] -> !TIMEOUT) : "HIGH: Connection Pool Starvation. Long-running queries without timeouts can block all available database connections."
+? ([ASYNC_WORKER] -> !BACKPRESSURE) : "MEDIUM: Queue Overflow. Producer sends messages faster than Consumer can process, leading to memory exhaustion in the Broker."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ASYMMETRIC_ATTACK_SCAN:
+   - Найти эндпоинты, где "маленький запрос = тяжелая работа" (например, поиск по маске `%...%` в БД).
+   - Проверка на **ReDoS** (Regular Expression DoS): анализ регулярных выражений, обрабатывающих пользовательский ввод.
+2. TIMEOUT_&_RETRIES_AUDIT:
+   - Проверить наличие таймаутов на всех [IPC_CHANNELS].
+   - Поиск "бесконечных циклов ретраев" (Retry Loops), которые могут добить лежащий сервис при его попытке подняться.
+3. PAYLOAD_LIMIT_VERIFY:
+   - Анализ конфигурации парсеров (Body-parser, XML-SAX). Защищена ли система от **XML External Entity (XXE)** или **Billion Laughs Attack**?
+4. INFRASTRUCTURE_QUOTAS_CHECK:
+   - Проверить лимиты ресурсов (CPU/Memory Limits) в K8s/Docker. Может ли один взломанный или "зациклившийся" контейнер занять все ресурсы хоста?
+5. AUTHENTICATION_DOS_REVIEW:
+   - Проверка политики блокировки аккаунтов. Можно ли заблокировать всех пользователей системы, просто перебрав пароли к их логинам (Account Enumeration + Lockout)?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_DOS_LOG:
+  - ELEMENT_NAME | VECTOR | RESOURCE_TYPE | SEVERITY | RECOVERY_STRATEGY
+VISUALIZE: "Mermaid: Represent DoS as a 'Fire' icon on processes or a 'Full Battery' (exhaustion) icon on resources."
+</OUTPUT_SPEC>
+</THREAT_MODELING_V3>

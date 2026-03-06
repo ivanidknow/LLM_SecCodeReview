@@ -1,0 +1,51 @@
+<THREAT_MODELING_V3>
+@ID: SUPPLY_CHAIN_ATTACK_SCENARIOS
+@GOAL: DETECT_VULNERABILITIES_IN_THIRD_PARTY_CODE_BUILD_PIPELINES_AND_VENDORS
+@PARENT_CONTEXT: third_party_surface.protocol, integrity_validation_chokepoints.protocol
+
+<GLOBAL_VARS>
+# Векторы атаки на цепочку поставок
+SUPPLY_CHAIN_VECTORS: {
+  "DEPENDENCY_POISONING": "(Typosquatting|Dependency_Confusion|Malicious_Update)",
+  "PIPELINE_HIJACK": "(CI_CD_Secret_Theft|Runner_Compromise|Build_Artifact_Tampering)",
+  "VIRTUAL_INFRA_POISONING": "(Malicious_Base_Image|Untrusted_Terraform_Module)",
+  "VENDOR_BREACH": "(SaaS_Account_Takeover|Compromised_SDK_Provider)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DEPENDENCIES]   <- {from: third_party_surface.protocol, scope: "LIBRARIES|PACKAGES"}
+[BUILD_SYSTEM]   <- {match: (github-actions|gitlab-ci|jenkins|circleci), scope: "CI_CD_CONFIG"}
+[INFRA_BASE]     <- {match: (FROM|image|module), scope: "DOCKERFILE|TERRAFORM"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты Supply Chain
+! ([PACKAGE_MANAGER] -> !LOCK_FILES) : "CRITICAL: Non-Deterministic Builds. Lack of package-lock.json or poetry.lock allows silent injection of malicious dependency updates."
+! ([CI_RUNNER] -> HAS_ACCESS -> [PRODUCTION_SECRETS]) : "BLOCKER: Pipeline Overprivilege. CI/CD runner has direct access to production keys, allowing a malicious PR to exfiltrate them."
+! ([DOCKERFILE] -> FROM -> "latest") : "HIGH: Mutable Base Image. Using 'latest' tag allows an attacker or a compromised registry to swap the underlying OS image without notice."
+? ([THIRD_PARTY_SDK] -> !INTEGRITY_CHECK) : "MEDIUM: Blind SDK Trust. System loads external scripts (e.g., Analytics/Ads) without Subresource Integrity (SRI) hashes."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DEPENDENCY_TREE_ANALYSIS:
+   - Проанализировать список `direct` и `transitive` зависимостей. 
+   - Выявить "заброшенные" (unmaintained) пакеты, которые легче всего захватить злоумышленнику.
+2. CONFUSION_&_TYPOSQUATTING_PROBE:
+   - Проверить наличие внутренних пакетов, которые могут быть перекрыты публичными пакетами с тем же именем (Dependency Confusion).
+3. CI/CD_PIPELINE_HARDENING_REVIEW:
+   - Моделирование атаки через Pull Request: может ли сторонний контрибьютор запустить код, который украдет `secrets.GITHUB_TOKEN` или `AWS_KEYS`.
+   - Проверка изоляции Runner-ов: очищаются ли они после каждого билда?
+4. BASE_IMAGE_SOURCE_VERIFICATION:
+   - Аудит Docker-образов из Discovery. Проверка: используются ли официальные образы или "No-name" репозитории? 
+   - Моделирование сценария "Backdoored Base Image".
+5. SECURE_INTEGRATION_GATEWAY:
+   - Поиск мест, где приложение подтягивает данные/код в рантайме (например, динамические плагины). Проверка наличия подписи (Code Signing).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SUPPLY_CHAIN_GRAPH:
+  - SOURCE_COMPONENT | ATTACK_VECTOR | IMPACT_ON_PRODUCT | DETECTION_DIFFICULTY
+VISUALIZE: "Mermaid: Represent Supply Chain as a 'Flow' from external repositories to Production. Use 'Biohazard' icons for untrusted sources."
+</OUTPUT_SPEC>
+</THREAT_MODELING_V3>

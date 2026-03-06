@@ -135,6 +135,8 @@
 
 ### DFD (Data Flow Diagram)
 
+%% Инвентаризация и чертеж системы: кто с кем общается, где лежат данные и где заканчивается «своё» и начинается «чужое». %%
+
 ##### Entity & Process Mapping
 * External Interactors Identification (external_interactors.protocol)
 * Automated Agents & Bots (automated_agents.protocol)
@@ -155,7 +157,38 @@
 * Network & Infrastructure Boundaries (network_infra.protocol)
 * Privilege & Logical Boundaries (privilege_logical.protocol)
 * Integrity & Validation Chokepoints (validation_chokepoints.protocol)
+
+
+---
+
 ### Threat Modeling
+
+%% Поиск дыр и план работ: размышление, как хакер может сломать чертеж, выбор самых опасных угроз и принятие решений по ограничению. %%
+
+##### STRIDE Assessment
+* Spoofing (stride_spoofing.protocol)
+* Tampering (stride_tampering.protocol)
+* Repudiation (stride_repudiation.protocol)
+* Information Disclosure (stride_info_disclosure.protocol)
+* Denial of Service (stride_dos.protocol)
+* Elevation of Privilege (stride_eop.protocol)
+##### Attack Trees & Scenarios
+* Lateral Movement Scenarios (lateral_movement.protocol)
+* Supply Chain Attack Modeling (supply_chain.protocol)
+* Business Logic Abuse Scenarios (business_logic_abuse.protocol)
+* Data Exfiltration Scenarios (data_exfiltration.protocol)
+##### Threat Ranking & Prioritization
+* DREAD Scoring Model (dread_scoring.protocol)
+* BIA-driven Risk Mapping (bia_risk_mapping.protocol)
+* Likelihood vs. Impact Matrix (likelihood_impact_matrix.protocol)
+* Remediation Cost-Benefit Analysis (cost_benefit_analysis.protocol)
+##### Countermeasure Mapping
+* Mitigation Strategy Selection (mitigation_strategy.protocol)
+* Technical Control Specification (technical_controls.protocol)
+* Security-by-Design Patterns (design_patterns.protocol)
+* Verification & Testing Requirements (verification_testing.protocol)
+
+---
 
 # Deep Scan
 

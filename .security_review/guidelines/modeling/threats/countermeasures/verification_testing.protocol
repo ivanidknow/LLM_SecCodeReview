@@ -1,0 +1,34 @@
+<COUNTERMEASURES_V3>
+@ID: VERIFICATION_TESTING_REQUIREMENTS
+@GOAL: DEFINE_ACCEPTANCE_TESTS_FOR_SECURITY_CONTROLS
+@PARENT_CONTEXT: technical_controls.protocol, stride_assessment.protocol
+
+<TEST_TYPES>
+1. UNIT_SECURITY_TESTS:
+   - Проверка конкретных функций (например, валидатор схем, хэширование).
+2. INTEGRATION_SECURITY_TESTS:
+   - Проверка взаимодействия (например, корректность передачи JWT между сервисами).
+3. DYNAMIC_ANALYSIS (DAST) SCENARIOS:
+   - Имитация атак на запущенное приложение (например, попытка SQLi или XSS).
+4. NEGATIVE_TESTING:
+   - Проверка того, что система ПРАВИЛЬНО ОТКАЗЫВАЕТ (например, 403 при неверном токене).
+</TEST_TYPES>
+
+<EXECUTION_PIPELINE>
+1. CONTROL_TO_TEST_MAPPING:
+   - Для каждой спецификации из `technical_controls.protocol` создать минимум один тест-кейс.
+2. AUTOMATED_TEST_DEFINITION:
+   - Написание требований к автотестам.
+   - *Пример:* "Написать тест, который пробует отправить запрос с истекшим JWT и ожидает статус 401".
+3. MANUAL_PENTEST_INSTRUCTIONS:
+   - Описание сценариев для ручной проверки, которые сложно автоматизировать (например, сложные логические цепочки из Business Logic Abuse).
+4. ABUSE_CASE_VERIFICATION:
+   - Проверка устойчивости к сценариям из Attack Trees. "Если мы внедрили mTLS, может ли скомпрометированный Сервис А всё еще подделать личность?".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_VERIFICATION_CHECKLIST:
+  - CONTROL_ID | TEST_METHOD | EXPECTED_BEHAVIOR | AUTOMATION_STATUS
+VISUALIZE: "Mermaid: Traceability matrix from Threat -> Control -> Test Case."
+</OUTPUT_SPEC>
+</COUNTERMEASURES_V3>

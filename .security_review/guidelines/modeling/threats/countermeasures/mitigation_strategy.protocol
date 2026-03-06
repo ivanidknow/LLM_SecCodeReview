@@ -1,0 +1,43 @@
+<COUNTERMEASURES_V3>
+@ID: MITIGATION_STRATEGY_SELECTION
+@GOAL: ASSIGN_TREATMENT_PLAN_TO_RANKED_THREATS
+@PARENT_CONTEXT: cost_benefit_analysis.protocol, risk_matrix_mapping.protocol
+
+<STRATEGY_DEFINITIONS>
+1. AVOIDANCE (Избегание):
+   - Устранение причины риска (отключение функции, удаление данных).
+   - *Пример:* Удаление модуля загрузки аватарок, если риск RCE слишком велик.
+
+2. REDUCTION / MITIGATION (Смягчение):
+   - Внедрение контролей для снижения Likelihood или Impact.
+   - *Пример:* Внедрение Rate Limiting для защиты от DoS.
+
+3. TRANSFER / SHARING (Перенос):
+   - Передача риска третьей стороне.
+   - *Пример:* Использование Auth0 для аутентификации вместо самописного решения.
+
+4. ACCEPTANCE (Принятие):
+   - Согласие с риском без активных действий (только мониторинг).
+   - *Пример:* Риск низкой вероятности с ущербом менее $50.
+</STRATEGY_DEFINITIONS>
+
+<EXECUTION_PIPELINE>
+1. THREAT_INLET:
+   - Загрузка списка угроз из `risk_matrix_mapping.protocol`.
+2. STRATEGY_MATCHING_LOGIC:
+   - IF (Cost_to_Fix > Asset_Value) -> **ACCEPT** (с уведомлением Stakeholders).
+   - IF (Critical_Path == true AND Technical_Debt == high) -> **TRANSFER** (найти SaaS аналог).
+   - IF (Regulatory_Requirement == true) -> **REDUCE** (технические контроли обязательны).
+   - IF (Feature_Value == low AND Threat_Severity == critical) -> **AVOID** (предложить выпил функционала).
+3. RESIDUAL_RISK_ESTIMATION:
+   - Прогноз: какой уровень риска останется после применения стратегии?
+4. DOCUMENTATION:
+   - Обоснование выбора стратегии для финального отчета.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_STRATEGY_BOARD:
+  - THREAT_ID | SELECTED_STRATEGY | RATIONALE | NEXT_STEP
+VISUALIZE: "Mermaid: Decision Tree for risk treatment selection."
+</OUTPUT_SPEC>
+</COUNTERMEASURES_V3>

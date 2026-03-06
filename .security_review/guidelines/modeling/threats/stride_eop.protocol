@@ -1,0 +1,50 @@
+<THREAT_MODELING_V3>
+@ID: STRIDE_EOP_ANALYSIS
+@GOAL: DETECT_VERTICAL_AND_HORIZONTAL_AUTHORIZATION_BYPASSES
+@PARENT_CONTEXT: authorization_model.protocol, privilege_logical_boundaries.protocol
+
+<GLOBAL_VARS>
+# Векторы повышения привилегий
+EOP_VECTORS: {
+  "VERTICAL": "(Role_Manipulation|Token_Forgery|Insecure_Impersonation)",
+  "HORIZONTAL": "(IDOR|Object_Level_Authorization_Bypass)",
+  "SYSTEM_LEVEL": "(Container_Escape|Kernel_Exploit|Shell_Injection)",
+  "LOGIC_BYPASS": "(Parameter_Pollution|Step_Skipping_in_Workflows)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AUTHZ_GUARDS]   <- {from: authorization_model.protocol, scope: "DECORATORS|POLICIES"}
+[SENSITIVE_OPS]  <- {match: (delete|update|grant|admin|sudo|config), scope: "SERVICES"}
+[TOKEN_HANDLING] <- {match: (jwt.verify|decode|scopes|claims), scope: "MIDDLEWARE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты прав доступа
+! ([USER_INPUT] -> UPDATES -> [USER_ROLE]) : "BLOCKER: Mass Assignment. User can change their own role or permissions via a simple profile update request."
+! ([API_ENDPOINT] -> ACCESSES -> [RESOURCE_ID] & !OWNERSHIP_CHECK) : "CRITICAL: IDOR. User can access or modify resources belonging to others by simply changing the ID in the URL/Body."
+! ([ADMIN_INTERFACE] -> !ADDITIONAL_PROTECTION) : "HIGH: Flat Authorization. Admin panel is protected by the same session as the user UI, without IP-restriction or Step-Up MFA."
+? ([JWT_TOKEN] -> !SIGNATURE_VERIFIED) : "BLOCKER: Trusting Untrusted. System processes JWT claims without verifying the cryptographic signature."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. INSECURE_DIRECT_OBJECT_REFERENCE (IDOR) TRACE:
+   - Найти все эндпоинты, принимающие `id` ресурса.
+   - Проверить: есть ли в коде проверка `resource.owner_id == current_user.id`?
+2. MASS_ASSIGNMENT_SCAN:
+   - Анализ DTO и моделей. Позволяет ли система «прокинуть» лишние поля (например, `is_admin`, `balance`) из JSON-запроса прямо в объект БД?
+3. JWT_&_TOKEN_INTEGRITY_AUDIT:
+   - Проверка процесса валидации токенов. Можно ли подменить `user_id` внутри токена? Проверяется ли `exp` (истечение) и `nbf` (не использовать до)?
+4. ADMINISTRATIVE_INTERFACE_ISOLATION:
+   - Проверить, как разделены права "Пользователя" и "Админа". Используется ли единая таблица ролей или разные БД/сервисы?
+   - Поиск путей «побега» из интерфейса пользователя в интерфейс админа.
+5. COMMAND_&_CODE_INJECTION_SURFACE:
+   - Поиск функций `eval()`, `exec()`, `os.system()`, принимающих пользовательский ввод. Это кратчайший путь к **System-Level EoP**.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_EOP_LOG:
+  - COMPONENT | ATTACK_VECTOR | ESCALATION_TYPE | SEVERITY | MITIGATION
+VISUALIZE: "Mermaid: Represent EoP as an 'Upward Arrow' over logical boundaries. Highlight 'Admin' nodes in red."
+</OUTPUT_SPEC>
+</THREAT_MODELING_V3>

@@ -1,0 +1,35 @@
+<RANKING_V3>
+@ID: LIKELIHOOD_IMPACT_MATRIX
+@GOAL: VISUALIZE_RISK_DISTRIBUTION_FOR_EXECUTIVE_DECISION_MAKING
+@AXIS_X: LIKELIHOOD (R + E + D from DREAD)
+@AXIS_Y: IMPACT (D + A from DREAD + BIA_Weight)
+
+<MATRIX_ZONES>
+[ZONE_RED]    (High Likelihood / High Impact):
+  - Action: **MITIGATE IMMEDIATELY**. Недопустимый риск. Остановка релиза до исправления.
+[ZONE_ORANGE] (High Impact / Low Likelihood):
+  - Action: **TRANSFER or PREPARE**. "Черные лебеди". Нужна страховка или план антикризисного реагирования.
+[ZONE_YELLOW] (Low Impact / High Likelihood):
+  - Action: **MONITOR & AUTOMATE**. "Фоновый шум". Решается через стандартные контроли и WAF.
+[ZONE_GREEN]  (Low Impact / Low Likelihood):
+  - Action: **ACCEPT**. Риск признан, но затраты на исправление нецелесообразны.
+</MATRIX_ZONES>
+
+<EXECUTION_PIPELINE>
+1. AXIS_CALCULATION:
+   - **Likelihood**: Сумма (Reproducibility + Exploitability + Discoverability) / 3.
+   - **Impact**: Сумма (Damage + Affected Users + BIA_Criticality_Factor) / 3.
+2. MATRIX_PLACEMENT:
+   - Автоматическое распределение каждой угрозы по сетке 5x5 или 3x3.
+3. STRATEGY_ASSIGNMENT:
+   - Назначение "Risk Treatment" (Обработка риска) на основе зоны попадания.
+4. OUTLIER_ANALYSIS:
+   - Идентификация угроз, которые имеют низкий технический Impact, но критический регуляторный риск (Compliance-driven elevation).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_RISK_MATRIX:
+  - QUADRANT | THREAT_COUNT | CRITICAL_EXAMPLES
+VISUALIZE: "Mermaid: XY-Chart (Risk Matrix) with color-coded quadrants."
+</OUTPUT_SPEC>
+</RANKING_V3>

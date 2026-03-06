@@ -1,0 +1,50 @@
+<THREAT_MODELING_V3>
+@ID: DATA_EXFILTRATION_SCENARIOS
+@GOAL: DETECT_CHANNELS_FOR_SENSITIVE_DATA_LEAKAGE_AND_EGRESS_FILTERING_BYPASS
+@PARENT_CONTEXT: outbound_integration_paths.protocol, data_inventory.protocol, logging_monitoring.protocol
+
+<GLOBAL_VARS>
+# Методы вывода данных
+EXFIL_TECHNIQUES: {
+  "DIRECT_EXPORT": "(Bulk_API_Queries|Database_Dumps|File_Upload_to_Attacker_S3)",
+  "LOW_AND_SLOW": "(Rate_Limited_API_Scraping|Paginated_Data_Harvesting)",
+  "TUNNELING": "(DNS_Exfiltration|ICMP_Tunneling|HTTP_Header_Encoding)",
+  "SIDE_CHANNEL": "(Application_Logs_Exfiltration|Webhook_Payload_Manipulation)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SENSITIVE_ASSETS] <- {from: data_inventory.protocol, scope: "PII|SECRETS|DB"}
+[EGRESS_POINTS]    <- {from: outbound_integration.protocol, scope: "ALL"}
+[MONITORING]       <- {match: (SIEM|DLP|Anomalies|Egress_Proxy), scope: "INFRA"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты от вывода данных
+! ([DATABASE] -> CAN_CONNECT_TO -> [INTERNET]) : "CRITICAL: Direct Exfiltration Path. Database instance has direct outbound internet access, allowing an attacker to push dumps directly to their server."
+! ([BULK_API] -> !THRESHOLD_MONITORING) : "HIGH: Unmonitored Harvesting. An API endpoint allowing mass data retrieval lacks anomaly detection for unusual volume of requests from a single ID."
+! ([OUTBOUND_HTTPS] -> !INSPECTION) : "MEDIUM: Blind Egress. Encrypted outbound traffic is not inspected or restricted to a whitelist, allowing data to be hidden in HTTPS requests to attacker domains."
+? ([DNS_TRAFFIC] -> !ENTROPY_ANALYSIS) : "LOW: DNS Tunneling Risk. System does not monitor for high-entropy DNS queries used for data tunneling."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. BULK_TRANSFER_MODELING:
+   - Проверить эндпоинты с пагинацией и поиском. 
+   - Моделирование: Может ли скрипт выкачать 100% записей пользователей за час без блокировки?
+2. LEGITIMATE_CHANNEL_ABUSE:
+   - Анализ исходящих интеграций из Discovery (Slack, Email, S3).
+   - Может ли атакующий перехватить поток данных и отправить его на свой вебхук или в свой бакет?
+3. LOG-BASED_EXFILTRATION_CHECK:
+   - Проверка: Что если атакующий заставит систему логировать PII-данные и будет читать их через внешнюю систему сбора логов (например, Datadog/ELK), к которой у него есть доступ?
+4. STEALTH_TUNNELING_PROBE:
+   - Анализ возможности использования DNS-запросов или ICMP-пакетов для вывода мелких порций данных (например, API-ключей).
+5. OUTBOUND_WHITELIST_VERIFY:
+   - Проверка настроек Egress-фильтрации. Разрешен ли контейнерам доступ к любым IP-адресам или только к необходимым API?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_EXFILTRATION_MATRIX:
+  - CHANNEL | TECHNIQUE | DETECTABILITY | DATA_VOLUME_POTENTIAL | MITIGATION
+VISUALIZE: "Mermaid: Represent Exfiltration as a 'Leak' from the internal box to an 'Attacker C2' node."
+</OUTPUT_SPEC>
+</THREAT_MODELING_V3>

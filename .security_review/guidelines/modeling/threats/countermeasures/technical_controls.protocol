@@ -1,0 +1,34 @@
+<COUNTERMEASURES_V3>
+@ID: TECHNICAL_CONTROL_SPECIFICATION
+@GOAL: PROVIDE_ACTIONABLE_IMPLEMENTATION_DETAILS_FOR_DEVELOPERS
+@PARENT_CONTEXT: mitigation_strategy.protocol, stride_assessment.protocol
+
+<CONTROL_CATEGORIES>
+1. IDENTITY & ACCESS (AuthN/AuthZ):
+   - Спецификация: MFA (TOTP/WebAuthn), JWT (RS256, exp/aud claims), RBAC/ABAC models.
+2. CRYPTOGRAPHY (Data at Rest/Transit):
+   - Спецификация: AES-256-GCM, TLS 1.3 only, Argon2id for hashing, KMS/Vault integration.
+3. INPUT/OUTPUT HYGIENE:
+   - Спецификация: Content-Security-Policy (CSP), Parameterized Queries, Schema Validation.
+4. RESILIENCE & AVAILABILITY:
+   - Спецификация: Circuit Breaker thresholds, Rate Limit quotas, Timeout policies.
+</CONTROL_CATEGORIES>
+
+<EXECUTION_PIPELINE>
+1. THREAT_TO_CONTROL_MAPPING:
+   - Для каждой угрозы из STRIDE подобрать "Control Objective" (Цель контроля).
+2. STACK-SPECIFIC_ADAPTATION:
+   - ИИ анализирует стек из Discovery (например, Node.js + PostgreSQL).
+   - *Пример:* Для SQLi предложить `pg-promise` с именованными параметрами, а не просто "используйте ORM".
+3. CONFIGURATION_HARDENING_SNIPPETS:
+   - Генерация примеров конфигов (Nginx, Dockerfile, K8s NetworkPolicy).
+4. DEFENSE_IN_DEPTH_LAYERING:
+   - Проверка: если первичный контроль (например, WAF) будет обойден, какой вторичный контроль (например, валидация в коде) остановит атаку?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CONTROL_SHEET:
+  - CONTROL_ID | THREAT_ADDRESSED | IMPLEMENTATION_GUIDE | VERIFICATION_METHOD
+VISUALIZE: "Mermaid: Component diagram showing the placement of the control within the architecture."
+</OUTPUT_SPEC>
+</COUNTERMEASURES_V3>
