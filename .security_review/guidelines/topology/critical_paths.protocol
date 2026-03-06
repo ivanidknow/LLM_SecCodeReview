@@ -1,0 +1,49 @@
+<ARCH_SCAN_V3>
+@ID: CRITICAL_PATH_ANALYSIS
+@GOAL: END_TO_END_VALIDATION_OF_HIGH_VALUE_TRANSACTIONS
+
+<GLOBAL_VARS>
+# Определение "Золотых путей" бизнеса
+CRITICAL_FLOWS: "(auth|login|register|payment|transfer|checkout|password_reset|admin_action)"
+SENSITIVE_SINKS: "(Vault|HSM|DB\.Users|DB\.Transactions|KMS)"
+GATEKEEPER_MARKERS: "(validate|verify|authorize|checkPermission|authenticate|guard)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SOURCE] <- {path: {{IFACE_PATH}}, match: {{CRITICAL_FLOWS}}}
+[SINK]   <- {path: {{PERSIST_PATH}}, match: {{SENSITIVE_SINKS}}}
+[GATEKEEPER] <- {match: {{GATEKEEPER_MARKERS}}}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты для сквозных путей
+! (SOURCE -> SINK) : "PATH_ERROR: Direct path without [GATEKEEPER] intervention."
+? (PATH.length > 5) : "WARN: Too many hops. Increased surface for Logic Flaws / Race Conditions."
+! (PATH -> LOG_SYSTEM) : "HIGH: Sensitive data from [SOURCE] is logged before reaching [SINK]."
+? (PATH -> !{{CONCURRENCY_LOCKS}}) : "MEDIUM: Critical path lack of ACID/Locks (Atomicity risk)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TRACE_FLOW:
+   - Identify all [SOURCE] entry points matching {{CRITICAL_FLOWS}}.
+   - Build a call graph: [SOURCE] -> [APP] -> [DOMAIN] -> [SINK].
+2. GATEKEEPER_VERIFICATION:
+   - For each hop in the flow, verify if [GATEKEEPER] is invoked.
+   - Flag any flow where [SINK] is reached without a 'positive' result from [GATEKEEPER].
+3. DATA_TRANSFORMATION_AUDIT:
+   - Check if the data type changes (e.g., String -> Object -> JSON).
+   - Ensure no "Type Confusion" or "Unexpected Casting" occurs in critical logic.
+4. ERROR_PATH_ANALYSIS:
+   - Simulate a failure at each hop.
+   - Does the system "Fail Secure" (block access) or "Fail Open" (continue execution)?
+5. SIDE_CHANNEL_SCAN:
+   - Check if the flow triggers external events (Webhooks/Mails) with data from [SOURCE].
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_FLOW_REPORT:
+  - FLOW_NAME | HOPS_COUNT | SECURITY_CHECK_STATIONS | VULNERABILITY_SPOTS
+VISUALIZE: "Mermaid Sequence Diagram for each {{CRITICAL_FLOWS}} showing [GATEKEEPER] position."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

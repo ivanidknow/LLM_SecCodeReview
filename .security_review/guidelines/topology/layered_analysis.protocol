@@ -1,0 +1,58 @@
+<ARCH_SCAN_V3>
+@ID: LAYER_INTEGRITY_STRICT
+@GOAL: IDENTIFY_BOUNDARY_VIOLATIONS_BYPASSING_AUTHZ
+
+<GLOBAL_VARS>
+# Настройка под конкретный стек (заполняется перед запуском)
+IFACE_PATH: "(ctrl|api|route|gql|delivery)"
+IFACE_MATCH: "(@Controller|@Get|@Post|Router|Handler|fastapi.APIRouter)"
+
+APP_PATH: "(service|usecase|module|application)"
+APP_MATCH: "(@Injectable|Service|UseCase|Provider)"
+
+PERSIST_PATH: "(repo|dao|mapper|db|infrastructure/persistence)"
+PERSIST_MATCH: "(Repository|Entity|@Table|knex|prisma|TypeORM|gorm.DB|session.execute)"
+
+DOM_PATH: "(entity|domain|model)"
+DOM_MATCH: "(interface|class|type|struct)"
+DOM_EXCLUDE: "(DB_DECORATORS|ORM_METADATA)"
+
+# Регулярки для поиска инлайн-запросов (Inline DB leaks)
+DB_LEAK_PATTERNS: "(\.find\(|\.query\(|\.select\(|\.save\(|\.insert\(|\.delete\()"
+RAW_TRANSPORT_OBJECTS: "(Request|Response|HttpContext|FastAPI\.Request|express\.Request)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+# Динамическое связывание на основе переменных
+[IFACE]   <- {path: {{IFACE_PATH}}, match: {{IFACE_MATCH}}}
+[APP]     <- {path: {{APP_PATH}}, match: {{APP_MATCH}}}
+[PERSIST] <- {path: {{PERSIST_PATH}}, match: {{PERSIST_MATCH}}}
+[DOM]     <- {path: {{DOM_PATH}}, match: {{DOM_MATCH}}, exclude: {{DOM_EXCLUDE}}}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты (Strict Policy)
+! (IFACE -> PERSIST) : "CRITICAL: Direct DB access from API bypasses AuthZ/Validation logic in App layer."
+! (IFACE -> DOM.save) : "HIGH: UI/API layer triggers state change directly in Domain. Missing orchestration."
+! (APP -> {{RAW_TRANSPORT_OBJECTS}}) : "MEDIUM: Leaking Transport-layer objects into Business Logic (Dependency inversion failure)."
+! (PERSIST -> IFACE) : "LOW: Circular Dependency. Data layer should not have knowledge of Transport layer."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. INITIALIZE: Parse @Codebase using [CONTEXT_MAP].
+2. MAP_DEPS: Extract imports and constructor/method injections for all files in [IFACE].
+3. SCAN_BYPASS: 
+   - Check if any [IFACE] file imports from [PERSIST].
+   - Search for {{DB_LEAK_PATTERNS}} inside [IFACE] method bodies.
+4. VALIDATE_FLOW: 
+   - Trace calls: [IFACE] -> [APP] -> [PERSIST]. 
+   - Flag any hop that skips [APP].
+5. SANITY_CHECK: Detect {{RAW_TRANSPORT_OBJECTS}} in [APP] method signatures.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TABLE: [FILE_PATH | LEAK_TYPE | BYPASS_RISK | SUGGESTED_REFACTOR]
+FILTER: RISK >= MEDIUM
+THINKING_PROCESS: TRUE # DeepSeek-Coder-V2 will use CoT to explain logic
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

@@ -1,0 +1,52 @@
+<ARCH_SCAN_V3>
+@ID: SHARED_RESOURCE_INTEGRITY
+@GOAL: IDENTIFY_RESOURCE_CONTENTION_AND_INDIRECT_LEAKS
+
+<GLOBAL_VARS>
+# Типы общих ресурсов
+SHARED_STORAGE: "(common_db_table|global_temp_dir|shared_s3_bucket|public_schema)"
+SHARED_MEMORY: "(global_cache|singleton_config|static_map|process_env)"
+SIDE_CHANNEL_INDICATORS: "(response_time_variation|error_message_diff|execution_path_leak)"
+
+# Уровни доступа к ресурсу
+ACCESS_MODES: "(read_write|append_only|delete)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[RESOURCE_HUB] <- {match: {{SHARED_STORAGE}}, usage: "MULTI_MODULE_ACCESS"}
+[MEMORY_HUB]   <- {match: {{SHARED_MEMORY}}, scope: "GLOBAL"}
+[LOW_TRUST]    <- {path: {{LOW_TRUST_MODULES}}}
+[HIGH_TRUST]   <- {path: {{CRITICAL_MODULES}}}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты изоляции
+! (LOW_TRUST & HIGH_TRUST -> [RESOURCE_HUB].write) : "CRITICAL: Resource Pollution. Low-trust module can corrupt data used by High-trust."
+! (HIGH_TRUST -> [RESOURCE_HUB]) & (LOW_TRUST -> [RESOURCE_HUB]) : "WARN: Shared resource bypasses logical isolation (Microservices but shared DB table)."
+? (AUTH_LOGIC -> {{SIDE_CHANNEL_INDICATORS}}) : "HIGH: Potential Timing Attack. Different execution time for valid/invalid user."
+! (TEMP_STORAGE -> SENSITIVE_DATA) : "MEDIUM: Sensitive data in shared temp/public folder without encryption."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. FIND_SHARED_HUBS:
+   - Identify DB tables, S3 buckets, or Directories accessed by >2 distinct modules.
+   - Map: "Module_A | Module_B -> [RESOURCE_HUB]".
+2. INTEGRITY_SCAN:
+   - If [LOW_TRUST] has 'write' access to a hub used by [HIGH_TRUST], flag as "Integrity Risk".
+3. SIDE_CHANNEL_TIMING:
+   - Analyze loops/searches in [HIGH_TRUST] (e.g., password check).
+   - If 'if-else' branches have significantly different complexity, flag as "Timing Leak".
+4. ERROR_ORACLE_CHECK:
+   - Compare error outputs for different inputs (e.g., "User not found" vs "Invalid password").
+   - Flag as "Information Enumeration" if messages differ.
+5. CLEANUP_AUDIT:
+   - Check if [RESOURCE_HUB] (temp files/buffers) is cleared after use.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_LEAK_MATRIX:
+  - RESOURCE | SHARING_MODULES | ACCESS_TYPE | POTENTIAL_SIDE_CHANNEL
+VISUALIZE: "Mermaid graph showing [RESOURCE_HUB] as a central node connected to multiple modules."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

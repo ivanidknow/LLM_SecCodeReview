@@ -1,0 +1,51 @@
+<ARCH_SCAN_V3>
+@ID: THIRD_PARTY_TRUST_AUDIT
+@GOAL: IDENTIFY_EXTERNAL_DEPENDENCY_RISKS_AND_SUPPLY_CHAIN_LEAKS
+
+<GLOBAL_VARS>
+# Группировка внешних интерфейсов
+EXTERNAL_SDK_MARKERS: "(aws-sdk|stripe|firebase|google-cloud|twilio|sendgrid|auth0)"
+API_CLIENT_BASE: "(axios|fetch|got|request|http\.Client|resty)"
+SENSITIVE_SINKS: "(db|cache|fileSystem|vault|process\.env)"
+
+# Пороги риска
+MAX_THIRD_PARTY_PRIVILEGE: "WRITE" # Ожидаемый уровень доступа для SDK
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[EXTERNAL_SDK] <- {match: {{EXTERNAL_SDK_MARKERS}}, scope: "IMPORT"}
+[OUTBOUND_CALL] <- {match: {{API_CLIENT_BASE}}, usage: "EXTERNAL_URL"}
+[DATA_FEED] <- {match: (webhook|callback|listener), direction: "INBOUND"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты безопасности интеграций
+! (EXTERNAL_SDK -> [SENSITIVE_SINKS]) : "CRITICAL: External SDK has direct access to internal DB/Secrets. Risk of data exfiltration."
+! ([DATA_FEED] -> SQL_EXEC) : "HIGH: Unsanitized webhook data used in DB query. Injection risk via 3rd party."
+? ([OUTBOUND_CALL] -> !TLS) : "WARN: Sending data to external API over unencrypted channel."
+! (APP_LOGIC -> EXTERNAL_SDK.catch(ERROR_LEAK)) : "MEDIUM: Verbose error from 3rd party SDK leaked to client/logs."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. IDENTIFY_GATEWAYS: Find all files importing [EXTERNAL_SDK] or using [OUTBOUND_CALL].
+2. PRIVILEGE_AUDIT:
+   - Check if SDK is initialized with 'Admin' or 'Root' credentials.
+   - Trace if SDK results are used to modify [SENSITIVE_SINKS] without intermediate validation.
+3. WEBHOOK_SCAN:
+   - Locate all [DATA_FEED] endpoints.
+   - Verify presence of Signature Validation (HMAC, JWT) from the provider.
+   - Flag any missing "Authenticity Check" for incoming webhooks.
+4. DATA_LEAK_TRACE:
+   - Identify which internal fields (PII/Secrets) are sent to [OUTBOUND_CALL].
+   - Map: "Internal_Data -> [OUTBOUND_CALL]".
+5. ERROR_HANDLING:
+   - Check if 3rd party exceptions are caught and sanitized before being returned to the Interface layer.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REPORT:
+  - VENDOR | INTEGRATION_POINT | PERMISSION_LEVEL | DATA_EXCHANGED | RISK_SCORE
+VISUALIZE: "Mermaid diagram showing External_API as an Untrusted_Node interacting with Core_Services."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

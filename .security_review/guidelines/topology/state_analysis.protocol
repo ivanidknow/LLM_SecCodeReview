@@ -1,0 +1,41 @@
+<STATE_AUDIT_V2>
+@ID: STATE_INTEGRITY_SCAN
+@GOAL: IDENTIFY_PERSISTENCE_NODES_AND_SIDE_EFFECTS
+
+<GLOBAL_VARS>
+# Переменные для адаптации под стек
+STORAGE_DRIVERS: (redis|memcached|sql|mongo|s3|fs|localStorage|sessionStorage)
+MUTATION_MARKERS: (update|save|delete|commit|write|emit|set|push)
+CONCURRENCY_LOCKS: (mutex|transaction|lock|semaphore|atomic)
+</GLOBAL_VARS>
+
+<SCAN_LOGIC>
+[STATEFUL_NODE] <- {match: ({{STORAGE_DRIVERS}}), usage: (CONNECTION_STRING|CLIENT_INIT)}
+[SIDE_EFFECT]  <- {scope: (FUNCTION|METHOD), contains: ({{MUTATION_MARKERS}})}
+[CACHE_LAYER]  <- {path: (cache|buffer|tmp), type: (VOLATILE)}
+</SCAN_LOGIC>
+
+<ASSERTIONS>
+# Правила безопасности состояния
+! (STATELESS_LAYER -> GLOBAL_VARS) : "Stateless components must not store data in global memory (Race Condition risk)"
+? (STATEFUL_NODE -> {{CONCURRENCY_LOCKS}}) : "State mutation without explicit locking/transaction"
+! (LOG_SYSTEM -> SENSITIVE_DATA) : "State leaks: logging PII or Creds during mutation"
+! (IFACE -> CLIENT_SIDE_STATE) : "Trusting sensitive state (roles/perms) stored in Browser"
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. MAP_PERSISTENCE: Find all initializations of [STATEFUL_NODE].
+2. CLASSIFY_SERVICES:
+   - Identify [STATELESS]: No side-effects, deterministic output.
+   - Identify [STATEFUL]: Modifies DB, Cache, or Filesystem.
+3. RACE_CONDITION_SCAN: Find [SIDE_EFFECT] inside async loops or concurrent handlers without [CONCURRENCY_LOCKS].
+4. SESSION_INTEGRITY: Check if Session State is stored in [STATELESS] memory (Server-side) vs JWT (Client-side).
+5. LEAK_CHECK: Scan [STATEFUL_NODE] for PII-masking during write operations.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_LIST:
+  - COMPONENT_NAME | TYPE (Stateful/Stateless) | SHARED_RESOURCES | SECURITY_RISK
+FORMAT: MARKDOWN_TABLE
+</OUTPUT_SPEC>
+</STATE_AUDIT_V2>

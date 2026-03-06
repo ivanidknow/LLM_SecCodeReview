@@ -1,0 +1,48 @@
+<ARCH_SCAN_V3>
+@ID: COUPLING_COHESION_AUDIT
+@GOAL: IDENTIFY_SECURITY_FRAGILITY_AND_BLAST_RADIUS
+
+<GLOBAL_VARS>
+# Настройка критичности модулей
+CRITICAL_MODULES: "(auth|identity|billing|payment|admin|crypto|vault)"
+LOW_TRUST_MODULES: "(logging|analytics|feedback|notification|marketing|banner)"
+
+# Метрики для ИИ
+MAX_ALLOWED_DEPS: 5         # Макс. кол-во внешних импортов для критического модуля
+SENSITIVE_TYPES: "(User|Password|Token|Balance|ApiKey|Secret)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CORE] <- {path: {{CRITICAL_MODULES}}, priority: "HIGH"}
+[PERIPHERY] <- {path: {{LOW_TRUST_MODULES}}, priority: "LOW"}
+[SENSITIVE_DATA] <- {match: {{SENSITIVE_TYPES}}}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты устойчивости
+! (CORE -> PERIPHERY) : "CRITICAL_RISK: High-trust module depends on Low-trust. Attack on periphery impacts core."
+! (CORE.count_deps > {{MAX_ALLOWED_DEPS}}) : "WARN: High Coupling. Module is too complex and hard to audit."
+! (PERIPHERY -> [SENSITIVE_DATA]) : "HIGH_RISK: Low-trust module accesses sensitive entities directly (Data Leak risk)."
+? (CORE <-> CORE) : "INFO: Circular dependency between critical modules. Potential deadlock/logic flaw."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. INVENTORY: Identify all modules in [CORE] and [PERIPHERY].
+2. DEPENDENCY_GRAPH:
+   - Map all 'imports' and 'injections' for [CORE].
+   - Flag any import where source is [PERIPHERY].
+3. COHESION_CHECK:
+   - Analyze [CORE] files. If a file handles >3 distinct business tasks, flag as "Low Cohesion" (God Object).
+4. BLAST_RADIUS_CALC:
+   - If a [PERIPHERY] module is compromised, list all [CORE] modules that will be affected due to direct Coupling.
+5. TRANSITIVE_LEAK:
+   - Search for [SENSITIVE_DATA] being passed as arguments to [PERIPHERY] functions.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REPORT:
+  - COMPONENT | METRIC | FINDING | BLAST_RADIUS_IMPACT
+FILTER: RISK >= MEDIUM
+VISUALIZE: "Generate Mermaid graph showing CORE -> PERIPHERY links in RED."
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>
