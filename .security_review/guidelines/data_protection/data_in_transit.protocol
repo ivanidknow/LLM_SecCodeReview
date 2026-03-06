@@ -1,0 +1,53 @@
+<ARCH_SCAN_V3>
+@ID: DATA_IN_TRANSIT_AUDIT
+@GOAL: VERIFY_TRANSPORT_LAYER_SECURITY_AND_ENCRYPTION_FOR_ALL_COMMUNICATION_CHANNELS
+@PARENT_CONTEXT: protocol_discovery.protocol, outbound_trust.protocol
+
+<GLOBAL_VARS>
+# Требования к шифрованию каналов
+INSECURE_TRANSIT: "(http://|ws://|ftp://|telnet://|smtp://|!tls)"
+SECURE_TLS: "(TLS_1.2|TLS_1.3|https://|wss://)"
+
+# Маркеры конфигурации TLS/SSL
+TLS_CONFIG: "(rejectUnauthorized|ca|cert|key|ciphers|minVersion|secureOptions)"
+SECURITY_HEADERS: "(Strict-Transport-Security|X-Content-Type-Options)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[EGRESS_POINT]  <- {match: {{OUTBOUND_CLIENTS}}, scope: "FUNCTION_CALL"}
+[SERVER_CONFIG] <- {match: (https\.createServer|tls\.createServer|app\.listen|ssl_certificate), scope: "BOOTSTRAP"}
+[INTERNAL_COMM] <- {match: (grpc|amqp|redis|mongodb), context: "connection_string"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты передачи данных
+! (ANY -> {{INSECURE_TRANSIT}}) : "CRITICAL: Plaintext communication detected. Data is vulnerable to sniffing and MitM attacks."
+! ([SERVER_CONFIG]) & !Strict-Transport-Security : "HIGH: HSTS header missing. Risk of protocol downgrade attacks (SSLStrip)."
+? (rejectUnauthorized: false) : "CRITICAL: Certificate validation is disabled. System will trust any malicious certificate (Perfect MitM)."
+! (ZONE_INT -> ZONE_SEC) & !{{SECURE_TLS}} : "MEDIUM: Internal 'East-West' traffic is unencrypted. Risk of lateral movement sniffing."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TRANSPORT_STACK_SCAN:
+   - Identify all [EGRESS_POINT] and [INTERNAL_COMM] URLs.
+   - Flag any use of non-TLS protocols (HTTP/WS/FTP) in any environment except 'local-dev'.
+2. CERTIFICATE_VALIDATION_AUDIT:
+   - Search for `rejectUnauthorized: false` or `NODE_TLS_REJECT_UNAUTHORIZED=0`.
+   - Verify if custom CA bundles are correctly loaded for internal services.
+3. HSTS_AND_REDIRECT_CHECK:
+   - Check if the server forces HTTPS and sends the `Strict-Transport-Security` header.
+   - Verify if `301 Redirect` from HTTP to HTTPS is implemented.
+4. WEAK_CIPHER_DETECTION:
+   - Analyze [SERVER_CONFIG] for allowed TLS versions and cipher suites.
+   - Flag deprecated versions (TLS 1.0/1.1) or weak ciphers (RC4, DES).
+5. MAN_IN_THE_MIDDLE_SURFACE:
+   - Check for sensitive data (from data_inventory.protocol) being sent in URL Query Params (where it's visible to proxies/logs).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TRANSIT_SECURITY_REPORT:
+  - CHANNEL_NAME | PROTOCOL | ENCRYPTION_TYPE | CERT_VALIDATION | RISK_LEVEL
+VISUALIZE: "Mermaid graph: use Solid Green lines for TLS and Red Dashed lines for Plaintext."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

@@ -1,0 +1,54 @@
+<ARCH_SCAN_V3>
+@ID: DATA_AT_REST_AUDIT
+@GOAL: VERIFY_ENCRYPTION_AND_INTEGRITY_OF_STORED_SENSITIVE_DATA
+@PARENT_CONTEXT: data_inventory.protocol, state_analysis.protocol
+
+<GLOBAL_VARS>
+# Методы шифрования и библиотеки
+ENCRYPTION_LIBS: "(crypto|node-forge|pycryptodome|cryptography|nacl|kms|bouncycastle)"
+SECURE_ALGS: "(AES-256-GCM|ChaCha20-Poly1305|RSA-4096|Argon2id)"
+INSECURE_ALGS: "(AES-ECB|DES|RC4|MD5|SHA1_FOR_PASSWORDS)"
+
+# Хранилища-цели
+STORAGE_SINKS: "(DB|S3|FileSystem|Redis|Memcached|LocalStorage|Vault)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ENCRYPTOR]    <- {match: {{ENCRYPTION_LIBS}}, usage: "encrypt|decrypt|seal|open"}
+[STORAGE_OP]   <- {match: {{MUTATION_MARKERS}}, layer: [PERSIST]}
+[SENSITIVE_VAL] <- {match: {{DATA_CATEGORIES}}}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты хранения
+! ([SENSITIVE_VAL] -> [STORAGE_OP]) & !([ENCRYPTOR]) : "CRITICAL: Sensitive data stored in [STORAGE_SINKS] without application-level or transparent encryption." [cite: 52, 60]
+! ([ENCRYPTOR] -> {{INSECURE_ALGS}}) : "HIGH: Use of weak or obsolete cryptographic algorithms/modes (e.g. ECB mode)."
+? ([SENSITIVE_VAL] -> Logs) : "CRITICAL: Potential PII/Secret leak in application logs (Log Injection risk)." 
+! (KEY_STORAGE == DATA_STORAGE) : "HIGH: Cryptographic keys are stored alongside the encrypted data (Co-location risk)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CRYPTO_IMPLEMENTATION_AUDIT:
+   - Identify [ENCRYPTOR] calls. 
+   - Verify use of CSPRNG for IVs (Initialization Vectors) and Salts.
+   - Check if AES is used in GCM or CBC+HMAC mode for integrity.
+2. SINK_PROTECTION_VERIFY:
+   - For each [SENSITIVE_VAL] identified in data_inventory.protocol, trace its path to [STORAGE_OP].
+   - If it reaches a Database or FileSystem, check for "At-Rest Encryption" configs (TDE, S3-SSE).
+3. KEY_MANAGEMENT_DISCOVERY:
+   - Search for hardcoded keys, passphrases, or IVs.
+   - Check if keys are retrieved from a secure [SECRET_STORAGE] (Vault/KMS).
+4. LOG_SANITIZATION_SCAN:
+   - Analyze all logging statements (`logger.*`, `console.*`). 
+   - Ensure they don't serialize objects containing [SENSITIVE_VAL] categories. [cite: 54]
+5. CACHE_EXPIRATION_CHECK:
+   - If sensitive data is in Redis/Memcached, verify TTL (Time-To-Live) settings to prevent persistent exposure of volatile secrets.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_STORAGE_SECURITY_REPORT:
+  - DATA_CATEGORY | STORAGE_TYPE | ENCRYPTION_STATUS | KEY_MANAGEMENT | RISK_SCORE
+VISUALIZE: "Table: Data_Type vs Encryption_Algorithm vs Key_Location."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

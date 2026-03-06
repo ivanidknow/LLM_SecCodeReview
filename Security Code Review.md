@@ -29,11 +29,11 @@
 * Depth of AuthZ (depth_of_authz.protocol)
 * Lifecycle & Revocation (lifecycle_revocation.protocol)
 ##### Data at Rest & in Transit.
-* Data Inventory
-* Исследование Data at Rest
-* Исследование Data in Transit
-* Secrets Management
-* Data Retention
+* Data Inventory (data_inventory.protocol)
+* Исследование Data at Rest (data_at_rest.protocol)
+* Исследование Data in Transit (data_in_transit.protocol)
+* Secrets Management (secrets_management.protocol)
+* Data Retention (data_retention.protocol)
 
 ### Бизнес-процессы
 
