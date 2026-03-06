@@ -1,0 +1,49 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: ATTRIBUTION_TRADEMARK_COMPLIANCE_AUDIT
+@GOAL: VERIFY_CREDITS_VISIBILITY_AND_PREVENT_TRADEMARK_INFRINGEMENT
+@PARENT_CONTEXT: direct_dependency.protocol, white_label_constraints.protocol
+
+<GLOBAL_VARS>
+# Требования к атрибуции
+ATTRIBUTION_REQUIRED: "(MIT|BSD|Apache-2.0|CC-BY|JSON-License)"
+# Запреты на использование ТМ
+TRADEMARK_CLAUSES: "(trademark-not-granted|no-endorsement|not-use-name-of-author)"
+# Места проверки атрибуции
+CREDITS_LOCATIONS: "(ABOUT.md|CREDITS|LICENSE_SUMMARY|Help_About_Screen|Footer)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[INVENTORY]      <- {from: direct_dependency.protocol, type: "LICENSE_LIST"}
+[CREDITS_FILE]   <- {match: {{CREDITS_LOCATIONS}}, layer: [PROJECT_ROOT, UI_ASSETS]}
+[MARKETING_TEXT] <- {match: (powered_by|built_with|brand_names), scope: "WEBSITE_COPY|README"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты атрибуции и марок
+! ([INVENTORY] == {{ATTRIBUTION_REQUIRED}} & ![CREDITS_FILE]) : "MEDIUM: Missing Attribution. Licenses require credits, but no 'About' or 'Credits' file/screen was found. Technical copyright violation."
+! ([MARKETING_TEXT] -> "Official [Library_Name] Partner" & ![PARTNERSHIP_PROOF]) : "HIGH: Trademark Misuse. Using a library's name to imply official endorsement or partnership without a formal agreement."
+! ([UI_ASSETS] -> "Logo_of_Dependency" & ![BRAND_GUIDELINES_COMPLIANCE]) : "MEDIUM: Trademark Infringement. Using third-party logos in the UI without following their trademark policy."
+? ([CREDITS_FILE] -> STALE_DATA) : "INFO: Outdated Credits. The credits file mentions libraries that are no longer in the project or misses new ones."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ATTRIBUTION_SINK_VERIFY:
+   - Проверить наличие в корне проекта или в UI-разделе "О программе" списка всех лицензий сторонних компонентов.
+   - Убедиться, что для каждой библиотеки сохранено оригинальное уведомление (Copyright (c) Year Author).
+2. TRADEMARK_USAGE_SCAN:
+   - Просканировать маркетинговые материалы и README на предмет неправомерного использования имен популярных брендов (например, "React-Powered", "Oracle-Integrated").
+   - Проверить, не вводит ли название вашего продукта в заблуждение (например, использование префикса известной библиотеки в названии своего проприетарного плагина).
+3. "ADVERTISING_CLAUSE" DETECTION:
+   - Поиск старых лицензий (BSD 4-clause), которые требуют упоминания автора в ЛЮБОЙ рекламной продукции. Это "ад" для маркетинга.
+4. AUTOMATED_CREDITS_AUDIT:
+   - Если в проекте используется инструмент автоматизации (например, `license-checker`), проверить актуальность его конфига и выходного файла.
+5. NO-ENDORSEMENT_VERIFY:
+   - Проверить, не используются ли имена авторов или крупных компаний-контрибьюторов (Google, Meta, Microsoft) для продвижения продукта ("Used by developers from X").
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ATTRIBUTION_REPORT:
+  - COMPONENT | ATTRIBUTION_STATUS (Found/Missing) | TRADEMARK_RISK | CORRECTIVE_ACTION
+VISUALIZE: "Compliance Dashboard: Attribution Coverage and Branding Safety Score."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

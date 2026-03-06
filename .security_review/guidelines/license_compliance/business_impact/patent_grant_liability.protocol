@@ -1,0 +1,49 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: PATENT_GRANT_LIABILITY_AUDIT
+@GOAL: IDENTIFY_EXPLICIT_PATENT_LICENSES_AND_RETALIATION_RISKS
+@PARENT_CONTEXT: business_critical_dependencies.protocol, license_classification.protocol
+
+<GLOBAL_VARS>
+# Лицензии с явным патентным разрешением (Safe)
+PATENT_SAFE_LICENSES: "(Apache-2.0|GPL-3.0|MPL-2.0|EPL-2.0|CDDL)"
+# Лицензии без упоминания патентов (Ambiguous)
+PATENT_SILENT_LICENSES: "(MIT|BSD-2-Clause|GPL-2.0)"
+# Маркеры патентной агрессии
+RETALIATION_KEYWORDS: "(patent-termination|patent-retaliation|litigation-clause|defense-costs)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[LICENSE_REGISTRY] <- {from: direct_dependency.protocol, type: "LICENSE_TYPE"}
+[BUSINESS_ASSETS]  <- {from: value_chain_mapping.protocol, type: "PROPRIETARY_IP/PATENTS"}
+[LEGAL_NOTICES]    <- {match: (patent|intellectual-property|rights), scope: "LICENSE_FILE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты патентных рисков
+! ([LICENSE_REGISTRY] == {{PATENT_SILENT_LICENSES}}) : "MEDIUM: Patent Silence. License does not explicitly grant patent rights. Author could theoretically sue for patent infringement despite giving the code."
+! ([LEGAL_NOTICES] -> "patent-termination" & [BUSINESS_ASSETS] == "active_litigation") : "CRITICAL: Patent Retaliation Trigger. If your company sues the author for ANY patent, your right to use this library expires instantly. High risk of system halt."
+! ([LICENSE_REGISTRY] == "Apache-2.0") : "INFO: High Patent Safety. This license provides an explicit, irrevocable patent grant to all users."
+? ([LICENSE_REGISTRY] == "GPL-2.0") : "HIGH: Tivoization/Patent Risk. GPLv2 lacks modern patent clauses found in GPLv3. Potential for 'Patent Trolls' to exploit the gap."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PATENT_CLAUSE_EXTRACTION:
+   - Просканировать тексты лицензий на наличие секций "Grant of Patent License".
+   - Выделить условия, при которых патентное разрешение может быть отозвано (Termination clause).
+2. INTELLECTUAL_PROPERTY_ALIGNMENT:
+   - Если компания-заказчик имеет собственный патентный портфель ([BUSINESS_ASSETS]), проверить риск "Патентной мести" (Retaliation). 
+   - Выявить библиотеки от прямых конкурентов или патентных агрессоров.
+3. "SILENT_LICENSE" EXPOSURE:
+   - Подсчитать долю кода под лицензиями типа MIT/BSD. Хотя они популярны, они не защищают от патентных исков. Пометить как "Unresolved Patent Risk".
+4. INDEMNIFICATION_CHECK:
+   - Проверить, обещает ли автор библиотеки защитить вас в суде (Indemnification), если третья сторона подаст на вас иск из-за этого кода (спойлер: в Open Source это бывает крайне редко, но важно для коммерческих SDK).
+5. CONTRIBUTOR_AGREEMENT_SCAN:
+   - Если компания сама вносит правки в библиотеку, проверить условия CLA (Contributor License Agreement). Не передает ли компания свои патенты автору библиотеки навсегда?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PATENT_RISK_REPORT:
+  - COMPONENT | PATENT_GRANT (Explicit/Silent) | RETALIATION_RISK (High/Low) | RECOMMENDATION
+VISUALIZE: "Patent Safety Landscape: Mapping library usage against explicit patent protection clauses."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

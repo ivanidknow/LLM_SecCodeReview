@@ -1,0 +1,47 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: TRANSITIVE_DEPENDENCY_CHAIN
+@GOAL: MAP_INDIRECT_DEPENDENCIES_TO_DETECT_HIDDEN_COPYLEFT_CONTAMINATION
+@PARENT_CONTEXT: direct_dependency.protocol, legal_compatibility.protocol
+
+<GLOBAL_VARS>
+# Файлы блокировки (Lockfiles) - основной источник истины
+LOCK_FILES: "(package-lock.json|yarn.lock|pnpm-lock.yaml|pom.xml|go.sum|requirements.txt|Cargo.lock)"
+# Глубина сканирования (рекурсия)
+MAX_DEPTH: "unlimited" # Для финтеха проверяем до последнего листа
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[LOCK_FILE]        <- {match: {{LOCK_FILES}}, layer: [PROJECT_ROOT]}
+[DEPENDENCY_GRAPH] <- {match: (dependencies|requires|resolved), scope: "JSON/XML"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты транзитивных связей
+! ([LOCK_FILE] -> !FULL_RESOLUTION) : "CRITICAL: Unresolved Graph. Lockfile is missing or incomplete. Transitive dependencies cannot be audited, creating a 'Black Box' risk."
+! (TRANSITIVE_LICENSE == "GPL|AGPL" & DIRECT_PARENT_LICENSE == "MIT|Apache") : "HIGH: License Poisoning. A permissive direct dependency pulls a copyleft transitive one. The entire chain may be legally contaminated."
+! (TRANSITIVE_VERSION == "vulnerable") : "MEDIUM: Hidden Vulnerability. A transitive dependency has a known CVE or an expired license, even if the direct parent is up-to-date."
+? (GRAPH_COMPLEXITY > 500) : "INFO: Supply Chain Fragility. Too many indirect dependencies. High risk of 'Left-Pad' style breakage or malicious injection."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. LOCKFILE_PARSING:
+   - Проанализировать [LOCK_FILE] для построения полного дерева (Graph) всех установленных пакетов.
+   - Извлечь `resolved` URL и `integrity` хэши для каждого транзитивного компонента.
+2. NESTED_LICENSE_EXTRACTION:
+   - Для каждого узла дерева определить лицензию.
+   - Особое внимание уделить пакетам, которые не имеют лицензии в манифесте, но содержат её в метаданных реестра (NPM/PyPI).
+3. CONTAMINATION_PATH_TRACE:
+   - Найти пути: `Project -> Direct (Permissive) -> Transitive (Copyleft)`.
+   - Если такая цепочка найдена, пометить её в отчете как "Hidden Legal Liability".
+4. CIRCULAR_DEPENDENCY_CHECK:
+   - Выявить циклические зависимости, которые могут усложнять аудит и приводить к непредсказуемому поведению сборщика.
+5. ORIGIN_CONSISTENCY:
+   - Проверить, что транзитивные зависимости качаются из тех же доверенных реестров, что и прямые.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TRANSITIVE_RISK_MAP:
+  - DIRECT_PARENT | TRANSITIVE_CHILD | TRANSITIVE_LICENSE | RISK_LEVEL
+VISUALIZE: "Dependency Tree: Highlight paths leading to restricted (GPL/AGPL) licenses."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

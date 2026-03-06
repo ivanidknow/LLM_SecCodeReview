@@ -1,0 +1,53 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: LINKING_METHOD_EVALUATION
+@GOAL: DETERMINE_LEGAL_BOUNDARY_BASED_ON_PHYSICAL_CODE_INTEGRATION
+@PARENT_CONTEXT: copyleft_contamination.protocol, structural_logic_smells.protocol
+
+<GLOBAL_VARS>
+# Типы линковки
+LINKING_MODES: {
+  "STATIC": "Code is copied into the final executable (high risk for LGPL/GPL)",
+  "DYNAMIC": "Code is loaded at runtime from shared objects (.so, .dll, .dylib)",
+  "SOURCE": "Source code is directly included/compiled with the project",
+  "WRAPPING": "Interaction via CLI, System Calls, or IPC (lowest risk)"
+}
+
+# Триггерные лицензии
+LINKING_SENSITIVE_LIBS: "(LGPL-2.1|LGPL-3.0|GPL-2.0|GPL-3.0)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[BUILD_CONFIG]    <- {match: (CMakeLists.txt|Makefile|build.gradle|pom.xml|Dockerfile), layer: [INFRA]}
+[IMPORT_STATEMENT] <- {match: (import|include|require|extern), scope: "SOURCE_CODE"}
+[BINARY_ARTIFACT] <- {match: (EXE|ELF|JAR|WAR|IMAGE), layer: [RELEASE]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты методов линковки
+! ([IMPORT_STATEMENT] -> STATIC_LINK -> "LGPL") : "HIGH: LGPL Violation Risk. Static linking with LGPL code makes the entire application a derivative work. Dynamic linking is required to maintain proprietary status."
+! ({{LINKING_MODES.SOURCE}} -> {{LINKING_SENSITIVE_LIBS}}) : "CRITICAL: Direct Contamination. Copy-pasting source code from a GPL/LGPL project into private files. Instant legal loss of IP."
+! ([BUILD_CONFIG] -> "LTO" | "Static-Lib") : "MEDIUM: Hidden Static Linking. Link-Time Optimization or specific flags might be merging libraries into the main binary unknowingly."
+? ([IMPORT_STATEMENT] -> "Reflection" | "DLOPEN") : "INFO: High Isolation. Dynamic loading via reflection or dlopen provides the strongest technical argument for non-derivative work."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. BUILD_SYSTEM_ANALYSIS:
+   - Изучить инструкции линковщика (LDFLAGS). Найти флаги `-static`, `-Wl,-Bstatic` или использование статических архивов (`.a`, `.lib`).
+   - Проверить Maven/Gradle конфиги на наличие `shaded` или `fat-jar` плагинов, которые упаковывают всё внутрь одного JAR.
+2. RUNTIME_DEPENDENCY_INSPECTION:
+   - Проверить Dockerfile или сборочные скрипты: поставляются ли библиотеки как отдельные файлы (`.so`, `.dll`) в образе?
+   - Если библиотек в образе нет, но функции вызываются — значит, они вшиты в бинарник (Static).
+3. HEADER_EXPANSION_CHECK (C/C++):
+   - Проверить использование тяжелых макросов или шаблонов (Templates) из GPL-заголовков. Большая экспансия кода в заголовочных файлах может приравниваться к статической линковке.
+4. PLUGIN_ARCHITECTURE_VERIFY:
+   - Если библиотека используется как плагин, проверить механизм загрузки. Если это `dlopen` или `ServiceLoader`, риск заражения минимален.
+5. CONTAINER_LAYER_AUDIT:
+   - Проверить, находятся ли проприетарный код и лицензионная библиотека в разных слоях или контейнерах, взаимодействуя через сетевые интерфейсы.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_LINKING_VERDICT:
+  - COMPONENT | OBSERVED_LINKING_MODE | COMPLIANCE_STATUS (Pass/Risk) | REFACTORING_NEED
+VISUALIZE: "Binary Structure Analysis: Static vs Dynamic Linkage in the target executable."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

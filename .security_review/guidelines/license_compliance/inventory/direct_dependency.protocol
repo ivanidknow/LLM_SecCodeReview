@@ -1,0 +1,55 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: DIRECT_DEPENDENCY_IDENTIFICATION
+@GOAL: EXPOSE_ALL_EXPLICIT_SOFTWARE_COMPONENTS_AND_THEIR_LEGAL_ORIGIN
+@PARENT_CONTEXT: value_chain_mapping.protocol, supply_chain_provenance.protocol
+
+<GLOBAL_VARS>
+# Манифесты по экосистемам
+MANIFEST_FILES: "(package.json|pom.xml|requirements.txt|go.mod|Cargo.toml|Gemfile|composer.json)"
+# Маркеры вшитых зависимостей
+VENDOR_PATHS: "/(vendor|libs|external|third_party|deps)/"
+LICENSE_FILE_PATTERN: "(LICENSE|COPYING|NOTICE|README)"
+
+# Типы лицензий для классификации
+PERMISSIVE: "(MIT|Apache-2.0|BSD|ISC)"
+COPYLEFT: "(GPL|AGPL|LGPL|MPL|EPL)"
+PROPRIETARY: "(Commercial|Non-Commercial|All Rights Reserved)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[BUILD_MANIFEST]   <- {match: {{MANIFEST_FILES}}, layer: [PROJECT_ROOT]}
+[VENDED_SOURCE]    <- {match: {{VENDOR_PATHS}}, scope: "SOURCE_CODE"}
+[SUBMODULE_CONFIG] <- {match: ".gitmodules", layer: [PROJECT_ROOT]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты инвентаризации
+! ([BUILD_MANIFEST] -> !DEPENDENCY_VERSION_PINNING) : "HIGH: Unpinned Dependency. Using 'latest' or wildcards. Risk of sudden license change or breaking supply chain attack."
+! ([VENDED_SOURCE] -> !{{LICENSE_FILE_PATTERN}}) : "CRITICAL: Anonymous Code. Third-party code found in vendor folder without a LICENSE file. Legal origin is unknown."
+! ([BUILD_MANIFEST] -> EXTERNAL_PRIVATE_REGISTRY) : "MEDIUM: Dependency Confusion Risk. Project mixes public and private registries without explicit scoping (e.g., @company/package)."
+! (DEPENDENCY_COUNT > 100) : "INFO: Bloated Surface. Project has an excessive number of direct dependencies. High maintenance and audit overhead."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. MANIFEST_EXTRACTION:
+   - Извлечь все зависимости из [BUILD_MANIFEST].
+   - Разделить их на `Production` (Runtime) и `Development` (Build-time).
+   - Сопоставить каждую с официальной лицензией в реестре (NPM/PyPI/Maven).
+2. "COPY-PASTE" DETECTION:
+   - Просканировать [VENDED_SOURCE] на наличие сторонних копирайтов в комментариях (e.g., "Copyright (c) 202X [Author]").
+   - Сравнить найденные файлы с записями в манифестах. Если файла нет в манифесте, но он в `libs/` — это "Shadow Dependency".
+3. REGISTRY_SOURCE_AUDIT:
+   - Проверить URL репозиториев. Если библиотека тянется напрямую из Git по SSH/HTTPS вместо реестра — пометить как "High Risk of Integrity Breach".
+4. LICENSE_CONSISTENCY_CHECK:
+   - Сравнить лицензию, указанную в манифесте, с текстом файла LICENSE внутри пакета. В случае расхождения — флаг "Legal Ambiguity".
+5. SUBMODULE_RECURSION:
+   - Если найден [SUBMODULE_CONFIG], проанализировать лицензию удаленного репозитория как прямую зависимость текущего проекта.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_DIRECT_INVENTORY_TABLE:
+  - COMPONENT_NAME | VERSION | LICENSE_TYPE | SOURCE (Registry/Git/Vendor) | SCOPE (Prod/Dev)
+IDENTIFY_CRITICAL_GAPS:
+  - Список компонентов с "Unknown" лицензией или без зафиксированной версии (Unpinned).
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

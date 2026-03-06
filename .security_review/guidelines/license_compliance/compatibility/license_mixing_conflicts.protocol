@@ -1,0 +1,53 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: LICENSE_INCOMPATIBILITY_MIXING
+@GOAL: DETECT_LEGAL_DEADLOCKS_WHERE_COMPETING_LICENSES_CANNOT_COEXIST
+@PARENT_CONTEXT: direct_dependency.protocol, copyleft_contamination.protocol
+
+<GLOBAL_VARS>
+# Известные пары конфликтов (Conflict Matrix)
+CONFLICT_PAIRS: [
+  {"L1": "GPL-2.0", "L2": "Apache-2.0", "Reason": "Patent clause mismatch"},
+  {"L1": "GPL-2.0", "L2": "CDDL-1.0", "Reason": "Incompatible copyleft scopes"},
+  {"L1": "GPL-3.0", "L2": "Creative-Commons-BY-NC", "Reason": "Commercial restriction vs Freedom"}
+]
+
+# Уровни изоляции
+ISOLATION_LAYERS: "(separate_process|dynamic_linking|ipc_call)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[MODULE_A] <- {from: direct_dependency.protocol, type: "LICENSE_L1"}
+[MODULE_B] <- {from: direct_dependency.protocol, type: "LICENSE_L2"}
+[COMBINED_WORK] <- {match: (link|package|bundle|merge), layer: [BUILD_SYSTEM]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты совместимости
+! ([MODULE_A] == "GPL-2.0" & [MODULE_B] == "Apache-2.0" & ![ISOLATION_LAYERS]) : "CRITICAL: Fundamental Incompatibility. GPLv2 and Apache 2.0 code are mixed in one binary. Distribution is legally impossible."
+! ([COMBINED_WORK] -> (L1_PROHIBITS_X & L2_REQUIRES_X)) : "HIGH: Logic Deadlock. One license requires attribution in advertising, another prohibits any additional terms. Paradox detected."
+! ([MODULE_A] == {{STRONG_COPYLEFT}} & [MODULE_B] == "Proprietary") : "BLOCKER: Compliance Failure. Proprietary code is being distributed within a Copyleft bundle."
+? ([MODULE_A] == "GPL-3.0" & [MODULE_B] == "Apache-2.0") : "INFO: Compatible Pair. GPLv3 was designed to be compatible with Apache 2.0."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. BINARY_BUNLDING_ANALYSIS:
+   - Проверить, как формируется итоговый артефакт (Docker image, Fat-JAR, Webpack bundle).
+   - Если библиотеки с конфликтующими лицензиями попадают в один статический бинарник — это "Red Flag".
+2. VERSION_SPECIFIC_CHECK:
+   - Особое внимание версиям: GPLv2 и GPLv3 имеют принципиально разную совместимость. 
+   - Проверить наличие оговорки "or any later version", которая может спасти ситуацию.
+3. ADVERTISING_CLAUSE_SCAN:
+   - Поиск старых лицензий (например, Original BSD 4-clause), требующих упоминания в рекламе, что конфликтует с современным GPL.
+4. "SHIM" & "WRAPPER" DETECTION:
+   - Проверить, пытались ли разработчики обойти конфликт через технические прослойки. 
+   - Оценить, достаточно ли глубока изоляция (IPC/Process) для обхода лицензионных ограничений.
+5. DOCUMENTATION_CROSS_CHECK:
+   - Сверка файлов `NOTICE` и `LEGAL`. Если в одном файле заявляются права под двумя несовместимыми лицензиями — это юридический риск.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_COMPATIBILITY_REPORT:
+  - COMPONENT_A | COMPONENT_B | CONFLICT_REASON | SEVERITY
+VISUALIZE: "License Conflict Matrix: Highlighting deadlocks between dependencies in the same build target."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

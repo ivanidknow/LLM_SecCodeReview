@@ -1,0 +1,48 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: REDISTRIBUTION_WHITE_LABEL_CONSTRAINTS
+@GOAL: DETECT_RESTRICTIONS_ON_Sublicensing_AND_BRANDING_FOR_DISTRIBUTED_SOFTWARE
+@PARENT_CONTEXT: value_chain_mapping.protocol, license_classification.protocol
+
+<GLOBAL_VARS>
+# Маркеры ограничений на брендинг и дистрибуцию
+BRANDING_KEYWORDS: "(attribution-required|no-derivatives|preserve-logos|powered-by|keep-notices|trademark-restriction)"
+DISTRIBUTION_MODES: "(on-prem|binary-dist|oem|sdk|white-label)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DELIVERY_MODEL]  <- {from: value_chain_mapping.protocol, context: "DISTRIBUTION_TYPE"}
+[LICENSE_TERMS]    <- {match: {{BRANDING_KEYWORDS}}, scope: "LICENSE_FILE"}
+[UI_ASSETS]        <- {match: (logo|footer|credits|about), layer: [FRONTEND]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты перепродажи и брендинга
+! ([DELIVERY_MODEL] == "White-Label" & [LICENSE_TERMS] -> "attribution-required") : "HIGH: Branding Violation. You are hiding third-party credits in a White-Label product, but the license requires 'Visible Attribution'. Legal risk of copyright claim."
+! ([DELIVERY_MODEL] == "On-Premise" & [LICENSE_TERMS] -> "no-redistribution") : "BLOCKER: Distribution Illegal. License forbids redistributing the component, but your business model is based on On-Premise installation at client sites."
+! ([LICENSE_TERMS] -> "no-derivatives" & [UI_ASSETS].customized == true) : "CRITICAL: Illegal Modification. The library is under a 'No-Derivatives' (ND) license, but you have modified its UI/Styles to match your brand."
+? ([LICENSE_TERMS] -> "trademark") : "INFO: Trademark Caution. You can use the code, but you must remove all original brand names/logos from the UI before shipping."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DISTRIBUTION_MODEL_AUDIT:
+   - Определить, покидает ли код сервера компании ([DELIVERY_MODEL]).
+   - Если да (Mobile App, Desktop, On-Prem), активировать проверку условий "Distribution".
+2. ATTRIBUTION_SINK_SCAN:
+   - Проверить UI (подвалы сайтов, разделы "About", мобильные экраны настроек) на наличие обязательных упоминаний "Powered by [Vendor]".
+   - Если упоминаний нет, а лицензия (например, некоторые версии Creative Commons или рекламные клаузы) их требует — зафиксировать нарушение.
+3. "NO-DERIVATIVES" INTEGRITY:
+   - Найти библиотеки с лицензиями ND (No-Derivatives). 
+   - Сравнить исходный код библиотеки с версией в проекте. Если найдены правки стилей или логики — это прямой "Compliance Failure".
+4. SUB-LICENSING_PERMISSION_CHECK:
+   - Проверить, дает ли лицензия право передавать (Sub-license) этот компонент вашим клиентам. 
+   - Это критично для OEM-контрактов и SDK.
+5. OEM_LOGO_PRESERVATION:
+   - Поиск в JS/CSS файлов библиотек, которые принудительно рендерят свои водяные знаки или логотипы. Попытки их скрыть через `display: none` пометить как "High Risk of Contract Breach".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REDISTRIBUTION_RISK_REPORT:
+  - COMPONENT_NAME | RESTRICTION_TYPE | BRANDING_CONFLICT | DISTRIBUTION_ALLOWED (Y/N)
+VISUALIZE: "White-Label Readiness Map: Identifying components that force third-party branding on your product."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

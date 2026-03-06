@@ -1,0 +1,46 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: SBOM_QUALITY_INTEGRITY_AUDIT
+@GOAL: VERIFY_ACCURACY_OF_THE_SOFTWARE_INVENTORY_AGAINST_REAL_CODEBASE
+@PARENT_CONTEXT: direct_dependency.protocol, transitive_dependency_chain.protocol
+
+<GLOBAL_VARS>
+# Стандарты SBOM
+SBOM_STANDARDS: "(CycloneDX|SPDX|SWID)"
+# Обязательные поля для качественного SBOM
+REQUIRED_FIELDS: "(component_name|version|license|hash|supplier|purl)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DECLARED_SBOM]  <- {match: (sbom.json|bom.xml|spdx.rdf), layer: [PROJECT_ROOT, DIST]}
+[ACTUAL_INVENTORY] <- {from: direct_dependency.protocol, type: "REAL_CODE_SCAN"}
+[BUILD_TOOLING]  <- {match: (cyclonedx-maven-plugin|syft|tern), scope: "CI_CD_CONFIG"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты качества SBOM
+! ([DECLARED_SBOM] == missing) : "HIGH: No Software Passport. SBOM is missing. Difficult to pass external audits or supply chain security certifications."
+! (COUNT([ACTUAL_INVENTORY]) > COUNT([DECLARED_SBOM])) : "CRITICAL: Shadow Code Detected. Real codebase contains components not listed in the SBOM. Total loss of supply chain transparency."
+! ([DECLARED_SBOM].fields != {{REQUIRED_FIELDS}}) : "MEDIUM: Low Fidelity SBOM. Essential metadata (hashes or supplier info) is missing, making the SBOM useless for automated vulnerability matching."
+? ([BUILD_TOOLING] == missing) : "INFO: Manual SBOM Risk. SBOM is likely generated manually or is stale. High risk of human error and outdated data."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CROSS_REFERENCE_VALIDATION:
+   - Сравнить каждый элемент из [DECLARED_SBOM] с [ACTUAL_INVENTORY]. 
+   - Найти "фантомные" компоненты (есть в SBOM, нет в коде) и "теневые" (есть в коде, нет в SBOM).
+2. METADATA_DEPTH_CHECK:
+   - Проверить наличие `PURL` (Package URL) и `CPE` (Common Platform Enumeration). Без них невозможно автоматически сопоставить компоненты с базами уязвимостей (CVE).
+3. HASH_VERIFICATION:
+   - Сверить контрольные суммы, указанные в SBOM, с реальными хэшами файлов в дистрибутиве. Обнаружить подмену артефактов.
+4. COMPONENT_RELATIONSHIP_MAP:
+   - Проверить, описывает ли SBOM иерархию (кто кого притянул). "Плоский" список без связей считается низкокачественным.
+5. CI/CD INTEGRATION AUDIT:
+   - Проверить, генерируется ли SBOM автоматически при каждой сборке. Если дата создания SBOM в репозитории старая — пометить как "Untrusted/Stale".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SBOM_SCORECARD:
+  - COMPLIANCE_LEVEL (Gold/Silver/Bronze) | ACCURACY_PERCENTAGE | MISSING_COMPONENTS | MISSING_METADATA
+VISUALIZE: "SBOM Coverage Gap: Visual difference between declared inventory and detected code."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

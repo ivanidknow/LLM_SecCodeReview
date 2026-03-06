@@ -1,0 +1,48 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: LICENSE_EVOLUTION_TRACKING_AUDIT
+@GOAL: DETECT_UPCOMING_COMMERCIAL_PIVOTS_AND_DEPRECATED_LEGAL_TERMS
+@PARENT_CONTEXT: supply_chain_provenance.protocol, business_critical_dependencies.protocol
+
+<GLOBAL_VARS>
+# Маркеры смены лицензии (Pivot)
+PIVOT_INDICATORS: "(relicense|change license|BSL|SSPL|Elastic License|Commons Clause|HashiCorp|Redis)"
+# Реестры мониторинга (условно)
+COMMUNITY_ALERTS: "(OpenSource.org|OSI_Announcements|GitHub_Discussions)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CURRENT_VERSION] <- {from: direct_dependency.protocol, type: "VERSION_STR"}
+[LATEST_VERSION]  <- {match: "registry_api_call", scope: "EXTERNAL_REGISTRY"}
+[CHANGELOG]       <- {match: (CHANGELOG|NEWS|HISTORY|RELEASES), layer: [PROJECT_ROOT]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты эволюции лицензий
+! ([CURRENT_VERSION].license != [LATEST_VERSION].license) : "CRITICAL: License Pivot Detected. The library has changed its license in a newer version. Upgrading will trigger new legal obligations (e.g., BSL/SSPL)."
+! ([CHANGELOG] -> {{PIVOT_INDICATORS}}) : "HIGH: Incoming License Change. Discussion about relicensing found in project history. Prepare for a migration or cost analysis."
+! ([CURRENT_VERSION] < (LATEST - 2_YEARS)) : "MEDIUM: Stale Dependency. The library version is very old. Risk of 'Hidden' license changes in the ecosystem that haven't been audited yet."
+? ([LATEST_VERSION].license == "Proprietary") : "BLOCKER: Commercial Dead-End. The project is no longer Open Source. Staying on the old version is a security risk; moving forward is a financial risk."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. REGISTRY_DRIFT_ANALYSIS:
+   - Сравнить лицензию текущей установленной версии с лицензией последней доступной версии в NPM/PyPI/Maven.
+   - Если обнаружено расхождение (например, MIT -> BSL), зафиксировать "Point of No Return".
+2. COMMIT_HISTORY_MINING:
+   - Поиск в Git-источнике (если доступен) коммитов, затрагивающих файлы LICENSE или COPYING.
+   - Анализ метаданных на предмет смены владельца (Copyright Holder Change), что часто предшествует смене лицензии.
+3. FORK_VIABILITY_CHECK:
+   - Если библиотека сменила лицензию на "плохую", проверить наличие активных Open Source форков (например, Valkey вместо Redis, OpenSearch вместо Elasticsearch).
+   - Оценить сложность миграции на форк.
+4. VENDOR_STABILITY_ASSESSMENT:
+   - Проверить, не была ли компания-разработчик библиотеки куплена крупным агрегатором (Broadcom, Oracle и т.д.), что обычно ведет к ужесточению лицензионной политики.
+5. DEPRECATION_ROADMAP_SCAN:
+   - Поиск в документации планов по прекращению поддержки текущей (бесплатной) ветки кода.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_EVOLUTION_RISK_REPORT:
+  - COMPONENT | CURRENT_LICENSE | LATEST_LICENSE | UPGRADE_RISK_LEVEL | FORK_AVAILABILITY
+VISUALIZE: "License Drift Timeline: Highlighting components at risk of mandatory commercialization."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

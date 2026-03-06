@@ -1,0 +1,51 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: PERMISSIVE_VS_COPYLEFT_CLASSIFICATION
+@GOAL: CATEGORIZE_LICENSES_BY_LEGAL_IMPACT_ON_PROPRIETARY_IP
+@PARENT_CONTEXT: transitive_dependency_chain.protocol, data_breach_liability.protocol
+
+<GLOBAL_VARS>
+# Группы лицензий
+PERMISSIVE_LIST: "(MIT|Apache-2.0|BSD-2-Clause|BSD-3-Clause|ISC|Unlicense)"
+WEAK_COPYLEFT: "(LGPL|MPL-2.0|CDDL|EPL)"
+STRONG_COPYLEFT: "(GPL-2.0|GPL-3.0|AGPL-3.0|SSPL)"
+
+# Параметры классификации
+DISTRIBUTION_TYPE: "(SaaS|On-Premise|Mobile_App|Embedded)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[LICENSE_REGISTRY] <- {from: direct_dependency.protocol, type: "SBOM_DATA"}
+[LINKING_METHOD]   <- {match: (import|require|static_link|dynamic_link), scope: "CODE_STRUCTURE"}
+[RELEASE_TARGET]   <- {from: value_chain_mapping.protocol, context: "DELIVERY_MODEL"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты классификации
+! ([LICENSE_REGISTRY].type == {{STRONG_COPYLEFT}} & [RELEASE_TARGET] == "On-Premise") : "CRITICAL: IP Disclosure Risk. Strong Copyleft in distributed software requires providing full source code to customers."
+! ([LICENSE_REGISTRY].type == "AGPL-3.0" & [RELEASE_TARGET] == "SaaS") : "CRITICAL: Network Trigger Violation. AGPL requires source disclosure even for Cloud/SaaS users. Immediate IP risk."
+! ([LICENSE_REGISTRY].type == {{WEAK_COPYLEFT}} & [LINKING_METHOD] == "static") : "HIGH: Static Linking Contamination. LGPL/MPL code statically linked may force the entire module to be open-sourced."
+? ([LICENSE_REGISTRY].type == "Apache-2.0") : "INFO: Patent Grant Included. This license provides a safe patent shield for the company."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TAXONOMY_ASSIGNMENT:
+   - Присвоить каждой найденной лицензии категорию: Permissive, Weak Copyleft или Strong Copyleft.
+   - Использовать базу данных SPDX для уточнения специфических версий (например, GPLv2 отличается от GPLv3).
+2. VIRAL_PATH_ANALYSIS:
+   - Проанализировать, как Copyleft-компонент взаимодействует с основным кодом. 
+   - Если это "Plug-in" или "Library call", оценить риск "заражения" (Derivate Work).
+3. DELIVERY_MODEL_ALIGNMENT:
+   - Сопоставить тип лицензии с моделью поставки. 
+   - Если софт не покидает сервера (Internal Tool), риски Copyleft снижаются, кроме случая с AGPL.
+4. MODIFICATION_SCOPE_CHECK:
+   - Проверить, вносились ли изменения в код библиотек с Weak Copyleft (MPL/LGPL). Если да, они должны быть выделены для публикации в отчете.
+5. IP_EXPOSURE_SUMMARY:
+   - Сформировать вывод: какой процент кодовой базы находится под угрозой принудительного открытия (Open-sourcing).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CLASSIFICATION_MATRIX:
+  - CATEGORY | COUNT | TOP_RISK_COMPONENTS | IP_IMPACT_LEVEL
+VISUALIZE: "License Distribution Pyramid: From Permissive (Base) to Strong Copyleft (Peak Risk)."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

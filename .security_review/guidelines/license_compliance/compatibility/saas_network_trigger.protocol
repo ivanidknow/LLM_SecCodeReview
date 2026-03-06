@@ -1,0 +1,47 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: SAAS_NETWORK_TRIGGER_AUDIT
+@GOAL: IDENTIFY_OBLIGATIONS_TO_DISCLOSE_SOURCE_CODE_TO_REMOTE_NETWORK_USERS
+@PARENT_CONTEXT: license_classification.protocol, entry_points.protocol
+
+<GLOBAL_VARS>
+# Лицензии с сетевым триггером
+NETWORK_TRIGGER_LICENSES: "(AGPL-1.0|AGPL-3.0|SSPL|EUPL|OSL-3.0)"
+# Протоколы взаимодействия
+NETWORK_PROTOCOLS: "(http|https|grpc|websocket|thrift)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[NETWORK_SERVICE] <- {from: entry_points.protocol, type: "PUBLIC_API|WEB_UI"}
+[TRIGGER_LIB]      <- {from: license_classification.protocol, type: {{NETWORK_TRIGGER_LICENSES}}}
+[DATA_FLOW]        <- {match: (request|response|stream), scope: "INTER-PROCESS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты сетевого триггера
+! ([NETWORK_SERVICE] -> calls -> [TRIGGER_LIB] & [TRIGGER_LIB] == "AGPL-3.0") : "CRITICAL: AGPL SaaS Leak. A public-facing service uses an AGPL library. You are legally obligated to provide the source code of the ENTIRE service to any web user."
+! ([TRIGGER_LIB] -> MODIFIED == true & ![PUBLIC_SOURCE_LINK]) : "HIGH: Non-Compliant Modification. AGPL code was modified but no 'Download Source' link is provided to network users. Direct license violation."
+? ([NETWORK_SERVICE] -> IPC_CALL -> [TRIGGER_LIB]) : "MEDIUM: Isolation Check Needed. If the AGPL component runs as a separate process via standard IPC, the 'contamination' might be contained. Legal review required."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENTRY_POINT_MAPPING:
+   - Проверить, какие компоненты системы имеют публичные эндпоинты ([NETWORK_SERVICE]).
+   - Сопоставить их с графом зависимостей, чтобы найти [TRIGGER_LIB] в цепочке вызовов.
+2. AGPL_MODIFICATION_DETECTION:
+   - Проверить, были ли внесены правки в саму AGPL-библиотеку. 
+   - По закону, модифицированная версия AGPL-ПО при работе в сети ДОЛЖНА предлагать пользователю скачать свои исходники.
+3. WRAPPER_INTEGRITY_SCAN:
+   - Если AGPL-код обернут в "Proxy" или "Wrapper", проверить, не является ли эта обертка фиктивной (Tight Coupling). 
+   - Если обертка просто транслирует API 1-в-1, триггер всё равно может сработать на вызывающий код.
+4. PROXY_LEAK_ANALYSIS:
+   - Проверить, не передаются ли через AGPL-компонент чувствительные бизнес-данные или логика, которые станут публичными при раскрытии кода.
+5. COMPLIANCE_UI_CHECK:
+   - Поиск в интерфейсе (Frontend) ссылок на исходный код или уведомлений о лицензии, требуемых сетевым триггером.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SAAS_COMPLIANCE_REPORT:
+  - SERVICE_NAME | TRIGGER_LICENSE | EXPOSURE_DEPTH | DISCLOSURE_OBLIGATION
+VISUALIZE: "Network Trigger Scope: Mapping how a single AGPL library can force source disclosure for the whole backend."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

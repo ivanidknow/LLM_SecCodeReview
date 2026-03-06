@@ -1,0 +1,47 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: PROVENANCE_VERIFICATION_AUDIT
+@GOAL: DETECT_UNLICENSED_COPY_PASTE_AND_VERIFY_CODE_ORIGIN_INTEGRITY
+@PARENT_CONTEXT: direct_dependency.protocol, structural_logic_smells.protocol
+
+<GLOBAL_VARS>
+# Маркеры неопределенного происхождения
+PROVENANCE_SMELLS: "(todo: fix license|copied from|based on stackoverflow|snippet from|unknown origin)"
+# Проверка контрольных сумм
+INTEGRITY_ALGORITHMS: "(sha256|sha512|sri)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SOURCE_CODE]     <- {match: "*", scope: "ALL_FILES"}
+[SNIPPETS]        <- {match: {{PROVENANCE_SMELLS}}, scope: "COMMENTS"}
+[PACKAGE_LOCKS]   <- {from: direct_dependency.protocol, type: "INTEGRITY_HASHES"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты чистоты кода
+! ([SOURCE_CODE] -> "Copyright" & ![INVENTORY]) : "HIGH: Ghost Code. Copyright notice found in a file that is not part of any declared dependency. Potential illegal copy-paste."
+! ([SNIPPETS] -> "stackoverflow.com") : "MEDIUM: StackOverflow Snippet. Code copied from SO may be under CC-BY-SA, requiring your project to be open-sourced. Check snippet size and logic."
+! ([PACKAGE_LOCKS].hash != REGISTRY_HASH) : "CRITICAL: Package Tampering. Local dependency hash does not match the official registry. Potential supply chain injection or 'Man-in-the-Middle' attack."
+? ([SOURCE_CODE].header == "missing") : "INFO: Anonymous File. Source file lacks any license or authorship header. Increases legal uncertainty during audit."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. COMMENT_ARCHAEOLOGY:
+   - Глубокий поиск по комментариям на предмет ссылок на сторонние репозитории, Gists или форумы.
+   - Идентификация фрагментов кода, которые выглядят как «вставки» (отличный стиль кодирования, специфические префиксы переменных).
+2. PACKAGE_INTEGRITY_SCAN:
+   - Сверка хэш-сумм (SRI) из lock-файлов с данными публичных реестров (NPM, PyPI).
+   - Выявление «мутировавших» зависимостей, которые были изменены локально без коммита в систему контроля версий.
+3. BOOTLEG_COMPONENT_DETECTION:
+   - Поиск библиотек, которые сами нарушают чужие лицензии (например, "wrapper" над платной библиотекой, созданный для обхода лицензии).
+4. BINARY_ORIGIN_AUDIT:
+   - Если в репозитории есть бинарные файлы (.jar, .so, .dll), проверить их метаданные и цифровые подписи на соответствие заявленному автору.
+5. "NO-LICENSE" ZONE MAPPING:
+   - Выделить модули, созданные «с нуля», и проверить их на наличие внутренних копирайтов компании. Если их нет — это риск потери прав на ИС (Intellectual Property).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PROVENANCE_REPORT:
+  - FILE_PATH | ORIGIN_TYPE (Registry/Snippet/Unknown) | INTEGRITY_STATUS | LEGAL_RISK
+VISUALIZE: "Code Cleanliness Map: Highlighting 'Grey Zones' with uncertain or unlicensed origin."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

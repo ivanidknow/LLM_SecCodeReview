@@ -1,0 +1,47 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: ABANDONED_COMPONENT_RISK_AUDIT
+@GOAL: IDENTIFY_SOFTWARE_ZOMBIES_AND_UNSUPPORTED_LEGACY_CODE
+@PARENT_CONTEXT: business_critical_dependencies.protocol, license_evolution_tracking.protocol
+
+<GLOBAL_VARS>
+# Маркеры заброшенности (Heuristics)
+STALE_THRESHOLD: "24_MONTHS" # Без коммитов более 2 лет
+ISSUE_RATIO_LIMIT: "0.1" # Соотношение закрытых тикетов к открытым
+ARCHIVED_MARKER: "(archived|deprecated|no longer maintained|looking for maintainers)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[REPO_METADATA]  <- {match: "github_api|gitlab_api|registry_metadata", scope: "EXTERNAL"}
+[LAST_COMMIT_DATE] <- {match: "pushed_at|updated_at", source: [REPO_METADATA]}
+[VULNERABILITY_DB] <- {match: "osv.dev|snyk|cve_mitre", scope: "SECURITY_DATA"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты жизненного цикла
+! ([LAST_COMMIT_DATE] > {{STALE_THRESHOLD}}) : "HIGH: Dead Component. No updates for over 2 years. Risk of unpatched zero-day vulnerabilities and incompatibility with new runtimes."
+! ([REPO_METADATA].status == "archived") : "CRITICAL: Archived Repository. The author explicitly marked the project as dead. No security fixes will ever be released."
+! ([VULNERABILITY_DB].has_unfixed_cve & [LAST_COMMIT_DATE] > "12_MONTHS") : "BLOCKER: Terminal Vulnerability. Component has known CVEs that haven't been fixed for a year. The 'maintainer' is absent."
+? (DEPENDENCY_COUNT_IN_ZOMBIE > 10) : "MEDIUM: Deep Zombie. A dead library brings its own dead dependencies. High supply chain decay."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ACTIVITY_PULSE_CHECK:
+   - Получить дату последнего коммита и последнего релиза из [REPO_METADATA].
+   - Если активность ниже {{STALE_THRESHOLD}}, пометить компонент как "At Risk".
+2. MAINTAINER_HEALTH_AUDIT:
+   - Проверить количество активных контрибьюторов (Bus Factor). Если проект держится на одном человеке, который не заходил в сеть полгода — это "High Risk".
+3. REPOSITORY_STATUS_SCAN:
+   - Поиск в README и описании репозитория ключевых слов из {{ARCHIVED_MARKER}}.
+   - Проверка наличия "Sunset" или "End of Life" (EOL) уведомлений.
+4. COMMUNITY_SENTIMENT_ANALYSIS:
+   - Анализ последних Issue: есть ли там безответные сообщения о багах или безопасности в течение последних 6-12 месяцев?
+5. COMPATIBILITY_DECAY_TEST:
+   - Проверить, поддерживает ли библиотека современные версии языка/платформы (например, Python 3.12+, Node 20+, Java 21). Если библиотека застряла на версиях 5-летней давности — это "Legacy Trap".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ZOMBIE_REPORT:
+  - COMPONENT_NAME | LAST_ACTIVITY | BUS_FACTOR | SECURITY_STATUS (Patched/Unpatched)
+VISUALIZE: "Software Vitality Chart: Highlighting components with no heartbeat."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

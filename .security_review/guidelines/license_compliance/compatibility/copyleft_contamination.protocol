@@ -1,0 +1,50 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: COPYLEFT_CONTAMINATION_AUDIT
+@GOAL: DETECT_LEGAL_VIRUS_SPREAD_FROM_OPEN_SOURCE_TO_PROPRIETARY_CODE
+@PARENT_CONTEXT: license_classification.protocol, coupling_cohesion.protocol
+
+<GLOBAL_VARS>
+# Маркеры высокого риска
+VIRAL_LICENSES: "(GPL-2.0|GPL-3.0|AGPL-3.0)"
+CONTAMINATION_MODES: "(static_link|direct_inheritance|macro_expansion|shared_memory)"
+
+# Исключения (System Libraries)
+SAFE_EXCEPTIONS: "(libc|kernel_headers|standard_runtime_lib)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[VIRAL_LIB]       <- {from: license_classification.protocol, type: "STRONG_COPYLEFT"}
+[PRIVATE_LOGIC]   <- {from: value_chain_mapping.protocol, scope: "INTERNAL_PROPRIETARY"}
+[INTERACTION_POINT] <- {match: (extends|implements|import|include|#define), layer: [APPLICATION]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты юридической чистоты
+! ([PRIVATE_LOGIC] -> extends -> [VIRAL_LIB]) : "CRITICAL: Inheritance Contamination. Private class inherits from a {{VIRAL_LICENSES}} class. The entire private module is now a derivative work and must be open-sourced."
+! ([PRIVATE_LOGIC] -> static_link -> [VIRAL_LIB]) : "HIGH: Static Contamination. Proprietary code is statically linked with {{VIRAL_LICENSES}}. Binary distribution requires source disclosure."
+! ([PRIVATE_LOGIC] -> calls -> [VIRAL_LIB] & [RELEASE_TARGET] == "SaaS" & [VIRAL_LIB] == "AGPL-3.0") : "BLOCKER: AGPL Network Leak. Proprietary SaaS logic interacts with AGPL code. Intellectual property is at risk of forced disclosure to web users."
+? ([INTERACTION_POINT] -> {{SAFE_EXCEPTIONS}}) : "INFO: Safe Boundary. Interaction with standard system libraries is generally exempt from copyleft claims."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DEPENDENCY_CALL_GRAPH_ANALYSIS:
+   - Использовать граф вызовов для отслеживания потока данных между [PRIVATE_LOGIC] и [VIRAL_LIB].
+   - Определить тип связи: "Tight Coupling" (тесная связь) или "Loose Coupling" (через API/IPC).
+2. DERIVATIVE_WORK_TEST:
+   - Проверить, модифицирует ли частный код внутренние структуры данных вирусной библиотеки.
+   - Если код не может работать без этой конкретной библиотеки (глубокая зависимость) — риск заражения "High".
+3. LINKING_STRATEGY_VERIFY:
+   - Анализ конфигов сборки (Makefile, Dockerfile, build.gradle).
+   - Выявить наличие флагов статической линковки для объектов под GPL.
+4. AGPL_SCOPE_SCAN:
+   - Для SaaS-приложений: найти все AGPL-библиотеки в рантайме. Проверить, являются ли они частью веб-сервиса, доступного внешним пользователям.
+5. ISOLATION_LAYER_AUDIT:
+   - Поиск «прослоек» (Wrappers/Sidecars). Если взаимодействие идет через независимый процесс (IPC/REST), риск заражения существенно ниже.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CONTAMINATION_REPORT:
+  - PRIVATE_MODULE | VIRAL_SOURCE | INTERACTION_TYPE | REMEDIATION_STRATEGY
+VISUALIZE: "Contamination Heatmap: Red zones where proprietary logic is dangerously coupled with Strong Copyleft code."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>

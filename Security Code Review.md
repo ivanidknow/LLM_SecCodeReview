@@ -1,7 +1,6 @@
 
 # Discovery
 
-
 ### Architecture.
 
 %% Насколько прочна конструкция, в которой это живет? %%
@@ -106,20 +105,56 @@
 
 ### License Compliance
 
-License Inventory & Taxonomy
+%% Идентификация юридических и операционных рисков, связанных с использованием стороннего кода. %%
 
-Legal Compatibility Analysis
+##### License Inventory & Taxonomy
+* Direct Dependency Identification (direct_dependency.protocol)
+* Transitive Dependency Chain (transitive_chain.protocol)
+* Dual-License Detection (dual_license.protocol)
+* Permissive vs Copyleft Classification (license_classification.protocol)
+##### Legal Compatibility Analysis
+* Copyleft Contamination Audit (copyleft_contamination.protocol)
+* Incompatible License Mixing (license_mixing_conflicts.protocol)
+* SaaS/Network Trigger Analysis (saas_network_trigger.protocol)
+* Linking Method Evaluation (linking_method.protocol)
+##### Business & Monetization Impact
+* Commercial Use Prohibition (commercial_prohibition.protocol)
+* White-Label & Redistribution Constraints (redistribution_constraints.protocol)
+* Patent Grant & Liability (patent_grant_liability.protocol)
+* Attribution & Trademark Compliance (attribution_trademark.protocol)
+##### Supply Chain & Provenance
+* Provenance Verification (provenance_verification.protocol)
+* License Evolution Tracking (license_evolution.protocol)
+* SBOM (Software Bill of Materials) Quality (sbom_quality.protocol)
+* Abandoned/Unmaintained Component Risk (abandoned_risk.protocol)
 
-Business & Monetization Impact
 
-Supply Chain & Provenance
-
-
+---
 
 # Modeling
 
 ### DFD (Data Flow Diagram)
 
+##### Entity & Process Mapping
+* External Interactors Identification
+* Automated Agents & Bots
+* Process Decomposition (Logic Units)
+* Inter-Process Communication (IPC) Identification
+##### Data Store Inventory
+* Persistent Storage
+* Volatile & Cache Storage
+* Side-Channel & Hidden Storage
+* Metadata & Indexes
+##### Flow Path Tracing
+* Synchronous Request-Response Paths
+* Asynchronous & Event-Driven Flows
+* Outbound & Third-Party Integration Paths
+* Administrative & Management Flows
+##### Trust Boundary Crossing
+* External-to-Internal Transitions
+* Network & Infrastructure Boundaries
+* Privilege & Logical Boundaries
+* Integrity & Validation Chokepoints
 ### Threat Modeling
 
 # Deep Scan

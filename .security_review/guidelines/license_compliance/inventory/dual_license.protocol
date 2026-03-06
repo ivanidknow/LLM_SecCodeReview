@@ -1,0 +1,46 @@
+<LICENSE_COMPLIANCE_SCAN_V3>
+@ID: DUAL_LICENSE_DETECTION
+@GOAL: IDENTIFY_COMPONENTS_WITH_HIDDEN_COMMERCIAL_OBLIGATIONS_OR_REVENUE_THRESHOLDS
+@PARENT_CONTEXT: direct_dependency.protocol, monetization_points.protocol
+
+<GLOBAL_VARS>
+# Маркеры двойного лицензирования в метаданных
+DUAL_LICENSE_KEYWORDS: "(dual-license|commercial-license|subscription-required|enterprise-edition|pay-per-use|funding)"
+# Известные "Dual-License" игроки (примеры)
+KNOWN_DUAL_LIBS: "(highcharts|ag-grid|sencha|qt|mysql-connector|oracle-jdbc|sidekiq-pro|telerik)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PACKAGE_METADATA] <- {match: (license|funding|homepage|repository), scope: "MANIFEST_JSON/XML"}
+[LICENSE_TEXT]     <- {match: {{DUAL_LICENSE_KEYWORDS}}, scope: "LICENSE_FILE"}
+[BUSINESS_MODEL]   <- {from: monetization_points.protocol, type: "REVENUE_CONTEXT"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты двойного лицензирования
+! ([PACKAGE_METADATA].name == {{KNOWN_DUAL_LIBS}} & !COMMERCIAL_AGREEMENT_FOUND) : "CRITICAL: Commercial License Required. A known dual-licensed component is used without evidence of a paid license. High risk of legal action."
+! ([LICENSE_TEXT] -> "non-commercial only") : "HIGH: Monetization Block. Component is free only for non-commercial use, but the project has [BUSINESS_MODEL] active."
+! ([PACKAGE_METADATA].funding -> !CORPORATE_SPONSOR) : "INFO: Funding Sustainability Risk. The maintainer is seeking funding. Risk of future license change (e.g., from MIT to BSL)."
+? (REVENUE_THRESHOLD_CHECK == "missing") : "MEDIUM: Hidden Scale Cost. License terms change after a certain revenue or user count. Audit needed to check if threshold is reached."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. KEYWORD_HEURISTIC_SCAN:
+   - Просканировать [PACKAGE_METADATA] на наличие ссылок на разделы "Pricing", "Commercial", "Enterprise".
+   - Искать в README фразы типа "Free for Open Source, contact us for commercial use".
+2. KNOWN_VENDORS_MATCHING:
+   - Сверить список зависимостей с базой данных вендоров, использующих Dual-Licensing (Highcharts, AG-Grid и др.).
+3. REVENUE_ALIGNMENT_CHECK:
+   - Сопоставить условия лицензии с данными из блока **Monetization Points**. Если проект зарабатывает деньги, а лицензия разрешает только "Non-commercial" — флаг "Critical Conflict".
+4. LICENSE_VERSION_EVOLUTION:
+   - Проверить, не является ли текущая версия библиотеки переходной к "Business Source License" (BSL) или подобным моделям (кейс HashiCorp/Terraform).
+5. SOURCE_CODE_BANNER_SCAN:
+   - Поиск в заголовках исходных файлов (Headers) специфических уведомлений о проприетарных правах, которые могут противоречить общей лицензии в манифесте.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_DUAL_LICENSE_REPORT:
+  - COMPONENT | CURRENT_USE_CASE (Comm/Non-Comm) | RESTRICTION_TYPE | RECOMMENDED_ACTION
+VISUALIZE: "Business Model Conflict: Current Revenue Strategy vs Component License Constraints."
+</OUTPUT_SPEC>
+</LICENSE_COMPLIANCE_SCAN_V3>
