@@ -1,0 +1,53 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: COMPLIANCE_REGULATORY_ANCHORS
+@GOAL: IDENTIFY_CODE_SUBJECT_TO_LEGAL_STANDARDS_AND_PREVENT_NON_COMPLIANT_CHANGES
+@PARENT_CONTEXT: data_inventory.protocol, value_chain_mapping.protocol
+
+<GLOBAL_VARS>
+# Маркеры регуляторных зон
+PCI_DSS_ZONE: "(card_number|cvv|expiry_date|pan|track_data|vault_token)"
+GDPR_PII_ZONE: "(email|phone|address|ip_address|dob|passport|ssn|health_data)"
+FINANCIAL_REPORTING: "(vat_id|tax_rate|fiscal_data|audit_hash|ledger_entry)"
+
+# Требования (Hard Requirements)
+MUST_LOG: "(access_to_pii|modification_of_balance|system_config_change)"
+MUST_ENCRYPT: "(data_at_rest|data_in_transit|pii_in_logs)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[REGULATED_DATA]  <- {match: {{PCI_DSS_ZONE}}|{{GDPR_PII_ZONE}}, scope: "STORAGE"}
+[COMPLIANCE_FLOW] <- {match: (consent|terms|privacy_policy|opt_out|forget_me)}
+[FISCAL_POINT]    <- {match: {{FINANCIAL_REPORTING}}, layer: [SERVICE]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты регуляторных якорей
+! ([REGULATED_DATA] -> {{VERBOSE_MARKERS}}) : "CRITICAL: Regulated data (PII/PCI) leaked in verbose error messages or logs."
+! ([FISCAL_POINT] -> !{{AUDIT_LOG}}) : "BLOCKER: Financial/Fiscal operation without mandatory regulatory logging."
+! ([COMPLIANCE_FLOW] -> !BYPASS_PROTECTION) : "HIGH: Consent/Privacy logic can be bypassed. Risk of legal non-compliance."
+? ([REGULATED_DATA] -> !{{ENCRYPTION_MARKERS}}) : "CRITICAL: Sensitive regulated data stored without encryption/masking."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ANCHOR_DISCOVERY:
+   - Просканировать модели данных и DTO на наличие {{PCI_DSS_ZONE}} и {{GDPR_PII_ZONE}}.
+   - Пометить эти файлы/классы как "COMPLIANCE_ANCHOR".
+2. LOG_PURITY_CHECK:
+   - Проверить все вызовы логгера в радиусе 10 строк от [REGULATED_DATA]. 
+   - Убедиться, что данные маскируются (например, `card.mask()`) перед записью.
+3. CONSENT_INTEGRITY_AUDIT:
+   - Найти логику проверки согласия пользователя (Consent Management).
+   - Убедиться, что действия (например, рассылка или продажа данных) блокируются, если флаг `is_consented` равен `false`.
+4. RETENTION_POLICY_SYNC:
+   - Сопоставить код с `data_retention.protocol`. 
+   - Проверить наличие функций автоматического удаления данных по истечении срока (Right to be Forgotten).
+5. FISCAL_IMMUTABILITY_VERIFY:
+   - Для [FISCAL_POINT] проверить, что записи о налогах и сборах не могут быть изменены после финализации транзакции.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_COMPLIANCE_MAP:
+  - COMPONENT | REGULATION (GDPR/PCI/SOC2) | DATA_TYPE | RISK_LEVEL
+VISUALIZE: "Compliance Shield: Highlight code blocks that require 'Legal/Privacy Review' before PR approval."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

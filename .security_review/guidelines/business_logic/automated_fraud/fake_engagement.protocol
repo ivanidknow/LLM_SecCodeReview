@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: FAKE_ENGAGEMENT_REPUTATION_MANIPULATION
+@GOAL: DETECT_AUTOMATED_MANIPULATION_OF_RATINGS_REVIEWS_AND_SOCIAL_METRICS
+@PARENT_CONTEXT: multi_accounting_sybil.protocol, intent_origin_proof.protocol
+
+<GLOBAL_VARS>
+# Маркеры социального действия
+SOCIAL_ACTIONS: "(like|upvote|follow|review|rate|comment|share|view_count)"
+ENGAGEMENT_METRICS: "(rating_avg|follower_count|popularity_score|trending_rank)"
+
+# Признаки "Фермы" (Bot Farm Signals)
+BURST_ACTIVITY: "count(action) > 100 per minute per entity"
+COORDINATED_ATTACK: "(same_ip_range|same_device_model|identical_content_hash)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ACTION_TRIGGER]  <- {match: {{SOCIAL_ACTIONS}}, layer: [API|SERVICE]}
+[RANKING_ENGINE]  <- {match: {{ENGAGEMENT_METRICS}}, scope: "BUSINESS_LOGIC"}
+[USER_REPUTATION] <- {match: (account_age|trust_score|is_verified), context: "SENDER"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты честного взаимодействия
+! ([ACTION_TRIGGER] -> !{{INTENT_ORIGIN_PROOF.DEVICE_FINGERPRINT}}) : "HIGH: Anonymous Engagement. Social actions allowed without device tracking. Easy to automate via simple scripts."
+! ([RANKING_ENGINE] -> !WEIGHTED_SCORING) : "MEDIUM: Raw Metric Vulnerability. System treats a vote from a 1-minute-old account the same as from a 5-year-old verified user."
+! (REVIEW_SUBMIT -> !PURCHASE_VERIFICATION) : "CRITICAL: Fake Reviews. Users can rate products they never bought/interacted with. High risk of competitor sabotage."
+? (ACTION_VELOCITY > {{BURST_ACTIVITY}}) : "HIGH: Bot Burst. Rapid spike in engagement from related accounts. Potential coordinated reputation manipulation."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENGAGEMENT_FRICTION_AUDIT:
+   - Проверить, требует ли "Лайк" или "Подписка" активной сессии и CSRF-токена.
+   - Искать проверку `min_time_on_page` перед тем, как действие будет засчитано (боты не "читают" контент, они сразу жмут кнопку).
+2. WEIGHTED_ALGORITHM_REVIEW:
+   - Найти код, рассчитывающий рейтинг (Rating/Trending).
+   - Проверить наличие коэффициентов: имеет ли голос "проверенного" пользователя больший вес?
+3. COORDINATED_ACTION_DETECTION:
+   - Проверить наличие логов для анализа связей: IP, Subnet, User-Agent, Referrer.
+   - Искать механизмы дедупликации (один IP — один голос в час).
+4. CONTENT_SIMILARITY_CHECK:
+   - Для отзывов и комментариев проверить наличие фильтров на дублирующийся текст (Spam Detection).
+5. VERIFIED_PURCHASE_ENFORCEMENT:
+   - В e-commerce убедиться, что метка "Проверенная покупка" (Verified Purchase) жестко завязана на статус заказа `DELIVERED` в БД.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REPUTATION_RISK_REPORT:
+  - TARGET_METRIC | MANIPULATION_VECTOR (Bot_Farm/Sybil/Coordination) | IMPACT_ON_TRUST | MITIGATION_STATUS
+VISUALIZE: "Engagement Quality Score: Show 'Organic Growth' (Linear) vs 'Bot Spike' (Step Function)."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

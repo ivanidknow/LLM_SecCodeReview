@@ -1,0 +1,50 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: FOUR_EYES_PRINCIPLE_GOVERNANCE
+@GOAL: ENFORCE_MULTI_PERSON_AUTHORIZATION_FOR_CRITICAL_ADMIN_ACTIONS
+@PARENT_CONTEXT: business_critical_dependencies.protocol, immutable_audit_trail.protocol
+
+<GLOBAL_VARS>
+# Список критических действий (Critical Actions)
+CRITICAL_ADMIN_ACTIONS: "(updateLimit|mintTokens|approveLargePayout|changeSystemConfig|deleteUserAudit|enableExperimentalFeature)"
+APPROVAL_STATUSES: "(PENDING_APPROVAL|APPROVED|REJECTED|EXPIRED)"
+
+# Параметры "Второго глаза"
+REQUIRED_APPROVERS: 2
+APPROVAL_TTL: "24h"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ADMIN_ACTION_TRIGGER] <- {match: {{CRITICAL_ADMIN_ACTIONS}}, layer: [ADMIN_API|BACKOFFICE]}
+[APPROVAL_WORKFLOW]    <- {match: (createRequest|approveRequest|vote), scope: "GOVERNANCE_LOGIC"}
+[EXECUTOR_IDENTITY]    <- {match: (initiator_id|approver_id), context: "IDENTITY"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты управления
+! ([ADMIN_ACTION_TRIGGER] -> !{{APPROVAL_WORKFLOW}}) : "BLOCKER: Single-Point of Authority. A critical action can be executed by a single admin without peer approval. Risk of internal fraud or catastrophic mistake."
+! ([APPROVAL_WORKFLOW] -> [EXECUTOR_IDENTITY].initiator == [EXECUTOR_IDENTITY].approver) : "CRITICAL: Self-Approval. The initiator of the action is allowed to approve it. The Four-Eyes principle is bypassed."
+! ([ADMIN_ACTION_TRIGGER] -> !{{IMMUTABLE_AUDIT_TRAIL.LOG_SINK}}) : "HIGH: Ghost Admin Action. Action performed without logging WHO initiated and WHO approved. Accountability is lost."
+? (APPROVAL_LATENCY == 0) : "MEDIUM: Instant Approval. Logic doesn't enforce a cooling-off period or out-of-band verification for extremely high-risk changes."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CRITICAL_ACTION_INVENTORY:
+   - Составить реестр функций в админ-панели, которые влияют на деньги или безопасность всей системы.
+   - Проверить, помечены ли они в коде как `RequiresApproval` или аналогичными декораторами.
+2. APPROVAL_LOGIC_AUDIT:
+   - Проверить, что при вызове `updateLimit` действие не выполняется сразу, а создается объект `ApprovalRequest`.
+   - Убедиться, что эндпоинт `execute` проверяет подписи как минимум двух разных `User_ID`.
+3. SOD_VERIFICATION (Segregation of Duties):
+   - Проверить, что роли «Инициатор» и «Аппрувер» разделены. Может ли админ из отдела маркетинга одобрить тех. лимит? (Должна быть проверка ролей).
+4. REPLAY_ATTACK_PREVENTION:
+   - Проверить, что одобрение привязано к конкретному ID запроса и не может быть использовано повторно для другого действия.
+5. EMERGENCY_BYPASS_AUDIT:
+   - Искать «черные ходы» для обхода аппрува (например, флаг `force=true` или `skip_approval`). Оценить, кто и как может их использовать.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_GOVERNANCE_REPORT:
+  - ACTION_NAME | APPROVAL_REQUIRED (Y/N) | BYPASS_POSSIBLE | RISK_SCORE
+VISUALIZE: "Workflow Diagram: Initiator -> Pending Request -> Approver (2nd Eye) -> Execution."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

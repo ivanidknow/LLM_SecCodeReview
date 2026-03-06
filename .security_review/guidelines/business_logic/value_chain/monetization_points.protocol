@@ -1,0 +1,47 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: MONETIZATION_POINTS_IDENTIFICATION
+@GOAL: LOCATE_AND_CLASSIFY_REVENUE_GENERATING_ENDPOINTS_AND_LOGIC
+@CONTEXT: value_chain_mapping.md
+
+<GLOBAL_VARS>
+# Ключевые слова финансовой активности
+PAYMENT_gateways: "(stripe|paypal|adyen|braintree|coinbase|paddle|cloudpayments)"
+TRANSACTION_actions: "(checkout|purchase|subscribe|buy|pay|withdraw|deposit|billing)"
+CURRENCY_markers: "(amount|price|currency|total|subtotal|tax|vat|fee)"
+ASSET_types: "(token|credit|balance|points|subscription_plan|license_key)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PAYMENT_FLOW]   <- {match: {{PAYMENT_gateways}}, layer: [INFRA|SERVICE]}
+[REVENUE_ROUTE]  <- {match: {{TRANSACTION_actions}}, layer: [API|CONTROLLER]}
+[ASSET_STORE]    <- {match: {{ASSET_types}}, scope: "PERSISTENCE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Правила идентификации критических точек
+! ([REVENUE_ROUTE] -> !{{AUTH_STRATEGY}}) : "BLOCKER: Revenue-generating endpoint lacks explicit Authentication. High risk of theft."
+! ([PAYMENT_FLOW] -> !{{ENCRYPTION_MARKERS}}) : "CRITICAL: Plaintext financial data handling in payment flow."
+? ([ASSET_STORE] -> !{{AUDIT_LOG}}) : "HIGH: Asset storage modification without audit trail. Possible untraceable wealth creation."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SCAN_ENTRY_POINTS:
+   - Проанализировать все роуты API на наличие {{TRANSACTION_actions}}.
+   - Пометить их как [REVENUE_ROUTE].
+2. DEPENDENCY_MAPPING:
+   - Для каждого [REVENUE_ROUTE] найти связанные сервисы, которые используют {{PAYMENT_gateways}}.
+   - Определить тип монетизации: One-time (Покупка), Recurring (Подписка), или Pay-as-you-go.
+3. DATA_FLOW_AUDIT:
+   - Проследить путь переменных {{CURRENCY_markers}} от ввода пользователя до записи в [ASSET_STORE].
+   - Проверить, происходит ли расчет цены на сервере или она принимается от клиента.
+4. GATEWAY_INTEGRITY:
+   - Найти обработчики Webhook'ов от платежных систем.
+   - Убедиться, что они помечены как критические точки входа.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_MONETIZATION_INVENTORY:
+  - ENDPOINT | BUSINESS_TYPE (Sale/Withdraw/Refund) | ASSET_AFFECTED | CRITICALITY_LEVEL
+  - "Highlight all endpoints that can decrease company revenue if misused."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

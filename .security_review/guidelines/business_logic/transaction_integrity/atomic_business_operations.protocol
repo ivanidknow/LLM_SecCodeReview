@@ -1,0 +1,50 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: ATOMIC_BUSINESS_OPERATIONS
+@GOAL: PREVENT_INCONSISTENT_STATE_BY_ENFORCING_ALL_OR_NOTHING_EXECUTION
+@PARENT_CONTEXT: value_chain_mapping.protocol, asset_lifecycle_trace.protocol
+
+<GLOBAL_VARS>
+# Маркеры транзакционности (Persistence & Sagas)
+DB_TRANSACTION: "(transaction|commit|rollback|db\.begin|session\.start)"
+DISTRIBUTED_SAGA: "(Saga|Workflow|StepFunction|Temporal|Orchestrator)"
+COMPENSATION_LOGIC: "(undo|reverse|compensate|cancelOrder|refundAction)"
+
+# Признаки "Опасных цепочек" (Fragile Chains)
+ASYNC_CHAIN: "(\.then\(.*\.then\(|await.*await.*await)"
+MIXED_STORAGE: "(db\.save & redis\.set & s3\.upload)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[MONEY_STEP]      <- {match: {{LIFECYCLE_STAGES.BIRTH}}|{{LIFECYCLE_STAGES.DEATH}}, scope: "BUSINESS_LOGIC"}
+[TRANSACTION_WRAP] <- {match: {{DB_TRANSACTION}}|{{DISTRIBUTED_SAGA}}, context: "ENCLOSURE"}
+[RECOVERY_NODE]    <- {match: {{COMPENSATION_LOGIC}}, layer: [SERVICE]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты атомарности
+! ([MONEY_STEP] -> !{{TRANSACTION_WRAP}}) : "CRITICAL: Naked Money Operation. Financial state change occurs outside of a transaction/saga."
+! ({{DB_TRANSACTION}} -> !{{TRY_CATCH_FINALLY}}) : "HIGH: Transaction without explicit Error Handling. Risk of 'hanging' locks or uncommitted data."
+! ([MIXED_STORAGE] -> !{{DISTRIBUTED_SAGA}}) : "HIGH: Distributed State Inconsistency. Updating DB and Cache/S3 sequentially without a global coordinator."
+! ({{ASYNC_CHAIN}} -> !{{RECOVERY_NODE}}) : "MEDIUM: Complex flow lacks compensation logic. If step 3 fails, steps 1-2 remain in 'Zombie' state."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ATOMIC_SCOPE_DETECTION:
+   - Идентифицировать функции, выполняющие более одного изменения в [ASSET_STORE].
+   - Проверить, обернуты ли они в локальную БД-транзакцию.
+2. DISTRIBUTED_INTEGRITY_AUDIT:
+   - Найти места, где данные пишутся в разные системы (например, PostgreSQL + Kafka).
+   - Проверить использование паттерна Transactional Outbox или двухфазной фиксации (2PC).
+3. ERROR_RECOVERY_PATH_TRACE:
+   - Симулировать сбой на каждом `await` в бизнес-цепочке.
+   - ИИ должен ответить: "Что произойдет с данными, если питание отключится прямо здесь?".
+4. SIDE_EFFECT_ISOLATION:
+   - Убедиться, что "необратимые" действия (отправка Email, Push, вызов внешнего API) происходят ТОЛЬКО после успешного коммита транзакции в БД.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ATOMICITY_REPORT:
+  - FLOW_NAME | STEPS_COUNT | ATOMICITY_TYPE (Local/Distributed/None) | RISK_OF_INCONSISTENCY
+VISUALIZE: "Transaction Flowchart: Mark 'Point of No Return' in ORANGE and 'Rollback Paths' in GREEN."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

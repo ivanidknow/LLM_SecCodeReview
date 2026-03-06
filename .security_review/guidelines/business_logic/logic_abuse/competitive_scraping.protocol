@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: COMPETITIVE_INTELLIGENCE_SCRAPING
+@GOAL: PREVENT_LEAKAGE_OF_SENSITIVE_BUSINESS_DATA_THROUGH_PUBLIC_API
+@PARENT_CONTEXT: data_inventory.protocol, value_chain_mapping.protocol
+
+<GLOBAL_VARS>
+# Чувствительные бизнес-аттрибуты
+MARKET_SENSITIVE_DATA: "(stock_count|warehouse_id|supplier_price|margin|total_sales|user_growth_rate)"
+INTERNAL_METADATA: "(internal_id|db_schema_version|server_instance_id|debug_info)"
+
+# Признаки перебора (Scraping Vectors)
+SEQUENTIAL_IDS: "(id: [0-9]+|uuid_v1|auto_increment)"
+LISTING_ENDPOINTS: "(index|list|search|all|export)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PUBLIC_API]      <- {match: /api/v[0-9]/, layer: [API]}
+[SENSITIVE_DTO]   <- {match: {{MARKET_SENSITIVE_DATA}}, context: "RESPONSE_BODY"}
+[IDENTIFIER_TYPE] <- {match: {{SEQUENTIAL_IDS}}, scope: "SCHEMA"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты данных
+! ([PUBLIC_API] -> [SENSITIVE_DTO]) : "HIGH: Business Data Leak. API response contains market-sensitive fields (e.g., exact stock count) not needed for the UI."
+! ([IDENTIFIER_TYPE] -> [LISTING_ENDPOINTS]) : "MEDIUM: Insecure Enumeration. Sequential IDs allow competitors to scrape the entire database by incrementing the ID (IDOR-style scraping)."
+! ([PUBLIC_API] -> !{{RATE_THRESHOLD_ABUSE.QUOTA_CHECK}}) : "CRITICAL: No Scraping Protection. Public listing endpoint lacks per-user/per-IP limits. Entire catalog can be dumped in minutes."
+? (RESPONSE_SIZE > 1MB) : "LOW: Bulk Data Exposure. API returns massive arrays. Potential for 'Shadow Scraping' via large data dumps."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DATA_EXPOSURE_AUDIT:
+   - Проанализировать JSON-ответы всех публичных эндпоинтов.
+   - Искать поля, которые не отображаются в интерфейсе (скрытые маркеры, внутренние цены, точные остатки).
+2. ENUMERATION_STRESS_TEST (Логический):
+   - Проверить тип первичных ключей (Primary Keys). Если используются `Integer Auto-increment`, пометить риск массового парсинга через перебор ID.
+   - Рекомендовать переход на `UUID v4` для публичных ресурсов.
+3. STOCK_LEVEL_OBSCURE:
+   - В e-commerce проверить, отдает ли API точное количество товара (например, `count: 142`).
+   - Рекомендовать замену на логические статусы (`in_stock`, `low_stock`, `out_of_stock`), чтобы скрыть динамику продаж от конкурентов.
+4. METADATA_STRIPPING:
+   - Убедиться, что из ответов удаляются технические поля (версии БД, внутренние пути, служебные флаги `is_deleted` и т.д.).
+5. ANOMALY_DETECTION_LOGIC:
+   - Проверить наличие логики обнаружения аномального поведения (например, если один пользователь просмотрел 500 товаров за 1 минуту).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SCRAPING_EXPOSURE_REPORT:
+  - ENDPOINT | LEAKED_FIELD | IMPACT_ON_MARKET | FIX_PRIORITY
+VISUALIZE: "Data Minimization: Show 'Full DB Record' vs 'Clean API Response' for public users."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

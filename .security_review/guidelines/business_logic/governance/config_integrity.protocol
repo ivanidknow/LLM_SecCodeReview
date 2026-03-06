@@ -1,0 +1,49 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: SENSITIVE_CONFIG_TAMPERING_PROTECTION
+@GOAL: PREVENT_UNAUTHORIZED_MODIFICATION_OF_CRITICAL_BUSINESS_CONSTANTS_AND_SYSTEM_SETTINGS
+@PARENT_CONTEXT: record_integrity_checksumming.protocol, four_eyes_principle.protocol
+
+<GLOBAL_VARS>
+# Список критических настроек (Sovereign Settings)
+SENSITIVE_CONFIGS: "(fee_percentage|withdrawal_limits|kyc_threshold|payment_gateway_url|vault_address|emergency_switch)"
+STORAGE_TYPES: "(db_table|redis_key|env_vars|vault_secret|consul_key)"
+
+# Механизмы защиты
+VERSIONING_REQUIRED: true
+INTEGRITY_CHECK: "HMAC_OR_SIGNATURE"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CONFIG_LOADER]    <- {match: (getConfig|loadSettings|env\.get), layer: [APPLICATION]}
+[CONFIG_MUTATOR]   <- {match: (updateSetting|setGlobalVar|upsertConfig), scope: "ADMIN_LOGIC"}
+[INTEGRITY_SINK]   <- {from: record_integrity_checksumming.protocol, context: "CONFIG_TABLE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты целостности конфигурации
+! ([CONFIG_MUTATOR] -> !{{FOUR_EYES_PRINCIPLE_GOVERNANCE.APPROVAL_WORKFLOW}}) : "BLOCKER: Direct Config Edit. Critical business settings can be changed by one admin. Risk of redirecting funds (e.g., changing 'vault_address')."
+! ([CONFIG_LOADER] -> !VALIDATION_LOGIC) : "CRITICAL: Untrusted Config Load. Application uses config values without verifying their integrity checksum. An attacker with DB access can lower 'kyc_threshold' to 0."
+! ({{SENSITIVE_CONFIGS}} -> !AUDIT_LOG_VERSIONING) : "HIGH: Ghost Config Change. Changes to sensitive settings don't create a versioned history (Old Value -> New Value) with an attributed author."
+! ([CONFIG_MUTATOR] -> !RANGE_VALIDATION) : "MEDIUM: Out-of-Bounds Config. Logic allows setting 'fee_percentage' to 100% or negative values due to lack of sanity checks."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SOVEREIGN_SETTING_INVENTORY:
+   - Идентифицировать все переменные, влияющие на финансовые потоки и права доступа.
+   - Проверить, где они хранятся: в коде (Hardcoded), в БД или в секрет-менеджере (Vault).
+2. HARDENING_BY_SIGNATURE:
+   - Рекомендовать внедрение [INTEGRITY_CHECK] для настроек в БД. Каждая строка конфига должна быть подписана ключом, недоступным для БД-админа.
+3. VERSION_CONTROL_AUDIT:
+   - Убедиться, что при изменении настройки старое значение не затирается, а помечается как `deprecated` или переносится в `history_table`.
+4. RESTART_LESS_PROPAGATION_CHECK:
+   - Проверить, как быстро изменения вступают в силу. Если система подхватывает конфиг без перезагрузки (Hot-reload), требования к [FOUR_EYES_PRINCIPLE] должны быть максимальными.
+5. FALLBACK_VALIDATION:
+   - Проверить наличие "Default Hardcoded Safety": если конфиг в БД поврежден или удален, система должна переходить в безопасный режим (например, блокировать транзакции), а не использовать `0` или `null`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CONFIG_TAMPERING_REPORT:
+  - CONFIG_KEY | STORAGE_TYPE | TAMPER_RESISTANCE (High/Med/Low) | RECENT_CHANGES_COUNT
+VISUALIZE: "Config Governance Flow: Proposed Change -> Admin A -> Admin B -> Digital Signature -> Active State."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

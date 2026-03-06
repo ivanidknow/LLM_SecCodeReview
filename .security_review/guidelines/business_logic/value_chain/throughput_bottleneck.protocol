@@ -1,0 +1,53 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: THROUGHPUT_BOTTLENECK_ANALYSIS
+@GOAL: IDENTIFY_PERFORMANCE_BLOCKERS_CAUSING_BUSINESS_DOS_AND_REVENUE_LOSS
+@PARENT_CONTEXT: business_critical_dependencies.protocol, resource_lifecycle_smells.protocol
+
+<GLOBAL_VARS>
+# Признаки "Тяжелой" логики
+LOCKING_OPERATIONS: "(SELECT.*FOR UPDATE|db\.transaction|mutex\.lock|synchronized)"
+I_O_INTENSIVE: "(readFileSync|writeFileSync|crypto\.pbkdf2Sync|spawnSync)"
+EXTERNAL_WAIT: "(request|axios|fetch|http\.get)"
+
+# Пороги "Бизнес-терпения"
+MAX_TRANSACTION_TIME: "2000ms"
+MAX_CONCURRENT_LOCKS: 5
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CRITICAL_PATH]  <- {from: critical_paths.protocol, type: "REVENUE_GENERATING"}
+[DATABASE_LOCK]  <- {match: {{LOCKING_OPERATIONS}}, scope: "PERSISTENCE"}
+[EXTERNAL_SYNC]  <- {match: {{EXTERNAL_WAIT}}, context: "BLOCKING"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты пропускной способности
+! ([CRITICAL_PATH] -> [DATABASE_LOCK] & !TIMEOUT) : "CRITICAL: Potential Deadlock in Revenue Flow. Long DB lock without timeout can freeze all payments."
+! ([CRITICAL_PATH] -> {{I_O_INTENSIVE}}) : "HIGH: Synchronous I/O in business critical path. Thread pool starvation risk under load."
+! ([CRITICAL_PATH] -> [EXTERNAL_SYNC] -> !CIRCUIT_BREAKER) : "CRITICAL: Cascading Failure. Slow external partner (Bank/SaaS) will kill our business process without a fallback."
+? (COUNT([DATABASE_LOCK]) > {{MAX_CONCURRENT_LOCKS}}) : "MEDIUM: High contention risk. Multiple locks in one flow suggest poor architectural scaling."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. LATENCY_SMELL_SCAN:
+   - Найти все синхронные вызовы и блокирующие операции в [CRITICAL_PATH].
+   - Пометить функции, которые делают более 3-х последовательных запросов к БД (N+1 Problem).
+2. LOCK_CONTENTION_AUDIT:
+   - Проанализировать использование `SELECT FOR UPDATE` или распределенных замков (Redis Lock).
+   - Проверить, что замки освобождаются в блоке `finally`.
+3. EXTERNAL_TIMEOUT_VERIFY:
+   - Для каждого [EXTERNAL_SYNC] проверить наличие `timeout`.
+   - Если таймаут > {{MAX_TRANSACTION_TIME}}, флаг "Business Experience Risk".
+4. QUEUE_PRESSURE_CHECK:
+   - Найти места, где запросы складываются в очередь (Worker Queues).
+   - Проверить наличие стратегии `Backpressure` (что делать, если очередь полная?).
+5. MEMORY_BLOAT_IN_FLOW:
+   - Проверить, не выкачиваются ли огромные массивы данных в память для фильтрации на стороне сервера вместо SQL-фильтрации.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_BOTTLENECK_REPORT:
+  - PROCESS_NAME | BOTTLENECK_TYPE (Lock/Sync_IO/External) | ESTIMATED_IMPACT | REFACTOR_PRIORITY
+VISUALIZE: "Throughput Heatmap: Mark 'Cold' (fast) and 'Hot' (slow/blocking) nodes."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

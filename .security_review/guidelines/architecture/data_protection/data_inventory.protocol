@@ -1,0 +1,55 @@
+<ARCH_SCAN_V3>
+@ID: DATA_INVENTORY_AUDIT
+@GOAL: IDENTIFY_AND_CLASSIFY_ALL_DATA_ASSETS_AND_THEIR_LOCATIONS
+@PARENT_CONTEXT: state_analysis.protocol, payload_analysis.protocol
+
+<GLOBAL_VARS>
+# Классификация типов данных
+DATA_CATEGORIES: {
+  "SENSITIVE_PII": "(email|phone|address|full_name|dob|passport|ssn)",
+  "CREDENTIALS": "(password|hash|salt|otp|token|secret|api_key|private_key)",
+  "FINANCIAL": "(credit_card|cvv|iban|balance|transaction_amount|billing)",
+  "INTERNAL_METADATA": "(user_id|role|ip_address|session_id|internal_path)"
+}
+
+# Поиск хранилищ
+DATA_SINKS: "(Database|Cache|LogFile|S3_Bucket|LocalStorage|EnvironmentVariable)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ENTITY] <- {path: {{DOM_PATH}}, match: {{DOM_MATCH}}}
+[FLOW_DATA] <- {match: {{DATA_CATEGORIES}}}
+[SINK_NODE] <- {match: {{STORAGE_DRIVERS}}, usage: "WRITE|STORE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты инвентаризации
+! ([ENTITY] -> {{DATA_CATEGORIES.CREDENTIALS}}) & !ENCRYPTED : "CRITICAL: Credentials found in domain entity without explicit encryption marker." [cite: 52]
+! (LOG_SYSTEM -> {{DATA_CATEGORIES.SENSITIVE_PII}}) : "HIGH: PII leakage into logs detected. High GDPR/Privacy risk." 
+? ({{DATA_CATEGORIES.FINANCIAL}} -> LocalStorage) : "CRITICAL: Financial data stored in browser LocalStorage. High risk of XSS theft." [cite: 55]
+! ({{DATA_CATEGORIES}}) & !CLASSIFIED : "MEDIUM: Data field identified but lacks security classification level."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SCHEMA_HARVESTING:
+   - Scan all [ENTITY] definitions (Classes, Interfaces, DB Schemas). [cite: 56]
+   - Categorize each field using {{DATA_CATEGORIES}}.
+2. FLOW_TO_SINK_MAPPING:
+   - Trace identified data types to their final [SINK_NODE]. [cite: 55, 59]
+   - Map: "Data_Type -> Component -> Storage_Engine".
+3. ORPHAN_DATA_DETECTION:
+   - Find data fields that are collected (in [IFACE]) but never used in business logic (Data Hoarding). [cite: 30, 32]
+4. PRIVACY_IMPACT_ASSESSMENT:
+   - For each SENSITIVE_PII, identify if it's "Hard-Linked" to a USER_ID.
+   - Check for "Right to be Forgotten" (deletion logic) for these fields.
+5. SECRET_SCANNING:
+   - Use pattern matching to find hardcoded {{DATA_CATEGORIES.CREDENTIALS}} in non-production files (tests, configs).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_DATA_INVENTORY_TABLE:
+  - FIELD_NAME | CATEGORY | STORAGE_SINK | PROTECTION_LEVEL | PRIVACY_RISK
+VISUALIZE: "Data Map: Entity_Relationship diagram highlighting Sensitive_Nodes in RED."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

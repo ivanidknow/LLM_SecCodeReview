@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: ASSET_LIFECYCLE_TRACE
+@GOAL: AUDIT_THE_ENTIRE_STORY_OF_A_DIGITAL_ASSET_FROM_CREATION_TO_DESTRUCTION
+@PARENT_CONTEXT: monetization_points.protocol, data_inventory.protocol
+
+<GLOBAL_VARS>
+# Этапы жизни актива
+LIFECYCLE_STAGES: {
+  "BIRTH": "(mint|issue|grant|credit|reward|deposit|topup)",
+  "MOVE": "(transfer|send|exchange|swap|updateBalance)",
+  "DEATH": "(spend|burn|withdraw|redeem|expire|deduct)"
+}
+# Критические инварианты (Invariants)
+BALANCE_CONSISTENCY: "(sum(transactions) == current_balance)"
+OWNERSHIP_CHECK: "(owner_id == requester_id)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ASSET_CREATOR] <- {match: {{LIFECYCLE_STAGES.BIRTH}}, scope: "BUSINESS_LOGIC"}
+[ASSET_MOVER]   <- {match: {{LIFECYCLE_STAGES.MOVE}}, context: "TRANSACTIONAL"}
+[ASSET_BURNER]  <- {match: {{LIFECYCLE_STAGES.DEATH}}, scope: "BUSINESS_LOGIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты жизненного цикла
+! ([ASSET_CREATOR] -> !ADMIN_ROLE) : "CRITICAL: Asset creation (Birth) allowed for non-privileged users. Risk of infinite money glitch."
+! ([ASSET_MOVER] -> !{{OWNERSHIP_CHECK}}) : "CRITICAL: Asset transfer without ownership verification. Potential for unauthorized asset theft."
+! ([ASSET_BURNER] -> !ATOMIC_TRANSACTION) : "HIGH: Asset destruction (Death) is not atomic. Risk of 'Double Spending' (asset used but not deducted)."
+! (STATE_CHANGE -> !{{AUDIT_LOG}}) : "CRITICAL: Asset lifecycle state change without immutable log record."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. BIRTH_AUDIT (Проверка эмиссии):
+   - Найти все функции, которые увеличивают баланс или создают новые активы.
+   - Проверить "источник прав": Кто или что инициирует создание? (Оплата? Админ? Триггер?).
+2. MOTION_TRACE (Слежка за перемещением):
+   - Проанализировать логику передачи актива между кошельками/аккаунтами.
+   - Убедиться, что система проверяет наличие актива у отправителя ПЕРЕД транзакцией.
+3. EXPIRATION_LOGIC (Жизненный цикл во времени):
+   - Изучить, как активы "умирают" по времени (например, сгорание бонусов).
+   - Проверить на наличие "Race Condition" в момент истечения срока действия.
+4. INTEGRITY_SNAPSHOT:
+   - Найти функции "Сверки" (Reconciliation). Если их нет, пометить как риск потери контроля над массой активов.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_LIFECYCLE_MAP:
+  - ASSET_NAME | BIRTH_POINT | TRANSFER_LOGIC | DEATH_POINT | INTEGRITY_RISK
+VISUALIZE: "Sankey Diagram: Show flow from Emission to Consumption."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

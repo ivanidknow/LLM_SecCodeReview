@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: CARDING_PAYMENT_TESTING_PROTECTION
+@GOAL: DETECT_AUTOMATED_CREDIT_CARD_VALIDATION_ATTEMPTS_AND_BIN_ATTACKS
+@PARENT_CONTEXT: transaction_integrity.protocol, rate_threshold_abuse.protocol
+
+<GLOBAL_VARS>
+# Признаки кардинга
+LOW_VALUE_TRANSACTION: "amount < 1.00"
+BIN_ATTACK_PATTERN: "(multiple_cards_same_ip|multiple_cards_same_session)"
+FAILED_AUTH_THRESHOLD: 3 # Ошибки CVV/Expiry подряд
+
+# Защитные слои
+PAYMENT_FRICTION: "(3d_secure|velocity_check|avs_check|fraud_score)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PAYMENT_INIT]   <- {match: (createPayment|processCard|authorize), layer: [API]}
+[GATEWAY_RESP]   <- {match: (declined|insufficient_funds|invalid_cvv), scope: "LOGIC"}
+[CHECKOUT_DATA]  <- {match: (card_number|cvv|expiry), context: "INPUT"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты платежей
+! ([PAYMENT_INIT] -> !{{PAYMENT_FRICTION}}) : "BLOCKER: Naked Payment Gateway. API allows card processing without 3D-Secure or basic fraud-scoring. High risk of becoming a Carding Warehouse."
+! ({{BIN_ATTACK_PATTERN}} -> !AUTO_BLOCK) : "CRITICAL: Velocity Risk. No logic to block a Session/IP after multiple different cards fail. Attackers can test thousands of cards per hour."
+! ([PAYMENT_INIT] -> [LOW_VALUE_TRANSACTION] & !MFA) : "HIGH: Micro-Transaction Abuse. Small amounts (test charges) processed without 3DS. Classic pattern for card validation."
+? ([GATEWAY_RESP] -> !REVEAL_SPECIFIC_ERROR) : "MEDIUM: Verbose Payment Error. Telling the user 'Invalid CVV' vs 'Transaction Failed' helps carders brute-force specific fields."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. VELOCITY_CHECK_AUDIT:
+   - Найти код, ограничивающий количество попыток оплаты для одного `Fingerprint` или `User_ID`.
+   - Проверить наличие «черного списка» по первым 6 цифрам карты (BIN), если идет массовая атака на конкретный банк.
+2. 3D-SECURE_ENFORCEMENT:
+   - Убедиться, что для всех подозрительных или первых транзакций принудительно вызывается `3DS`.
+   - Проверить, что `3DS_Success` проверяется на бэкенде, а не просто получается как флаг с фронтенда.
+3. TRANSACTION_MINIMUM_LOGIC:
+   - Проверить, есть ли в системе минимальный порог транзакции. 
+   - Если бизнес позволяет платить 0.01$ — это идеальный полигон для кардеров. Рекомендовать «Hold & Cancel» вместо реального списания для верификации.
+4. GATEWAY_RESPONSE_MASKING:
+   - Проверить, что внешние ошибки шлюза (например, `Incorrect Expiry Date`) маскируются для клиента в общую ошибку `Payment Method Refused`.
+5. CARD_DEDUPLICATION_CHECK:
+   - Проверить, блокируется ли использование одной и той же карты на 10 разных аккаунтах (Anti-Sybil).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CARDING_RISK_REPORT:
+  - GATEWAY_NAME | FRICTION_TYPE | CARDING_RESISTANCE (High/Med/Low) | FRAUD_LOGS_STATUS
+VISUALIZE: "Fraud Detection Loop: User Action -> Risk Score -> 3DS Challenge -> Success/Block."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

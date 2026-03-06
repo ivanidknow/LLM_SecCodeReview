@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: DATA_BREACH_FINANCIAL_LEGAL_LIABILITY
+@GOAL: ESTIMATE_TOTAL_EXPOSURE_COST_FROM_DATA_LEAKS_BASED_ON_REGULATIONS_AND_VOLUME
+@PARENT_CONTEXT: data_inventory.protocol, compliance_anchors.protocol
+
+<GLOBAL_VARS>
+# Тарифы регуляторов (Estimation Benchmarks)
+REGULATORY_FINES: {
+  "GDPR_MAX": "min(4%_annual_revenue, 20M_EUR)",
+  "PCI_DSS_VIOLATION": "5000_USD_to_100000_USD_per_month",
+  "PII_RECORD_AVG_COST": "180_USD_per_record" # IBM Cost of Data Breach report
+}
+
+# Метрики юридической ответственности
+LEGAL_TRIGGERS: "(cross_border_transfer|consent_missing|no_encryption_at_rest)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SENSITIVE_DATA_STORE] <- {from: data_inventory.protocol, type: "PII|FINANCIAL|HEALTH"}
+[COMPLIANCE_ANCHOR]    <- {from: compliance_anchors.protocol, type: "REGULATED_ZONE"}
+[ACCESS_POINT]         <- {match: (public_api|external_share|export_csv), layer: [API]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты финансовой ответственности
+! ([SENSITIVE_DATA_STORE] -> !ENCRYPTION) : "CRITICAL: Maximum Liability Exposure. Unencrypted PII/Financial data found. Regulatory fines will be applied at the highest tier."
+! ([SENSITIVE_DATA_STORE] -> [ACCESS_POINT] & !MFA) : "HIGH: Low Barrier Breach Risk. Sensitive records accessible via simple credentials. Negligence multiplier for legal claims."
+! ({{LEGAL_TRIGGERS}} == true) : "HIGH: Compliance Non-Conformity. Data handling violates local laws. Estimated legal defense cost: HIGH."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. RECORD_QUANTIFICATION:
+   - Подсчитать (через анализ схем и семплирование) примерное количество записей (Rows) в [SENSITIVE_DATA_STORE].
+   - Классифицировать по типам: PII (ФИО, Email), SPII (Паспорт, Биометрия), PCI (Карты).
+2. REGULATORY_MULTIPLICATION:
+   - Сопоставить типы данных с требованиями GDPR/PCI/ФЗ-152.
+   - Рассчитать "Базовый штраф" (Base Fine) при полной утечке данной таблицы.
+3. INCIDENT_RESPONSE_COSTING:
+   - Рассчитать операционные расходы: уведомление пользователей, работа колл-центра, услуги криминалистов (Forensics).
+4. REVENUE_AT_RISK_SYNC:
+   - Если компания подлежит GDPR, сопоставить риск с годовой выручкой (4%-rule).
+5. REMEDIATION_ROI (Окупаемость):
+   - Сравнить стоимость внедрения защиты (например, Masking/Tokenization) с потенциальным убытком от утечки.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_LIABILITY_REPORT:
+  - DATA_SET | REGULATION | EXPOSED_RECORDS (Est) | TOTAL_POTENTIAL_LOSS (USD)
+VISUALIZE: "Liability Pyramid: Show data sets from 'Low Risk' to 'Company-Killer' (Top Tier)."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

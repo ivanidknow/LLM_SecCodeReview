@@ -1,0 +1,52 @@
+<ARCH_SCAN_V3>
+@ID: DATA_RETENTION_AUDIT
+@GOAL: VERIFY_AUTOMATIC_PURGING_AND_MINIMIZATION_OF_STALE_DATA
+@PARENT_CONTEXT: data_inventory.protocol, state_analysis.protocol
+
+<GLOBAL_VARS>
+# Механизмы удаления и истечения срока
+RETENTION_MARKERS: "(TTL|expiresAt|deletedAt|purge|cleanup|vacuum|expireAfterSeconds)"
+CLEANUP_JOBS: "(cron|agenda|bull|worker|TaskScheduler|ScheduledTask)"
+
+# Сроки удержания (условные константы для ИИ)
+MAX_LOG_AGE: "30d"
+MAX_SESSION_AGE: "24h"
+MAX_GUEST_DATA_AGE: "7d"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CLEANUP_LOGIC] <- {path: (jobs|workers|tasks), match: {{RETENTION_MARKERS}}}
+[DATA_SINK]      <- {match: {{STORAGE_DRIVERS}}, usage: "DELETE|UPDATE"}
+[TTL_INDEX]     <- {match: (index|ttl|expireAfter), context: "DB_SCHEMA"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты удержания данных
+! ([ENTITY] -> {{DATA_CATEGORIES.SENSITIVE_PII}}) & !([CLEANUP_LOGIC] | [TTL_INDEX]) : "HIGH: PII stored without visible retention or automated deletion logic (Data Hoarding risk)."
+! (LOGS -> !AUTO_ROTATE) : "MEDIUM: Application logs lack rotation/retention policy. Risk of disk exhaustion and long-term PII exposure."
+? ({{DATA_CATEGORIES.CREDENTIALS}} -> !EXPIRE) : "MEDIUM: Tokens or temporary secrets lack an expiration timestamp (TTL)."
+! (SOFT_DELETE) & !HARD_DELETE_JOB : "LOW: System uses 'Soft Delete' (deletedAt) but never actually removes data from disk (Permanent storage risk)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. RETENTION_POLICY_SCAN:
+   - Identify all [ENTITY] from data_inventory.protocol.
+   - Check for `createdAt`, `updatedAt`, and especially `expiresAt` fields.
+2. AUTOMATED_PURGE_TRACE:
+   - Search for [CLEANUP_JOBS] that target [DATA_SINK] for old records.
+   - Verify if the cleanup logic actually executes `HARD DELETE` or just marks as inactive.
+3. LOG_RETENTION_AUDIT:
+   - Check infrastructure configs (Docker, PM2, Winston) for log rotation and max file age.
+4. SESSION_TIMEOUT_SYNC:
+   - Cross-check with authentication_strategy.protocol: ensure session records in DB are deleted after {{SESSION_TIMEOUTS}}.
+5. PRIVACY_COMPLIANCE_CHECK (GDPR):
+   - Search for "Right to be Forgotten" implementation: a function that deletes all data associated with a `user_id`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_RETENTION_REPORT:
+  - DATA_TYPE | RETENTION_PERIOD | PURGE_MECHANISM (TTL/Cron/Manual) | COMPLIANCE_STATUS
+VISUALIZE: "Timeline diagram showing Data Life: Ingress -> Usage -> Expiration -> Purge."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

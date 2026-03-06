@@ -1,0 +1,49 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: RECONCILIATION_ALERTING_POLICY
+@GOAL: ENSURE_IMMEDIATE_RESPONSE_TO_FINANCIAL_DISCREPANCIES_AND_SYSTEM_HALT
+@PARENT_CONTEXT: aggregate_invariant_checks.protocol, log_state_cross_verification.protocol
+
+<GLOBAL_VARS>
+# Уровни критичности (Thresholds)
+CRITICAL_MISMATCH: "abs(discrepancy) > 0.00" # Любое расхождение в финтехе — критично
+RECOVERY_TIME_SLA: "15m"
+
+# Каналы оповещения
+ALERT_CHANNELS: "(pagerduty|opsgenie|security_slack|sms_alert)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DISCREPANCY_DETECTOR] <- {from: aggregate_invariant_checks.protocol, type: "MONITOR"}
+[ALERT_DISPATCHER]    <- {match: (sendAlert|triggerIncident|notifySecurity), layer: [INFRA]}
+[EMERGENCY_BRAKE]    <- {match: (disableWithdrawals|freezeAccount|maintenanceMode), scope: "BUSINESS_LOGIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты системы оповещения
+! ([DISCREPANCY_DETECTOR] -> ![ALERT_DISPATCHER]) : "BLOCKER: Silent Failure. System detects a mismatch but has no automated path to notify human operators."
+! ([DISCREPANCY_DETECTOR] & [CRITICAL_MISMATCH] -> ![EMERGENCY_BRAKE]) : "CRITICAL: Unguarded Leak. Financial discrepancy detected, but the system continues processing transactions. Risk of exponential loss."
+! ([ALERT_DISPATCHER] -> !DEDUPLICATION_LOGIC) : "LOW: Alert Fatigue. System sends thousands of identical alerts for one mismatch, leading to DevOps ignoring the signal."
+? (ALERT_LATENCY > "1m") : "HIGH: Delayed Reaction. The time between detection and alerting exceeds 60 seconds. Attacker can drain assets before response."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. INCIDENT_ROUTING_AUDIT:
+   - Проверить, что алерты от сверки имеют наивысший приоритет (P1/Blocker).
+   - Убедиться, что они направляются в выделенный канал безопасности, а не в общий поток техподдержки.
+2. AUTOMATED_KILL_SWITCH_CHECK:
+   - Найти код, который вызывается при `InvariantViolation`. 
+   - Проверить наличие функции `freezeAllOutboundTransfers()`. В финтехе лучше остановить легитимный бизнес, чем дать вывести все резервы.
+3. ESCALATION_LOGIC_VERIFY:
+   - Проверить наличие эскалации: если алерт не подтвержден (ACK) в течение 5 минут, уведомляется CISO или CTO.
+4. SNAPSHOT_ATTACHMENT_PROVISION:
+   - Убедиться, что алерт содержит контекст: ID транзакции, сумма расхождения и «снимок» состояния (Snapshot) для быстрого анализа.
+5. INTEGRITY_OF_ALERTING_PATH:
+   - Проверить, защищена ли сама система оповещения. Если злоумышленник может отключить алертинг перед атакой — это критическая уязвимость.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_RECON_ALERT_REPORT:
+  - INCIDENT_TYPE | RESPONSE_AUTOMATION (Full/Partial/None) | NOTIFICATION_LATENCY | KILL_SWITCH_STATUS
+VISUALIZE: "Incident Response Flow: Detection -> Auto-Freeze -> High-Priority Alert -> Forensic Analysis."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

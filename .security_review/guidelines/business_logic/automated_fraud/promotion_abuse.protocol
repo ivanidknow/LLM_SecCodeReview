@@ -1,0 +1,50 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: AUTOMATED_PROMOTION_COUPON_ABUSE
+@GOAL: DETECT_BOT_DRIVEN_EXPLOITATION_OF_DISCOUNTS_VOUCHERS_AND_REFERRAL_BONUSES
+@PARENT_CONTEXT: incentive_reward_manipulation.protocol, multi_accounting_sybil.protocol
+
+<GLOBAL_VARS>
+# Признаки абуза промокодов
+COUPON_ATTRIBUTES: "(is_stackable|max_redemptions|min_basket_value|first_order_only)"
+ABUSE_SIGNALS: "(high_velocity_redemption|sequential_codes|identical_shipping_address)"
+
+# Пороги "Аномальной выгоды"
+MAX_TOTAL_DISCOUNT: 0.8 # 80% от чека
+MIN_ACCOUNT_AGE_FOR_HIGH_VALUE_PROMO: "24h"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PROMO_APPLY]     <- {match: (applyCoupon|validateVoucher|redeemCode), layer: [API]}
+[BASKET_CALC]     <- {match: (calculateTotal|applyDiscounts), scope: "BUSINESS_LOGIC"}
+[REWARD_EMISSION]  <- {match: (issueRefund|creditBonus|sendGiftCard), scope: "BUSINESS_LOGIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты промо-акций
+! ([PROMO_APPLY] -> !{{RATE_THRESHOLD_ABUSE.QUOTA_CHECK}}) : "CRITICAL: Promo Brute-Force. No limit on coupon attempts. Bots can guess private/influencer codes using dictionary attacks."
+! ([BASKET_CALC] -> !STACKING_PROTECTION) : "HIGH: Discount Stacking. Logic allows combining 'First Order' + 'Referral' + 'Holiday Sale', leading to negative or zero price."
+! ([PROMO_APPLY] == "first_order_only" -> !{{MULTI_ACCOUNTING_SYBIL.IDENTITY_BARRIERS}}) : "CRITICAL: Welcome Bonus Drain. No device/card fingerprinting. One bot can create 10,000 'new' users to reuse a one-time promo."
+? ({{REWARD_EMISSION}} -> !MANUAL_REVIEW_THRESHOLD) : "MEDIUM: Unbounded Emission. System automatically issues high-value rewards without human/AI-risk-score check for suspicious patterns."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. COUPON_BRUTE_FORCE_AUDIT:
+   - Проверить наличие экспоненциальной задержки после 3-х неверных попыток ввода промокода.
+   - Искать проверку на "Похожие коды" (например, `SALE10`, `SALE11`, `SALE12`).
+2. STACKING_LOGIC_SIMULATION:
+   - ИИ должен протестировать комбинации всех доступных типов скидок.
+   - Убедиться, что `Final_Price >= Cost_Price + Min_Margin`, если иное не предусмотрено маркетингом.
+3. NEW_USER_INTEGRITY_CHECK:
+   - Для промокодов типа "Только для новых клиентов" проверить, не использовался ли этот `fingerprint`, `телефон` или `банковская карта` в системе ранее.
+4. "GHOST_REFERRAL" DETECTION:
+   - Анализ связки: если промокод `REF-XXXX` применен, проверить, не был ли пригласитель создан за 5 минут до приглашенного с того же IP (Sybil-loop).
+5. REFUND_PROMO_RECOVERY:
+   - Проверить, возвращается ли промокод при возврате товара. Если да — можно ли его использовать снова на другом аккаунте? (Проверка привязки промо к UserID).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PROMO_ABUSE_REPORT:
+  - PROMO_TYPE | EXPLOIT_VECTOR (Stacking/Brute-force/Sybil) | FINANCIAL_EXPOSURE | FIX_STATUS
+VISUALIZE: "Discount Stacking Map: Show how multiple promotions can converge into a zero-price transaction."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

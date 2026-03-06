@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: INVENTORY_HOARDING_SCALPING
+@GOAL: DETECT_AUTOMATED_RESERVATION_AND_MASS_BUYING_BY_SCALPER_BOTS
+@PARENT_CONTEXT: inventory_exhaustion.protocol, rate_threshold_abuse.protocol
+
+<GLOBAL_VARS>
+# Признаки активности ботов-перекупщиков
+BOT_SPEED_THRESHOLD: "500ms" # Время от открытия страницы до покупки
+MASS_ACTION_MARKERS: "(bulk_add|fast_checkout|headless_browser|automation_id)"
+SCALPER_TARGETS: "(limited_edition|pre_order|flash_sale|seat_selection)"
+
+# Защитные механизмы (Anti-Bot)
+ANTI_SCALPER_TECH: "(virtual_waiting_room|pow_challenge|behavioral_analysis|device_integrity)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CHECKOUT_START]  <- {match: (initiateCheckout|addToCart), layer: [API]}
+[STOCK_REDUCTION] <- {match: (decrementStock|reserveItem), scope: "PERSISTENCE"}
+[PAYMENT_FINAL]   <- {match: (capturePayment|confirmOrder), layer: [SERVICE]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты от скальпинга
+! ([CHECKOUT_START] -> !{{ANTI_SCALPER_TECH}}) : "CRITICAL: Bot Heaven. High-demand items can be reserved/bought without bot-detection or PoW. Risk of 100% inventory capture by scalpers."
+! ({{BOT_SPEED_THRESHOLD}} -> [PAYMENT_FINAL]) : "HIGH: Non-Human Velocity. Transaction completed faster than a human can click. Evidence of automated checkout script."
+! ([STOCK_REDUCTION] -> !{{MULTI_ACCOUNTING_SYBIL.IDENTITY_BARRIERS}}) : "HIGH: Sybil Hoarding. One person using 1000 accounts to bypass '1 item per person' limit. No cross-account fingerprinting."
+? (UNPAID_HOLD_TIME > "5m") : "MEDIUM: Stale Inventory Lock. Scalper bots can hold items in carts for too long, preventing organic sales during peak demand."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. FLASH_SALE_RESILIENCE_AUDIT:
+   - Проверить наличие "Виртуальной очереди" (Waiting Room) для [SCALPER_TARGETS].
+   - Убедиться, что очередь управляется на стороне сервера и её нельзя пропустить через прямой вызов API.
+2. VELOCITY_LOGIC_CHECK:
+   - Искать в коде метки времени: `page_load_time` vs `checkout_submit_time`.
+   - Если разница меньше человеческого минимума (3-5 сек), транзакция должна уходить на дополнительную проверку (MFA/Captcha).
+3. "ADD-TO-CART" API HARDENING:
+   - Проверить, защищен ли эндпоинт добавления в корзину уникальным CSRF-токеном или подписью запроса, привязанной к сессии.
+   - Искать признаки Headless-браузеров (отсутствие определенных JS-свойств, специфичные User-Agent).
+4. INVENTORY_LOCK_CLEANUP:
+   - Для лимитированных товаров проверить агрессивный TTL. Бронь должна слетать через 2-3 минуты, если оплата не инициирована.
+5. SHIPPING_ADDRESS_DEDUPLICATION:
+   - Проверить логику на "размытые" совпадения: 100 разных аккаунтов заказывают на один и тот же адрес или одну банковскую карту.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SCALPING_RISK_REPORT:
+  - TARGET_ITEM | BOT_PROBABILITY (%) | REVENUE_LOSS_EST (Due to churn) | PROTECTION_STATUS
+VISUALIZE: "Inventory Depletion Graph: Compare 'Organic Sales' (Slow/Steady) vs 'Scalper Attack' (Instant Drop)."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

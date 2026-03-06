@@ -1,0 +1,49 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: LOG_TO_STATE_CROSS_VERIFICATION
+@GOAL: DETECT_BYPASSED_LOGIC_BY_COMPARING_APPLICATION_LOGS_WITH_DATABASE_STATE
+@PARENT_CONTEXT: record_integrity_checksumming.protocol, ledger_double_entry.protocol
+
+<GLOBAL_VARS>
+# Источники для сопоставления
+LOG_STREAMS: "(cloudwatch|elasticsearch|splunk|access_logs|app_event_log)"
+STATE_ENTITIES: "(balances|ledger_entries|order_status)"
+
+# Ключи связки (Correlation IDs)
+CORRELATION_MARKERS: "(request_id|trace_id|correlation_id|tx_uuid)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[LOG_EMITTER]      <- {match: (logger.info|logEvent|emit), layer: [APPLICATION]}
+[STATE_CHANGE]     <- {match: (UPDATE|INSERT|SAVE), scope: "PERSISTENCE"}
+[VERIFICATION_JOB] <- {match: (crossCheck|verifyLogs|logReconciliation), scope: "AUDIT"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты соответствия логов и состояния
+! ([STATE_CHANGE] -> ![LOG_EMITTER]) : "CRITICAL: Dark State Change. Database record modified without emitting an application event log. Origin of this change is untraceable."
+! ([LOG_EMITTER] -> ![STATE_CHANGE]) : "HIGH: Phantom Action. A successful action was logged (e.g., 'Payment Success'), but no corresponding record exists in the DB. Potential data loss or log injection."
+! ({{CORRELATION_MARKERS}} == "missing") : "BLOCKER: Broken Traceability. Logs and DB records lack a shared ID. Impossible to prove that Log A caused State Change B."
+? (LOG_STORAGE_INTEGRITY != "immutable") : "HIGH: Erasable Evidence. Audit logs are stored in a way that allows deletion/modification. Attacker can cover their tracks."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CORRELATION_ID_ENFORCEMENT:
+   - Проверить, пробрасывается ли `Request-ID` от API Gateway до уровня сохранения в БД.
+   - Убедиться, что этот ID записывается и в лог-систему, и в таблицу транзакций.
+2. RECONCILIATION_SAMPLING:
+   - ИИ должен проанализировать логику скрипта сверки, который выбирает случайные 1% транзакций из БД и ищет их «цифровой след» в логах.
+3. UNACCOUNTED_STATE_DETECTION:
+   - Поиск изменений в БД, которые произошли вне рабочих часов или без соответствующих записей в логах веб-сервера.
+4. LOG_IMMUTABILITY_AUDIT:
+   - Проверить, настроены ли политики `Object Lock` (WORM - Write Once Read Many) для логов в S3/CloudWatch. 
+   - Если логи можно удалить через `sudo rm` — флаг "Critical Audit Risk".
+5. ASYNCHRONOUS_MISMATCH_CHECK:
+   - В системах с очередями (Kafka/RabbitMQ) проверить, что сообщение в очереди (лог намерения) всегда приводит к итоговому состоянию в БД.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CROSS_VERIFICATION_REPORT:
+  - COMPONENT | CORRELATION_QUALITY | MATCH_RATE (%) | UNTRACEABLE_CHANGES_DETECTED
+VISUALIZE: "Traceability Loop: API Request (ID:123) -> App Log (ID:123) -> DB Record (ID:123). Show gaps in the chain."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

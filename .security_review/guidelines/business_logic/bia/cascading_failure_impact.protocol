@@ -1,0 +1,54 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: CASCADING_FAILURE_FINANCIAL_IMPACT
+@GOAL: IDENTIFY_AND_QUANTIFY_REVENUE_LOSS_FROM_PROPAGATING_TECHNICAL_ERRORS
+@PARENT_CONTEXT: business_critical_dependencies.protocol, throughput_bottleneck.protocol
+
+<GLOBAL_VARS>
+# Признаки "Заражения" сбоем
+PROPAGATION_MARKERS: "(retry_policy|timeout_none|blocking_call|shared_thread_pool|global_lock)"
+RESILIENCE_CONTROLS: "(circuit_breaker|bulkhead|fallback|retry_limit|backoff)"
+
+# Финансовые веса (Weighting)
+REVENUE_IMPACT_MULTIPLIER: {
+  "SHARED_DB": 1.0,    # Падение БД = 100% потеря потока
+  "SHARED_THREAD": 0.7, # Забитый пул потоков = 70% деградация
+  "BLOCKING_API": 0.5   # Синхронное ожидание внешнего API = 50% риск простоя
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[NON_CRITICAL_NODE] <- {match: {{TIER_2_BUSINESS_SUPPORT}}|{{TIER_3_OPERATIONAL}}, layer: [SERVICE]}
+[CRITICAL_REVENUE]  <- {from: monetization_points.protocol, type: "MONEY_MAKER"}
+[SHARED_RESOURCE]   <- {match: (pool_size|max_connections|cpu_limit), scope: "INFRA"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты устойчивости
+! ([NON_CRITICAL_NODE] -> [CRITICAL_REVENUE] & !{{RESILIENCE_CONTROLS}}) : "CRITICAL: Viral Failure Path. A crash in a non-essential service can freeze revenue flow due to lack of Circuit Breakers."
+! ({{SHARED_RESOURCE}} -> [NON_CRITICAL_NODE] & [CRITICAL_REVENUE]) : "HIGH: Resource Contention. Minor service can exhaust DB connections/Threads needed for payments. Financial impact: {{REVENUE_IMPACT_MULTIPLIER.SHARED_DB}}."
+! (RETRY_POLICY == "infinite" | "no_backoff") : "HIGH: Self-Inflicted DoS. Failed transactions will retry indefinitely, drowning the system and preventing new orders."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. BLAST_RADIUS_MAPPING:
+   - Взять каждый сервис из TIER-2/3.
+   - Симулировать его "зависание" (не падение с ошибкой, а именно бесконечное ожидание).
+   - Проверить: остановится ли при этом [CRITICAL_REVENUE]?
+2. SHARED_FATE_ANALYSIS:
+   - Найти общие точки отказа: общая БД, общий Redis, общий Kubernetes Node.
+   - Оценить вероятность того, что "мусорный" лог-сервис забьет диск, из-за чего упадет БД транзакций.
+3. TIMEOUT_PROPAGATION_AUDIT:
+   - Проверить цепочку таймаутов. Если API Gateway ждет 30с, а внутренний сервис 60с — это гарантированный каскадный сбой. 
+   - Правило: Таймауты должны уменьшаться по мере углубления в систему.
+4. BULKHEAD_ISOLATION_CHECK:
+   - Искать паттерн "Bulkhead" (переборки). Изолированы ли пулы потоков для оплаты от пулов для загрузки картинок?
+5. FINANCIAL_LOSS_ESTIMATION:
+   - Рассчитать "Стоимость заражения": сколько минут выручки мы теряем, пока админ ищет, какой именно второстепенный сервис вызвал лавину.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CASCADING_RISK_REPORT:
+  - TRIGGER_NODE | AFFECTED_REVENUE_FLOW | PROBABILITY | ESTIMATED_LOST_REVENUE
+VISUALIZE: "Failure Propagation Map: Show how a spark in 'Analytics' burns down the 'Payment Gateway'."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

@@ -1,0 +1,52 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: ADMIN_PANEL_LOGIC_ABUSE
+@GOAL: PROTECT_INTERNAL_MANAGEMENT_TOOLS_FROM_UNAUTHORIZED_ACCESS_AND_LOGIC_MANIPULATION
+@PARENT_CONTEXT: four_eyes_principle.protocol, data_breach_liability.protocol
+
+<GLOBAL_VARS>
+# Признаки админ-панели
+ADMIN_SURFACE: "(admin|backoffice|internal|dashboard|staff|superuser)"
+DANGEROUS_FEATURES: "(raw_sql|impersonate_user|override_balance|export_all|direct_db_edit)"
+
+# Индикаторы слабой защиты
+WEAK_ADMIN_AUTH: "!(mfa|2fa|ip_whitelist|vpn_required|sso_integration)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ADMIN_ENTRY]      <- {match: {{ADMIN_SURFACE}}, layer: [UI|API_GATEWAY]}
+[PRIVILEGED_FUNC]  <- {match: {{DANGEROUS_FEATURES}}, scope: "ADMIN_LOGIC"}
+[AUDIT_LOGGER]     <- {from: immutable_audit_trail.protocol, context: "ADMIN_ACTIONS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты админки
+! ([ADMIN_ENTRY] -> [WEAK_ADMIN_AUTH]) : "BLOCKER: Exposed Internal Core. Admin panel is accessible without MFA or network restrictions. One leaked password leads to total system compromise."
+! ([PRIVILEGED_FUNC] -> !{{FOUR_EYES_PRINCIPLE_GOVERNANCE.APPROVAL_WORKFLOW}}) : "CRITICAL: God Mode Abuse. Dangerous admin features (e.g., impersonation or balance override) can be used without peer approval."
+! ([ADMIN_ENTRY] -> !{{AUDIT_LOGGER}}) : "CRITICAL: Dark Admin. Actions in the internal panel are not logged with the same rigor as user actions. Internal fraud will be untraceable."
+! ([PRIVILEGED_FUNC] -> [BYPASS_BUSINESS_VALIDATION]) : "HIGH: Logic Bypass via Admin. Internal tools skip standard business checks (e.g., integrity checksums or state machine rules)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ADMIN_SURFACE_DISCOVERY:
+   - Найти скрытые пути (Paths) и поддомены, относящиеся к администрированию.
+   - Проверить заголовки ответов: не выдает ли сервер информацию о внутреннем ПО (Internal Frameworks).
+2. AUTHENTICATION_HARDENING_AUDIT:
+   - Проверить наличие обязательного MFA для всех `staff` аккаунтов.
+   - Убедиться, что сессия в админке имеет короткий TTL и привязана к IP/VPN.
+3. IMPERSONATION_RISK_CHECK:
+   - Анализ функции "Войти под пользователем" (Impersonation). 
+   - Требует ли она обоснования (Ticket ID)? Логируются ли действия админа внутри сессии пользователя? 
+   - Запрещено ли админу совершать финансовые транзакции в режиме имперсонации?
+4. DATA_EXPORT_LIMITS:
+   - Проверить лимиты на массовую выгрузку (Bulk Export). 
+   - Может ли один сотрудник выгрузить весь список клиентов? (Связка с `data_breach_liability.protocol`).
+5. DEBUG_LEAK_ANALYSIS:
+   - Поиск "отладочных" эндпоинтов, оставленных на проде, которые позволяют менять состояние системы в обход стандартных API.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ADMIN_SECURITY_REPORT:
+  - ADMIN_COMPONENT | EXPOSURE_LEVEL | CRITICAL_FEATURES_FOUND | PROTECTION_GAPS
+VISUALIZE: "Privilege Escalation Path: Show how a compromised 'Support' account can reach 'SuperAdmin' functions."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: RTO_RPO_ANALYSIS
+@GOAL: AUDIT_DISASTER_RECOVERY_CAPABILITIES_AGAINST_BUSINESS_TOLERANCE
+@PARENT_CONTEXT: critical_path_cost.protocol, infrastructure_topology.md
+
+<GLOBAL_VARS>
+# Технические маркеры восстановления
+BACKUP_STRATEGY: "(snapshot|pg_dump|incremental|replication|point_in_time_recovery|PITR)"
+DEPLOY_STRATEGY: "(blue_green|canary|rolling_update|infrastructure_as_code|terraform)"
+FAILOVER_MECHANISM: "(health_check|auto_scaling|load_balancer|multi_az|failover)"
+
+# Бизнес-пороги (Tolerances)
+MAX_ALLOWED_DATA_LOSS: "0s" # Для транзакций (RPO)
+MAX_ALLOWED_DOWNTIME: "15m" # Для платежного шлюза (RTO)
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DATA_MASTER]     <- {match: {{LIFECYCLE_STAGES.ASSET_STORE}}, scope: "PERSISTENCE"}
+[RECOVERY_CONFIG] <- {match: {{BACKUP_STRATEGY}}|{{DEPLOY_STRATEGY}}, layer: [INFRA]}
+[AVAILABILITY_GAUGE] <- {match: {{FAILOVER_MECHANISM}}, context: "RESILIENCE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты восстановления
+! ([DATA_MASTER] -> !{{BACKUP_STRATEGY}}) : "BLOCKER: No Recovery Path. Critical asset storage has no defined backup/replication strategy. RPO = Infinity."
+! ({{BACKUP_STRATEGY}} == "daily_dump" & [DATA_MASTER] == "transactions") : "CRITICAL: RPO Violation. Daily backups for high-frequency transactions lead to 24h data loss risk."
+! ([RECOVERY_CONFIG] -> !AUTOMATED_RESTORE) : "HIGH: High RTO Risk. Backups exist but restoration is manual/undocumented. Recovery will exceed business limits."
+! (SYSTEM_BOOT_TIME > {{MAX_ALLOWED_DOWNTIME}}) : "HIGH: RTO Gap. Cold start of all microservices takes longer than the business can stay offline."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. RPO_DATA_FRESHNESS_AUDIT:
+   - Проверить конфигурацию БД. Используется ли `Write-Ahead Logging (WAL)` или `Synchronous Replication`?
+   - Определить "окно потери": если сервер сгорит сейчас, сколько последних транзакций исчезнет?
+2. RTO_VELOCITY_CHECK:
+   - Анализ скриптов развертывания (IaC). Сколько времени занимает `terraform apply` или `helm upgrade` с нуля?
+   - Проверить наличие `Circuit Breakers`, которые позволяют системе работать в деградированном режиме, пока база восстанавливается.
+3. BACKUP_INTEGRITY_VERIFY:
+   - Искать в коде/конфигах тесты на восстановление (Restore Tests). "Бэкап, который не проверяли на восстановление, не существует".
+4. MULTI_REGION_RESILIENCE:
+   - Если [DATA_MASTER] находится только в одном регионе/ДЦ, пометить риск "Geographical SPOF".
+5. LOG_SHIPPING_SYNC:
+   - Проверить, уходят ли логи транзакций в реальном времени в удаленное хранилище. Это позволяет восстановить данные даже при потере основного диска (RPO -> 0).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_RECOVERY_GAP_ANALYSIS:
+  - COMPONENT | CURRENT_RPO | REQUIRED_RPO | CURRENT_RTO | GAP_STATUS
+VISUALIZE: "Recovery Timeline: Compare 'Manual Recovery' vs 'Automated Failover' durations."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

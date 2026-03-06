@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: MULTI_STEP_FLOW_BYPASSING
+@GOAL: PREVENT_UNAUTHORIZED_JUMPS_BETWEEN_BUSINESS_PROCESS_STAGES
+@PARENT_CONTEXT: value_chain_mapping.protocol, transaction_integrity.protocol
+
+<GLOBAL_VARS>
+# Маркеры этапов и состояний
+FLOW_STAGES: "(step1|step2|stage|phase|onboarding_status|order_status)"
+STATE_MACHINE: "(switch.*status|update.*state|transitionTo|FSM|machine\.send)"
+TERMINAL_STAGES: "(success|paid|verified|completed|authorized|download_access)"
+
+# Признаки "Доверия на слово" (Insecure Direct Object Reference - IDOR style)
+INSECURE_TRANSITION: "(req\.body\.new_status|req\.params\.next_step)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PROCESS_START]   <- {match: (initiate|startFlow|createPending), layer: [API]}
+[CRITICAL_FINISH] <- {match: {{TERMINAL_STAGES}}, layer: [SERVICE|CONTROLLER]}
+[STATUS_UPDATER]  <- {match: {{STATE_MACHINE}}, scope: "BUSINESS_LOGIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты последовательности
+! ([CRITICAL_FINISH] -> !PREVIOUS_STEP_VERIFICATION) : "CRITICAL: Potential Bypass. Terminal stage reached without verifying completion of mandatory previous steps."
+! ({{STATE_MACHINE}} -> [INSECURE_TRANSITION]) : "HIGH: Client-Driven State Change. User can dictate the next status of the process via request parameters."
+! ([PROCESS_START] -> !{{SESSION_MARKERS}}) : "MEDIUM: Stateless Flow. Process state is not tied to a server-side session, allowing 'replaying' steps from other contexts."
+? ({{TERMINAL_STAGES}} -> !SERVER_SIDE_VALIDATION) : "CRITICAL: Client-side Completion. Logic assumes process is finished because a specific URL was loaded (e.g. /thanks.html)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. FLOW_MAP_CONSTRUCTION:
+   - Найти все эндпоинты, относящиеся к одному процессу (например, `/checkout/1`, `/checkout/2`...).
+   - Определить "Граф переходов": какой статус за каким следует.
+2. PRE-CONDITION_AUDIT:
+   - Для каждого эндпоинта (особенно [CRITICAL_FINISH]) проверить наличие Guard-проверки. 
+   - Пример: Прежде чем разрешить `POST /api/order/complete`, сервер должен проверить в БД, что текущий статус заказа — `WAITING_FOR_FINISH`, а не `NEW`.
+3. TOKEN_INTEGRITY_CHECK:
+   - Проверить, используются ли одноразовые токены для перехода между шагами (Step-Tokens).
+   - Если пользователь может угадать URL следующего шага — это уязвимость.
+4. HIDDEN_STAGES_SCAN:
+   - Поиск "админских" или "тестовых" способов завершить процесс (например, флаг `is_test=true` в запросе, который обнуляет цену или пропускает проверку).
+5. SERVER_SIDE_STATE_VERIFY:
+   - Убедиться, что "Истина" о текущем шаге хранится в БД или защищенной сессии, а не в Hidden-поле формы на фронтенде.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_FLOW_BYPASS_REPORT:
+  - PROCESS_NAME | ENTRY_STEP | EXIT_STEP | BYPASS_POSSIBLE (Yes/No) | REMEDIATION
+VISUALIZE: "State Transition Diagram: Highlight illegal jumps (e.g. Step 1 -> Success) in RED."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

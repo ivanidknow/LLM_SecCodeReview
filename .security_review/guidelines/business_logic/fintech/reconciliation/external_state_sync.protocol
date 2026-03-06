@@ -1,0 +1,50 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: EXTERNAL_STATE_SYNC_RECONCILIATION
+@GOAL: DETECT_DISCREPANCIES_BETWEEN_LOCAL_LEDGER_AND_EXTERNAL_PAYMENT_SOURCES
+@PARENT_CONTEXT: transaction_integrity.protocol, data_consistency_checksums.protocol
+
+<GLOBAL_VARS>
+# Источники "Правды" (Sources of Truth)
+EXTERNAL_SOURCES: "(bank_statement|webhook_payload|gateway_api_response|blockchain_event)"
+LOCAL_STATE: "(order.status|transaction.state|user.balance)"
+
+# Признаки рассинхрона (Desync Signals)
+STATE_MISMATCH: "(local: 'paid' & external: 'failed'|'pending')"
+TIMEOUT_SMELL: "(long_running_pending|missing_final_callback)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[WEBHOOK_HANDLER] <- {match: (onWebhook|handleCallback|processNotification), layer: [API]}
+[RECONCILIATION_JOB] <- {match: (syncWithBank|checkPaymentStatus|nightly_reconciliation), scope: "BACKGROUND_JOB"}
+[STATE_TRANSITION] <- {match: (updateStatus|confirmPayment), scope: "BUSINESS_LOGIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты синхронизации
+! ([STATE_TRANSITION] -> !{{EXTERNAL_SOURCES}}) : "CRITICAL: Trusting Local Input. System changes status to 'paid' based on client-side data or incomplete local logic without verifying with External Source of Truth."
+! ([WEBHOOK_HANDLER] -> !IDEMPOTENCY_CHECK) : "HIGH: Webhook Race Condition. Duplicate webhooks might trigger multiple balance increments if idempotency is missing."
+! ([RECONCILIATION_JOB] -> !DISCREPANCY_LOGGING) : "MEDIUM: Silent Desync. System finds a mismatch but doesn't trigger a high-priority alert for manual intervention."
+! (PAYMENT_FINAL_STATE -> !EXTERNAL_TX_ID) : "BLOCKER: Missing Traceability. Local transaction marked as finished but lacks the unique ID from the External Provider (Bank/Stripe)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. WEBHOOK_INTEGRITY_AUDIT:
+   - Проверить проверку подписи (Signature Verification) для входящих уведомлений.
+   - Убедиться, что статус меняется на основании `payload.status` от провайдера, а не просто факта вызова эндпоинта.
+2. ORPHANED_TRANSACTION_SCAN:
+   - Найти логику обработки "зависших" транзакций (Pending > 24h).
+   - Есть ли автоматический запрос к API провайдера для уточнения финального статуса?
+3. NIGHTLY_RECONCILIATION_CHECK:
+   - Проверить наличие фонового процесса, который сравнивает сумму всех успешных транзакций в БД со списком транзакций из выписки банка (CSV/API).
+4. FAIL-SAFE_STATE_MACHINE:
+   - Если внешний провайдер вернул `REFUNDED`, а в локальной БД статус `PAID` — проверить, инициируется ли автоматическая блокировка доступа к услуге/товару.
+5. DOUBLE_CONFIRMATION_LOGIC:
+   - Для крупных сумм проверить паттерн "Двойного подтверждения": Webhook + активный Pull-запрос к API провайдера.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SYNC_AUDIT_REPORT:
+  - FLOW_NAME | SOURCE_OF_TRUTH | SYNC_METHOD (Webhook/Polling/RecJob) | DESYNC_RISK
+VISUALIZE: "Reconciliation Loop: External Provider (Truth) <-> Sync Job <-> Local Database (Reflection)."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

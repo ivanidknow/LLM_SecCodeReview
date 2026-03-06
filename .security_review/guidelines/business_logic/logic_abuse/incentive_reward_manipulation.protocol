@@ -1,0 +1,54 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: INCENTIVE_REWARD_MANIPULATION
+@GOAL: DETECT_EXPLOITATION_OF_MARKETING_PROMS_REFERRALS_AND_LOYALTY_PROGRAMS
+@PARENT_CONTEXT: asset_lifecycle_trace.protocol, value_chain_mapping.protocol
+
+<GLOBAL_VARS>
+# Маркеры систем поощрения
+PROMO_LOGIC: "(promo|coupon|voucher|discount|referral|invite|bonus|cashback|loyalty)"
+VALIDATION_MARKERS: "(isUsed|usageLimit|minAmount|expiryDate|oneTimePerUser)"
+REWARD_ACTIONS: "(creditBonus|addPoints|applyDiscount|generateCode)"
+
+# Пороговые значения (Thresholds)
+MAX_DISCOUNT_PERCENT: 90
+MIN_ORDER_FOR_BONUS: 10
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PROMO_ENGINE]   <- {match: {{PROMO_LOGIC}}, scope: "BUSINESS_LOGIC"}
+[REWARD_DISPATCH] <- {match: {{REWARD_ACTIONS}}, context: "EMISSION"}
+[USER_RELATION]  <- {match: (referredBy|inviterId|parentUserId), context: "REFERRAL"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты систем лояльности
+! ({{PROMO_LOGIC}} -> !{{VALIDATION_MARKERS}}) : "CRITICAL: Unbounded Promo. Logic lacks usage limits or expiration. Risk of viral exploitation."
+! ([USER_RELATION] -> !{{IDENTITY_MODEL.Device_Fingerprint}}) : "HIGH: Referral Fraud. No device/IP check for referral links. Single user can create thousands of fake 'friends'."
+! ([PROMO_ENGINE] -> !ATOMIC_TRANSACTION) : "CRITICAL: Promo Race Condition. User can apply the same one-time code multiple times in parallel requests."
+? (DISCOUNT_VALUE > {{MAX_DISCOUNT_PERCENT}}) : "MEDIUM: Abnormal Discount. Business logic allows >{{MAX_DISCOUNT_PERCENT}}% discount. Potential price manipulation or config error."
+! (CASHBACK_LOGIC -> !REFUND_HANDLING) : "HIGH: Cashback Loop. User gets points for purchase, then refunds the item but keeps the points."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PROMO_VALIDATION_TRACE:
+   - Найти эндпоинт применения промокода.
+   - Проверить цепочку проверок: Срок действия -> Минимальная сумма -> Лимит использований на юзера -> Лимит использований на систему.
+2. REFERRAL_LOOP_DETECTION:
+   - Изучить логику связи "Пригласитель - Приглашенный".
+   - Искать проверку на "Self-Referral" (например, совпадение IP, отпечатка браузера или номера телефона).
+3. REFUND_INTEGRITY_CHECK:
+   - Проанализировать функцию возврата товара.
+   - Обязательное условие: При возврате все начисленные за покупку [REWARD_ACTIONS] должны быть аннулированы или заблокированы.
+4. STACKING_LOGIC_AUDIT:
+   - Проверить, можно ли применить промокод совместно с глобальной распродажей или баллами лояльности (Double/Triple Dipping).
+   - Искать флаг `isStackable` или аналогичный.
+5. REWARD_EMISSION_LIMITS:
+   - Проверить наличие "предохранителя" в коде: максимальная сумма бонусов, которую система может выдать одному юзеру в сутки.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REWARD_ABUSE_REPORT:
+  - SYSTEM_TYPE (Referral/Promo/Cashback) | VULNERABILITY (Loop/Race/NoLimit) | SEVERITY | REFACTOR_ADVICE
+VISUALIZE: "Logic Flow: Show 'Happy Path' vs 'Attacker Loop' (e.g. Buy -> Get Points -> Refund -> Keep Points)."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

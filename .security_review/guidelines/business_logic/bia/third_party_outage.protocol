@@ -1,0 +1,53 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: THIRD_PARTY_OUTAGE_RISK
+@GOAL: QUANTIFY_BUSINESS_IMPACT_OF_EXTERNAL_SERVICE_FAILURES_AND_LACK_OF_REDUNDANCY
+@PARENT_CONTEXT: business_critical_dependencies.protocol, cascading_failure_impact.protocol
+
+<GLOBAL_VARS>
+# Маркеры внешних зависимостей
+EXTERNAL_SaaS: "(stripe|paypal|twilio|sendgrid|aws|google_maps|intercom|auth0)"
+CRITICAL_VENDORS: {
+  "PAYMENT": ["stripe", "adyen", "cloudpayments"],
+  "AUTH": ["firebase", "auth0", "okta"],
+  "INFRA": ["s3", "lambda", "rds", "cloudfront"]
+}
+
+# Метрики выживаемости
+SURVIVAL_STRATEGY: "(multi_region|multi_cloud|fallback_provider|offline_mode|cache_stale)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[EXTERNAL_CALL]   <- {match: {{EXTERNAL_SaaS}}, layer: [SERVICE|INTEGRATION]}
+[REVENUE_FLOW]    <- {from: monetization_points.protocol, type: "CRITICAL"}
+[CONTRACT_SLA]    <- {match: (vendor_sla|uptime_guarantee), scope: "LEGAL"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты внешней устойчивости
+! ([REVENUE_FLOW] -> [EXTERNAL_CALL] & !{{SURVIVAL_STRATEGY}}) : "CRITICAL: Total External Dependency. Revenue flow is 100% dependent on a single 3rd party without fallback. Outage = Total Business Stop."
+! ([EXTERNAL_CALL] -> !TIMEOUT_CONFIGURATION) : "HIGH: Infinite Hang Risk. No timeout set for external API. If vendor is slow, our system threads will be exhausted (Cascading Failure)."
+! (COUNT(CRITICAL_VENDORS.PAYMENT) < 2) : "MEDIUM: Single Point of Revenue Failure. Only one payment provider integrated. Risk of account freeze or regional outage."
+? (VENDOR_SLA < INTERNAL_SLA) : "HIGH: SLA Mismatch. We promised clients 99.9% uptime, but our cloud provider only guarantees 99.5%. We will pay penalties for their mistakes."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. VENDOR_INVENTORY_SCAN:
+   - Просканировать конфиги и импорты на наличие внешних SDK и API-ключей.
+   - Классифицировать их по влиянию на выручку (Revenue Impact).
+2. "KILL-SWITCH" AUDIT:
+   - Проверить, есть ли в коде возможность мгновенно переключиться на резервного провайдера (например, с Twilio на MessageBird) без пересборки проекта.
+3. DATA_LOCK-IN_EVALUATION:
+   - Оценить, насколько сложно "переехать" от вендора. (Например, если все фото лежат в S3 без бэкапа — это Lock-in. Если все юзеры в Auth0 без экспорта паролей — это Lock-in).
+4. DEGRADED_MODE_SIMULATION:
+   - Что увидит пользователь, если упадет сервис рекомендаций? "Белый экран" (плохо) или просто "Пустой блок" (хорошо)?
+   - Проверить наличие `Try-Catch` вокруг каждого [EXTERNAL_CALL].
+5. FINANCIAL_EXPOSURE_CALC:
+   - Рассчитать: `(Downtime_Cost_Per_Hour * (1 - Vendor_SLA))`. Это сумма, которую компания теряет ежегодно "по закону вероятности" из-за внешних сбоев.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_VENDOR_RISK_MAP:
+  - VENDOR_NAME | CRITICALITY | FALLBACK_EXISTS (Y/N) | EXIT_COST (High/Med/Low)
+VISUALIZE: "Dependency Sunburst: Show core business in the center and external 'points of failure' on the periphery."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: INPUT_DRIVEN_TAMPERING
+@GOAL: PREVENT_CLIENT_SIDE_MANIPULATION_OF_PRICE_DISCOUNT_AND_ITEM_QUANTITY
+@PARENT_CONTEXT: monetization_points.protocol, value_chain_mapping.protocol
+
+<GLOBAL_VARS>
+# Опасные параметры ввода
+PRICE_FIELDS: "(price|amount|cost|unit_price|total_amount|fee|tax)"
+QUANTITY_FIELDS: "(quantity|qty|count|amount_items|volume)"
+DISCOUNT_FIELDS: "(discount|rebate|percent_off|reduction)"
+
+# Признаки доверия клиенту
+INPUT_SOURCES: "(req\.body|req\.query|params|input)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ORDER_CREATE]    <- {match: (createOrder|addItem|checkout|addToCart), layer: [API]}
+[PRICE_CALC]      <- {match: (calculateTotal|getFinalPrice), scope: "BUSINESS_LOGIC"}
+[DATABASE_SAVE]   <- {match: (save|insert|update), scope: "PERSISTENCE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты цен и количества
+! ([ORDER_CREATE] -> [INPUT_SOURCES] & {{PRICE_FIELDS}}) : "BLOCKER: Client-Side Pricing. The API accepts 'price' directly from the user. Attacker can set price to 0.01 or negative."
+! ({{QUANTITY_FIELDS}} -> !POS_INT_VALIDATION) : "CRITICAL: Negative Quantity. System doesn't strictly validate that quantity is a POSITIVE integer. Risk of 'quantity: -1' to reduce total price or get a refund."
+! ([PRICE_CALC] -> !SERVER_SIDE_FETCH) : "HIGH: Cached Price Manipulation. Logic uses price from the request instead of fetching the current price from the Master-DB/Catalog."
+! ({{DISCOUNT_FIELDS}} -> !MAX_THRESHOLD_CHECK) : "HIGH: Unbounded Discount. User can supply an arbitrary discount value. Risk of 100% or more reduction."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. INPUT_SINK_ANALYSIS:
+   - Просканировать все POST/PUT запросы в модулях корзины и оплаты.
+   - Пометить эндпоинты, принимающие {{PRICE_FIELDS}}.
+2. NEGATIVE_VALUE_FUZZING (Логический поиск):
+   - Проверить наличие проверок `if (qty <= 0)` или `math.abs()`.
+   - Если количество просто умножается на цену без проверки знака — флаг "CRITICAL".
+3. PRICE_SOURCE_VERIFICATION:
+   - Убедиться, что для финального расчета стоимости система делает `db.products.find(id)` и берет цену оттуда.
+   - Любая цена, пришедшая с фронтенда, должна считаться "информационной" и перепроверяться.
+4. INTEGER_OVERFLOW_CHECK:
+   - В языках с типизацией проверить риск переполнения (Overflow). Может ли `quantity: 9999999999` привести к обнулению суммы из-за специфики типов данных?
+5. ZERO_SUM_ORDER_PREVENTION:
+   - Проверить наличие финального "sanity check": может ли итоговая сумма к оплате быть меньше 0 или меньше минимально допустимой (например, 1 рубль)?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TAMPERING_RISK_REPORT:
+  - ENDPOINT | PARAMETER | RISK_TYPE (Price_Override/Negative_Qty/Overflow) | SEVERITY
+VISUALIZE: "Data Flow: Client Request (Tampered Price) -> Server Logic (No Validation) -> DB (Financial Loss)."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

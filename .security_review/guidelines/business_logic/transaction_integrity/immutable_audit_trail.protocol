@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: IMMUTABLE_AUDIT_TRAIL
+@GOAL: ENSURE_TAMPER_PROOF_RECORDING_OF_ALL_STATE_CHANGES
+@PARENT_CONTEXT: asset_lifecycle_trace.protocol, monetization_points.protocol
+
+<GLOBAL_VARS>
+# Маркеры аудита
+AUDIT_ENTITIES: "(AuditLog|ActivityLog|EventStore|TransactionLog|Ledger)"
+IMMUTABILITY_MARKERS: "(APPEND_ONLY|INSERT_ONLY|ReadOnly|WORM|blockchain|hash_chain)"
+SENSITIVE_FIELDS: "(balance_before|balance_after|actor_id|target_id|ip_address|metadata)"
+
+# Анти-паттерны (Symptom of mutability)
+DANGEROUS_OPS: "(UPDATE.*audit|DELETE.*audit|TRUNCATE|db\.execute.*DROP)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AUDIT_WRITER]   <- {match: {{AUDIT_ENTITIES}}, scope: "PERSISTENCE"}
+[CRITICAL_CHANGE] <- {from: asset_lifecycle_trace.protocol, type: "STATE_MUTATION"}
+[TAMPER_POINT]    <- {match: {{DANGEROUS_OPS}}, context: "SMELL"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты неизменяемости
+! ([CRITICAL_CHANGE] -> ![AUDIT_WRITER]) : "CRITICAL: Silent State Change. Critical asset mutation occurs without an audit record."
+! ([AUDIT_WRITER] -> [TAMPER_POINT]) : "BLOCKER: Mutable Audit Trail. Logic allows UPDATING or DELETING audit records. Integrity is compromised."
+! ([AUDIT_WRITER] -> !{{SENSITIVE_FIELDS}}) : "HIGH: Insufficient Audit Detail. Missing 'Before/After' state or 'Actor ID'. Forensic analysis will be impossible."
+? ([AUDIT_WRITER] -> !CHECKSUM) : "MEDIUM: Unsigned Audit. Records are not chained or checksummed; direct DB manipulation won't be detected."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. AUDIT_COVERAGE_SCAN:
+   - Сопоставить все функции из `asset_lifecycle_trace.protocol` с вызовами [AUDIT_WRITER].
+   - Пометить функции, где «деньги двигаются», а «лог не пишется».
+2. SCHEMA_INTEGRITY_CHECK:
+   - Проверить схему таблицы аудита. Есть ли у пользователя БД права на UPDATE/DELETE в этой таблице?
+   - Искать использование `auto_now_add` (для фиксации времени создания) и отсутствие `auto_now` (предотвращение обновления времени).
+3. GRANULARITY_AUDIT:
+   - Убедиться, что лог содержит не просто "баланс изменился", а `diff`: что было, что стало и почему (Reason/Comment).
+4. EXTERNAL_LOG_SHIPPING:
+   - Проверить, копируются ли логи в реальном времени во внешнюю систему (ELK, CloudWatch, SIEM). 
+   - (Если база упадет или будет стерта, копия должна выжить).
+5. FORENSIC_READINESS:
+   - Проверить наличие `correlation_id`, связывающего запись в аудите с конкретным HTTP-запросом из `idempotency_protection.protocol`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_AUDIT_INTEGRITY_REPORT:
+  - ENTITY_NAME | COVERAGE_PERCENT | IMMUTABILITY (Strong/Weak/None) | MISSING_DETAILS
+VISUALIZE: "Chain of Trust: Show how Transaction ID links Request -> Logic -> Audit -> External Log."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

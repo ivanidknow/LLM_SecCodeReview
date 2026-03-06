@@ -1,0 +1,50 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: BUSINESS_CRITICAL_DEPENDENCY_TREE
+@GOAL: MAP_TECHNICAL_INFRASTRUCTURE_TO_REVENUE_IMPACT_AND_SINGLE_POINTS_OF_FAILURE
+@PARENT_CONTEXT: monetization_points.protocol, topology_map.md
+
+<GLOBAL_VARS>
+# Типы критичности (Criticality Levels)
+TIER_1_MISSION_CRITICAL: "(payment|auth|database|core_api)"
+TIER_2_BUSINESS_SUPPORT: "(notifications|analytics|reporting|recommendations)"
+TIER_3_OPERATIONAL: "(logging|admin_ui|internal_tools)"
+
+# Маркеры "Жесткой" связи (Hard Coupling)
+HARD_BLOCKERS: "(await|require|strictly_depends_on|blocking_call)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[REVENUE_NODE]    <- {from: monetization_points.protocol, type: "MONEY_MAKER"}
+[TECH_DEPENDENCY] <- {match: {{TIER_1_MISSION_CRITICAL}}|{{TIER_2_BUSINESS_SUPPORT}}, layer: [INFRA|SERVICE]}
+[FALLBACK_LOGIC]  <- {match: (circuit_breaker|fallback|retry|offline_mode|cache_first)}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты дерева зависимостей
+! ([REVENUE_NODE] -> [TECH_DEPENDENCY] & ![FALLBACK_LOGIC]) : "CRITICAL: Single Point of Failure. Revenue node depends on a service without fallback. Any outage = Direct Money Loss."
+! ([REVENUE_NODE] -> {{TIER_2_BUSINESS_SUPPORT}} -> {{HARD_BLOCKERS}}) : "HIGH: Non-critical service is a 'Hard Blocker'. Why does analytics failure stop the payment?"
+? ([TECH_DEPENDENCY] -> EXTERNAL_SaaS) : "MEDIUM: Dependency on external API (e.g., Twilio/Stripe). Check BCP (Business Continuity Plan) in BIA protocol."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ROOT_IDENTIFICATION:
+   - Взять все [REVENUE_NODE] (точки монетизации).
+   - Определить их "владельцев" (контроллеры/сервисы).
+2. DEPENDENCY_DFS (Поиск в глубину):
+   - Рекурсивно найти все импорты, вызовы API и обращения к БД для каждой точки.
+   - Классифицировать их по Tiers (1, 2, 3).
+3. RESILIENCE_AUDIT:
+   - Для каждой связи проверить наличие [FALLBACK_LOGIC].
+   - Если сервис Tier-2 (например, рекомендация товаров) вызывает ошибку, прерывается ли выполнение [REVENUE_NODE]?
+4. ZOMBIE_PATH_DETECTION:
+   - Найти зависимости, которые прописаны в коде, но не участвуют в цепочке ценности. (Удалить для уменьшения поверхности атаки).
+5. INFRA_SYNC:
+   - Сопоставить дерево с `topology_map.md`. Если 5 критических сервисов висят на одной инстансе БД — флаг "Infrastructure Concentration Risk".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_BUSINESS_DEPENDENCY_TREE:
+  - REVENUE_PROCESS | CRITICAL_PATH_NODES | SPOF_DETECTED (Yes/No) | RECOVERY_PRIORITY
+VISUALIZE: "Dependency Tree Diagram: Highlight nodes with NO fallbacks in FLAMING RED."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

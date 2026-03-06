@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: ACCESS_GOVERNANCE_RECERTIFICATION
+@GOAL: IDENTIFY_AND_CLEANUP_ORPHANED_ACCOUNTS_AND_STALE_PRIVILEGES
+@PARENT_CONTEXT: admin_logic_security.protocol, identity_model.protocol
+
+<GLOBAL_VARS>
+# Признаки "Забытых" сущностей (Stale Indicators)
+INACTIVITY_THRESHOLD: "90d"
+STALE_API_KEYS: "created_at > 180d & last_used_at == null"
+ORPHANED_CRITERIA: "(email_not_in_hr_system|role_mismatch|no_owner_tag)"
+
+# Метрики жизненного цикла
+RECERTIFICATION_CYCLE: "90d"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[USER_REGISTRY]   <- {match: (users|staff|employees|service_accounts), scope: "IDENTITY_DB"}
+[ACCESS_LOGS]     <- {from: log_state_cross_verification.protocol, type: "AUTH_EVENTS"}
+[HR_INTEGRATION]  <- {match: (employee_status|active_contracts), layer: [EXTERNAL_SYNC]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты управления доступом
+! ([USER_REGISTRY].active -> !{{HR_INTEGRATION}}.is_active) : "BLOCKER: Zombie Account. User is active in the system but marked as terminated/inactive in HR records. High risk of disgruntled employee access."
+! ([USER_REGISTRY].last_login > {{INACTIVITY_THRESHOLD}}) : "HIGH: Stale Privilege. High-privileged account has not been used for over 90 days. Should be disabled according to 'Least Privilege' principle."
+! (API_KEY -> !KEY_ROTATION_LOGIC) : "MEDIUM: Permanent Credential. API key lacks an expiration date or rotation policy. If leaked, it provides indefinite access."
+? ([USER_REGISTRY].role == "ADMIN" & !RECENT_RECERTIFICATION) : "HIGH: Unverified Admin. Privileged access hasn't been re-confirmed by a supervisor in the last 6 months."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. GHOST_ACCOUNT_SCAN:
+   - Сопоставить список активных пользователей в `Admin/Staff` таблицах с актуальным списком сотрудников (через экспорт или API).
+   - Пометить всех "несоответствующих" как `IMMEDIATE_REVOKE`.
+2. DORMANT_SESSION_PURGE:
+   - Найти аккаунты, которые не совершали [CRITICAL_ADMIN_ACTIONS] более 3 месяцев. 
+   - Предложить понижение прав до `Read-Only` или временную блокировку.
+3. SERVICE_ACCOUNT_AUDIT:
+   - Проверить "технические" аккаунты. Часто они имеют `ALL` права. 
+   - Убедиться, что каждый такой аккаунт имеет поле `owner_email` или `service_tag`.
+4. ACCESS_RECERTIFICATION_FLOW:
+   - Проверить наличие бизнес-процесса, который раз в квартал заставляет владельцев систем нажимать кнопку "Подтверждаю доступ для пользователя X".
+5. KEY_EXPIRATION_ENFORCEMENT:
+   - Анализ кода генерации токенов/ключей. Наличие `expires_at` должно быть обязательным для всех сущностей, кроме базовых системных связей.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ACCESS_CLEANUP_REPORT:
+  - ACCOUNT_ID | ROLE | DAYS_INACTIVE | REASON_FOR_REVIEW | RISK_LEVEL
+VISUALIZE: "Access Decay Curve: Show how many 'Ghost' admins accumulate over 12 months without recertification."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

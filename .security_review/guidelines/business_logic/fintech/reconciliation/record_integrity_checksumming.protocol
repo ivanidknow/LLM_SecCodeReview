@@ -1,0 +1,53 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: RECORD_INTEGRITY_CHECKSUMMING
+@GOAL: PREVENT_UNAUTHORIZED_DATA_MANIPULATION_VIA_CRYPTOGRAPHIC_HASH_CHAINING
+@PARENT_CONTEXT: double_entry_integrity.protocol, aggregate_invariant_checks.protocol
+
+<GLOBAL_VARS>
+# Алгоритмы и поля
+HASH_ALGO: "SHA-256"
+SALT_SOURCE: "ENVIRONMENT_SECRET_KMS"
+PROTECTED_FIELDS: "(amount|currency|account_from|account_to|timestamp|status)"
+
+# Механизмы связки
+CHAIN_TYPE: "(merkle_tree|hash_chain|row_hmac)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DATA_RECORD]     <- {match: {{PROTECTED_FIELDS}}, scope: "PERSISTENCE"}
+[INTEGRITY_FIELD] <- {match: (checksum|signature|row_hash|hmac), layer: [DB_SCHEMA]}
+[VALIDATION_LOGIC] <- {match: (verifyHash|checkIntegrity|validateRow), scope: "SERVICE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты целостности записей
+! ([DATA_RECORD] -> ![INTEGRITY_FIELD]) : "CRITICAL: Naked Financial Record. Records have no checksums. A database administrator or attacker with SQL access can modify balances undetected."
+! ([INTEGRITY_FIELD] -> !{{SALT_SOURCE}}) : "HIGH: Predictable Hash. Checksum is calculated without a server-side secret (Salt/HMAC). Attacker can re-calculate hashes after modification."
+! ([VALIDATION_LOGIC] -> !ON_READ_VERIFY) : "MEDIUM: Passive Protection. Integrity is stored but never checked during normal application flow. Corruption may only be found during annual audits."
+! ({{CHAIN_TYPE}} == "none") : "HIGH: Independent Records. Rows are not linked to each other. Attacker can delete or swap records within the same table without breaking integrity."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. HMAC_STRENGTH_AUDIT:
+   - Проверить, как формируется `INTEGRITY_FIELD`. 
+   - Формула должна быть: `HMAC(PROTECTED_FIELDS + PREVIOUS_ROW_HASH, SECRET_KEY)`.
+   - Убедиться, что `SECRET_KEY` хранится в защищенном Vault/KMS, а не в коде.
+2. RECORD_CHAINING_VERIFY:
+   - Проверить наличие "цепочки" (Chaining): включает ли хэш текущей записи хэш предыдущей? 
+   - Это предотвращает удаление записей из середины таблицы или их перестановку.
+3. VERIFICATION_TRIGGER_SCAN:
+   - Найти места, где вызывается `VALIDATION_LOGIC`. 
+   - Обязательные точки: перед выводом средств, при формировании выписки, при запуске [RECONCILIATION_JOB].
+4. SQL_TAMPER_SIMULATION:
+   - ИИ должен проанализировать, что произойдет, если выполнить `UPDATE transactions SET amount = 1000000 WHERE id = 123`.
+   - Если приложение продолжит работать и показывать этот баланс — флаг "Critical Integrity Failure".
+5. RECOVERY_MODE_PLANNING:
+   - Проверить логику обработки битых записей. При обнаружении несовпадения хэша система должна блокировать аккаунт и отправлять Security Alert.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_INTEGRITY_AUDIT_REPORT:
+  - TABLE_NAME | PROTECTED_FIELDS | CHAINING_ENABLED (Y/N) | KEY_MANAGEMENT_STATUS
+VISUALIZE: "Hash Chain Mechanism: Row N [Data + Hash N-1] -> Hash N. Show how changing one byte breaks the whole chain."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

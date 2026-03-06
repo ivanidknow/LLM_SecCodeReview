@@ -1,0 +1,50 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: CRITICAL_PATH_INTERRUPTION_COST
+@GOAL: QUANTIFY_FINANCIAL_LOSS_PER_MINUTE_FOR_TECHNICAL_FAILURES_IN_REVENUE_FLOWS
+@PARENT_CONTEXT: value_chain_mapping.protocol, business_critical_dependencies.protocol
+
+<GLOBAL_VARS>
+# Формулы оценки (Logic-based estimation)
+REVENUE_METRICS: {
+  "DIRECT_LOSS": "(avg_order_value * orders_per_minute)",
+  "CHURN_COST": "(customer_lifetime_value * estimated_abandonment_rate)",
+  "SLA_PENALTY": "(contract_penalty_per_hour)"
+}
+
+# Маркеры критических путей
+MONEY_FLOW_NODES: "(Checkout|PaymentGateway|InventoryReservation|AuthService)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[REVENUE_NODE]    <- {from: monetization_points.protocol, type: "MONEY_MAKER"}
+[BLOCKING_SERVICE] <- {from: business_critical_dependencies.protocol, type: "HARD_BLOCKER"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты стоимости простоя
+! ([REVENUE_NODE] -> !{{RESILIENCE_MARKERS}}) : "CRITICAL: High Financial Exposure. Revenue node has no redundancy. Outage cost = 100% of flow revenue."
+! ([BLOCKING_SERVICE] -> !DEGRADATION_STRATEGY) : "HIGH: Total Blackout Risk. Failure of this sub-service kills the entire revenue path. Estimated loss: {{REVENUE_METRICS.DIRECT_LOSS}} per min."
+? (TRANSACTION_TIMEOUT > "30s") : "MEDIUM: Hidden Revenue Drain. High latency causes users to abandon carts. Calculating Churn Cost."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. REVENUE_FLOW_VALUATION:
+   - Идентифицировать основные потоки (например, "Покупка подписки", "Вывод средств").
+   - Присвоить каждому потоку "Вес" (например, 80% выручки идет через Apple Pay).
+2. DOWNTIME_IMPACT_MODELING:
+   - Для каждого [BLOCKING_SERVICE] рассчитать: "Если сервис упадет, какая часть [REVENUE_NODE] станет недоступна?".
+   - Оценить риск каскадного эффекта (из `cascading_failure.protocol`).
+3. OPPORTUNITY_COST_CALCULATION:
+   - ИИ должен проанализировать логику очередей. Если запросы просто задерживаются — это "Latency Cost". Если они теряются — это "Direct Loss".
+4. CUSTOMER_TRUST_EROSION:
+   - Оценить критичность сервиса для репутации. (Отказ оплаты — критично, отказ смены аватарки — терпимо).
+5. SLA_EXPOSURE_SYNC:
+   - Проверить наличие договорных обязательств (SLA). Если простой > 4 часов, какие штрафы предусмотрены?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_BUSINESS_IMPACT_TABLE:
+  - SERVICE_NAME | BUSINESS_PROCESS | DOWNTIME_COST (USD/min) | RECOVERY_PRIORITY
+VISUALIZE: "Revenue Loss Heatmap: Highlight components where 10 minutes of downtime > $10,000."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

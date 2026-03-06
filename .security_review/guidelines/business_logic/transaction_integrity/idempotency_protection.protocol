@@ -1,0 +1,52 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: IDEMPOTENCY_DUPLICATE_PROTECTION
+@GOAL: PREVENT_DOUBLE_SPENDING_AND_REDUNDANT_OPERATIONS_ON_NETWORK_RETRY
+@PARENT_CONTEXT: atomic_business_operations.protocol, value_chain_mapping.protocol
+
+<GLOBAL_VARS>
+# Маркеры идемпотентности
+IDEMPOTENCY_HEADERS: "(x-idempotency-key|idempotency-key|request-id|nonce|correlation-id)"
+STORAGE_MARKERS: "(idempotency_keys_table|redis\.get\(key\)|upsert|ON CONFLICT DO NOTHING)"
+
+# Рискованные операции (Non-idempotent by nature)
+POST_METHODS: "(POST|PATCH)"
+FINANCIAL_ACTIONS: "(charge|pay|transfer|refund|createOrder|grantBonus)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[API_ENDPOINT]    <- {match: {{POST_METHODS}}, layer: [API]}
+[IDEMPOTENCY_LOGIC] <- {match: {{IDEMPOTENCY_HEADERS}}|{{STORAGE_MARKERS}}, context: "CHECK_THEN_ACT"}
+[MONEY_MUTATION]  <- {match: {{FINANCIAL_ACTIONS}}, scope: "BUSINESS_LOGIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты от дублей
+! ([MONEY_MUTATION] -> ![IDEMPOTENCY_LOGIC]) : "CRITICAL: Non-idempotent money mutation. Risk of double-charging user on network retry or double-click."
+! ({{IDEMPOTENCY_HEADERS}} -> !PERSISTENT_STORE) : "HIGH: Idempotency key checked but not persisted. Protection won't work across multiple app instances."
+! ([IDEMPOTENCY_LOGIC] -> !{{ATOMIC_TRANSACTION}}) : "HIGH: Race condition in idempotency check. Two identical requests might pass the check simultaneously."
+? ({{IDEMPOTENCY_HEADERS}} -> !TTL) : "MEDIUM: Idempotency keys stored without expiration (TTL). Risk of storage exhaustion."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. MUTATION_IDENTIFICATION:
+   - Найти все эндпоинты, которые меняют состояние (POST/PATCH/DELETE).
+   - Выделить те, что связаны с [MONEY_MUTATION].
+2. HEADER_VALIDATION_TRACE:
+   - Проверить, извлекает ли контроллер {{IDEMPOTENCY_HEADERS}}.
+   - Проследить, передается ли этот ключ в слой сервисов/БД.
+3. ATOMIC_LOCK_AUDIT:
+   - Проверить механизм «Check-then-Act». Идеальный паттерн: 
+     `INSERT INTO idempotency_keys (key) VALUES (?) ON CONFLICT DO NOTHING`.
+   - Если используется `if (!exists) { save() }` без транзакции — флаг "Race Condition Risk".
+4. RESPONSE_CONSISTENCY_CHECK:
+   - Убедиться, что при повторном запросе с тем же ключом система возвращает ТОТ ЖЕ ответ (Cached Response), а не ошибку 500 или 409 (зависит от бизнес-требований).
+5. CLEANUP_STRATEGY:
+   - Проверить, как удаляются старые ключи идемпотентности (Redis TTL или SQL Cleanup Job).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_IDEMPOTENCY_REPORT:
+  - ENDPOINT | PROTECTED (Yes/No) | STORAGE (Redis/DB/Memory) | RACE_CONDITION_RISK
+VISUALIZE: "Sequence Diagram: Show Request 1 (Success) and Request 2 (Duplicate) handling."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

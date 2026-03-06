@@ -1,0 +1,48 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: REPUTATION_TRUST_LOSS_MODELING
+@GOAL: QUANTIFY_INTANGIBLE_ASSET_DAMAGE_AND_USER_CHURN_AFTER_PUBLIC_INCIDENTS
+@PARENT_CONTEXT: data_breach_liability.protocol, value_chain_mapping.protocol
+
+<GLOBAL_VARS>
+# Маркеры репутационной чувствительности
+HIGH_RESONANCE_DATA: "(private_chats|photos|health_records|sexual_orientation|political_views)"
+PUBLIC_FACING_ERRORS: "(defacement|public_leaderboard|social_feed|profile_leak)"
+TRUST_METRICS: {
+  "CHURN_PROBABILITY": "(historic_churn_on_outage * severity_multiplier)",
+  "ACQUISITION_COST_SPIKE": "(current_CAC * trust_penalty_factor)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PUBLIC_SURFACE]  <- {match: (social_graph|public_profile|comments|reviews), layer: [UI|API]}
+[PRIVACY_TREASURE] <- {match: {{HIGH_RESONANCE_DATA}}, scope: "PERSISTENCE"}
+[BRAND_ANCHOR]     <- {match: (logo|homepage|identity|official_statement), layer: [UI]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты репутационного риска
+! ([PRIVACY_TREASURE] -> !ENCRYPTION_AT_REST) : "CRITICAL: Toxic Leak Risk. Unencrypted highly sensitive personal data. Disclosure would cause irreversible brand damage."
+! ([PUBLIC_SURFACE] -> !INTEGRITY_PROTECTION) : "HIGH: Public Defacement Risk. Attackers can modify public-facing content. High visibility of the breach."
+! ([BRAND_ANCHOR] -> [DANGEROUS_PERMISSIONS]) : "MEDIUM: Brand Hijacking. Unprotected access to core identity elements. Risk of fake news/announcements."
+? (INCIDENT_NOTIFICATION_DELAY > "24h") : "CRITICAL: Trust Destruction. Delayed transparency after a breach doubles the churn rate and legal hostility."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TOXICITY_MAPPING:
+   - Просканировать БД на наличие "токсичных" данных (те, что по закону не требуют огромных штрафов, но в СМИ вызовут скандал — например, история поиска или приватные фото).
+2. VISIBILITY_ANALYSIS:
+   - Оценить, насколько легко заметить взлом снаружи. (Тихий слив БД vs Изменение главной страницы).
+3. CHURN_IMPACT_SIMULATION:
+   - ИИ должен сопоставить [MONEY_FLOW_NODES] с лояльностью. Если платежи не работают 2 часа — какой % пользователей уйдет к конкуренту навсегда?
+4. MEDIA_RESONANCE_ESTIMATION:
+   - Оценка риска "виральности". Есть ли в системе данные знаменитостей или политиков? (VIP-Personal Data).
+5. RECOVERY_MARKETING_COSTS:
+   - Рассчитать бюджет на "отмывание" репутации: PR-кампании, скидки для удержания (Retention Coupons), бесплатные месяцы подписки.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TRUST_IMPACT_REPORT:
+  - INCIDENT_SCENARIO | VISIBILITY | ESTIMATED_CHURN (%) | REPUTATION_RECOVERY_COST
+VISUALIZE: "Trust Erosion Curve: Show user retention before and after a 'Public Privacy Breach'."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

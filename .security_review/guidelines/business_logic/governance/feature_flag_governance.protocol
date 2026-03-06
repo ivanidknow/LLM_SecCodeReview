@@ -1,0 +1,49 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: FEATURE_FLAG_SHADOW_API_ABUSE
+@GOAL: PREVENT_UNAUTHORIZED_ACTIVATION_OF_HIDDEN_LOGIC_AND_EXPLOITATION_OF_TEST_APIS
+@PARENT_CONTEXT: admin_logic_security.protocol, config_integrity.protocol
+
+<GLOBAL_VARS>
+# Маркеры скрытой логики
+FLAG_MARKERS: "(feature_flag|is_enabled|toggle|can_access_beta|experiment_id)"
+SHADOW_API_SMELL: "(v0|beta|test|debug|internal_only|staging_endpoint)"
+
+# Опасные состояния
+UNGUARDED_FLAG: "!(checkRole|requireAuth|verifySignature)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[FLAG_EVALUATOR]  <- {match: (isEnabled|getFlag|checkToggle), layer: [APPLICATION]}
+[SHADOW_ENDPOINT] <- {match: {{SHADOW_API_SMELL}}, layer: [API_ROUTING]}
+[FLAG_MANAGEMENT] <- {match: (updateToggle|setExperiment|remote_config), scope: "ADMIN_LOGIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты управления функциями
+! ([FLAG_EVALUATOR] -> [USER_INPUT]) : "CRITICAL: Client-Controlled Logic. The application decides whether to enable a feature based on a flag sent directly from the client (e.g., in a Cookie or JWT). Attacker can enable 'is_admin' or 'free_access'."
+! ([SHADOW_ENDPOINT] -> !{{IDENTITY_MODEL.AUTH_CHECK}}) : "BLOCKER: Exposed Shadow API. A beta/debug endpoint exists without authentication. High risk of data leak or direct DB manipulation."
+! ([FLAG_MANAGEMENT] -> !{{IMMUTABLE_AUDIT_TRAIL.LOG_SINK}}) : "HIGH: Ghost Toggle. Feature flags are changed without logging who enabled them. Impossible to trace who activated a dangerous feature on production."
+? ([FLAG_EVALUATOR] -> DEPRECATED_LOGIC) : "MEDIUM: Stale Feature Flag. The code contains toggles for features that are 100% rolled out. Increases technical debt and attack surface."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SHADOW_ENDPOINT_DISCOVERY:
+   - Просканировать роутинг на наличие эндпоинтов, не описанных в публичной документации (Swagger/OpenAPI).
+   - Проверить наличие префиксов `/test/`, `/debug/`, `/v0/`.
+2. FLAG_AUTHORIZATION_AUDIT:
+   - Убедиться, что значение флага вычисляется на сервере на основе атрибутов пользователя из БД, а не берется из локального хранилища браузера.
+   - Проверить, что "Beta-функции" защищены теми же механизмами авторизации, что и основной продукт.
+3. TOGGLE_LEAK_TEST:
+   - Проверить, не отдает ли API список всех доступных флагов анонимному пользователю. (Конкурентная разведка через `GET /api/config`).
+4. EMERGENCY_DEACTIVATION_CHECK:
+   - Проверить наличие "Глобального выключателя" (Kill-switch). Можно ли мгновенно отключить проблемный флаг во всех инстансах системы при обнаружении эксплойта?
+5. PRODUCTION_CLEANUP_VERIFY:
+   - Поиск в коде условий `if (env == 'production' && is_test_mode)`. Наличие тестовой логики, которая может быть активирована на проде через специфический заголовок или параметр.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_FEATURE_GOVERNANCE_REPORT:
+  - FLAG_NAME | PURPOSE | EXPOSURE_TYPE (Client/Server) | STATUS (Stale/Active)
+VISUALIZE: "Feature Exposure Map: Show which hidden APIs are accessible to different user tiers."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

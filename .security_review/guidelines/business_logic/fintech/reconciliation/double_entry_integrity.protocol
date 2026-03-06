@@ -1,0 +1,48 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: DOUBLE_ENTRY_BOOKKEEPING_INTEGRITY
+@GOAL: PREVENT_MONEY_CREATION_EX_NIHILO_BY_ENFORCING_BALANCED_LEDGER_ENTRIES
+@PARENT_CONTEXT: ledger_double_entry.protocol, asset_lifecycle_trace.protocol
+
+<GLOBAL_VARS>
+# Основные счета (Chart of Accounts)
+INTERNAL_ACCOUNTS: "(revenue|expense|liability|asset|equity)"
+SYSTEM_ACCOUNTS: "(mint_account|fee_account|burn_address|suspense_account)"
+
+# Инвариант: Debit + Credit = 0
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[LEDGER_TRANSACTION] <- {match: (journal_entry|posting|ledger_record), scope: "PERSISTENCE"}
+[BALANCING_LOGIC]    <- {match: (debit_account & credit_account & same_amount), context: "ATOMIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты финансовой системы
+! ([BALANCING_LOGIC] -> !{{BUSINESS_CRITICAL_DEPENDENCIES.HARD_BLOCKERS}}) : "CRITICAL: Asymmetric Entry. Logic allows updating one side of the ledger without the other. High risk of phantom balances."
+! ({{SYSTEM_ACCOUNTS}} -> !RESTRICTED_ACCESS) : "BLOCKER: Unprotected Minting. System accounts (e.g., bonus emission) can be triggered by non-authorized services. Risk of unlimited money injection."
+! (SUM([LEDGER_TRANSACTION].amount) != 0) : "CRITICAL: Global Balance Broken. The total sum of debits and credits is non-zero. The ledger is corrupt or under attack."
+? (COUNT([LEDGER_TRANSACTION].id) != COUNT(DISTINCT [LEDGER_TRANSACTION].transaction_id) * 2) : "MEDIUM: Orphaned Leg. Found entries that don't have a matching pair in the double-entry system."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ZERO-SUM_FLOW_AUDIT:
+   - Проверить, что любой перевод (Transfer) реализован как атомарная операция записи **двух** строк: `-X` со счета А и `+X` на счет Б.
+   - Искать использование "Suspense Accounts" (временных счетов) для транзакций, которые не могут быть закрыты немедленно.
+2. SOURCE_OF_FUNDS_VERIFY:
+   - Для каждой операции начисления (например, "Кэшбэк") найти счет-источник. 
+   - Если код делает `user.balance += 10`, не списывая эту сумму со счета `marketing_budget` — пометить как "Illegal Money Creation".
+3. LEDGER_IMMUTABILITY_CHECK:
+   - Убедиться, что записи в леджере нельзя изменять или удалять (`INSERT ONLY`). 
+   - Исправления должны делаться только через "Reversing Entries" (сторно) — новые записи, компенсирующие старые.
+4. AGGREGATE_RECONCILIATION:
+   - Проверить наличие фонового процесса (Consistency Checker), который раз в час суммирует все записи леджера и сравнивает их с суммой текущих балансов всех пользователей.
+5. ROUNDING_ERROR_LEAK:
+   - Проверить обработку дробных чисел. Куда уходят "остатки" при делении (например, комиссии)? Они должны стекаться на специальный счет `rounding_dust_account`, а не исчезать.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_LEDGER_INTEGRITY_REPORT:
+  - ACCOUNT_PAIR | BALANCE_STATUS (Zero-Sum/Broken) | ANOMALIES_DETECTED | AUDIT_TRACE_QUALITY
+VISUALIZE: "T-Account Diagram: Show flow between Asset, Liability, and Equity accounts."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

@@ -1,0 +1,50 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: DATA_CONSISTENCY_CHECKSUMS
+@GOAL: DETECT_UNAUTHORIZED_DATABASE_MANIPULATION_VIA_RECORD_LEVEL_INTEGRITY
+@PARENT_CONTEXT: asset_lifecycle_trace.protocol, immutable_audit_trail.protocol
+
+<GLOBAL_VARS>
+# Маркеры контроля целостности
+INTEGRITY_FIELDS: "(row_hash|checksum|signature|version_id|hmac_v2)"
+VERIFICATION_LOGIC: "(verifyHash|calcChecksum|validateIntegrity|hmac\.update)"
+
+# Объекты повышенного риска (High Value Targets)
+FINANCIAL_TABLES: "(accounts|transactions|wallets|ledger|orders|vouchers)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DATA_RECORD]      <- {match: {{FINANCIAL_TABLES}}, scope: "SCHEMA"}
+[INTEGRITY_CHECK]  <- {match: {{VERIFICATION_LOGIC}}, context: "VALIDATION"}
+[MUTATION_POINT]   <- {match: (update|save|insert), layer: [PERSISTENCE]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты целостности данных
+! ([DATA_RECORD] -> ![INTEGRITY_CHECK]) : "CRITICAL: Silent Record. High-value data record lacks a row-level hash/checksum. Vulnerable to direct DB editing."
+! ([MUTATION_POINT] -> !UPDATE_CHECKSUM) : "HIGH: Stale Integrity. Record updated but row_hash was not recalculated. Data is now 'broken' for auditors."
+! ({{INTEGRITY_FIELDS}} -> !SALTED_HMAC) : "MEDIUM: Weak Checksum. Row hash uses simple MD5/SHA1 without a secret salt. Attacker can easily recalculate it."
+? (RECONCILIATION_JOB -> !CROSS_TABLE_CHECK) : "HIGH: Partial Consistency. System checks row integrity but ignores relational integrity (e.g., Sum(Transactions) != Balance)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TARGET_SCHEMA_ANALYSIS:
+   - Идентифицировать таблицы из [DATA_RECORD], хранящие балансы и транзакции.
+   - Проверить наличие полей {{INTEGRITY_FIELDS}}.
+2. HASH_CALCULATION_TRACE:
+   - Найти код, который формирует хэш записи. 
+   - Убедиться, что в хэш включены критические поля: `amount`, `user_id`, `status`, `timestamp`.
+3. READ_VALIDATION_AUDIT:
+   - Проверить, происходит ли верификация хэша при КАЖДОМ чтении записи из БД.
+   - Выяснить реакцию системы на несовпадение (Fail-Safe: блокировка аккаунта или просто лог?).
+4. SECRET_MANAGEMENT_SYNC:
+   - Проверить, где хранится «соль» или ключ для HMAC. (Если ключ лежит в той же БД — защита бесполезна).
+5. RELATIONAL_CONSISTENCY_SCAN:
+   - Найти процедуры сверки (Reconciliation), которые проверяют агрегаты: сумма пополнений минус сумма списаний должна быть равна текущему балансу.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CONSISTENCY_REPORT:
+  - TABLE_NAME | PROTECTION_TYPE (Hash/Signature/None) | VERIFIED_ON_READ (Y/N) | TAMPER_RESISTANCE
+VISUALIZE: "Data Integrity Loop: Show Record Creation -> Hash Generation -> DB Storage -> Read Verification."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

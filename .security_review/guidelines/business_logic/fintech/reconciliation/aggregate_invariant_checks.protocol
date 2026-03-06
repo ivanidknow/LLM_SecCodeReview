@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: AGGREGATE_INVARIANT_CHECKS
+@GOAL: DETECT_GLOBAL_FINANCIAL_DISCREPANCIES_BY_VALIDATING_MACRO_CONSTRAINTS
+@PARENT_CONTEXT: double_entry_integrity.protocol, critical_path_cost.protocol
+
+<GLOBAL_VARS>
+# Глобальные инварианты бизнеса
+INVARIANT_RULES: {
+  "SOLVENCY": "SUM(user_balances) <= TOTAL_SYSTEM_RESERVES",
+  "LIQUIDITY": "SUM(pending_withdrawals) < INSTANT_LIQUID_ASSETS",
+  "CONSERVATION": "INITIAL_SUPPLY + MINTED - BURNED == CURRENT_TOTAL_SUPPLY"
+}
+
+# Метрики агрегации
+AGG_METRICS: "(SUM|COUNT|AVG|GROUP_BY_CURRENCY)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AGGREGATE_VIEW]  <- {match: {{AGG_METRICS}}, scope: "REPORTING|ANALYTICS"}
+[SYSTEM_RESERVE]  <- {match: (reserve_vault|master_account|total_supply), layer: [PERSISTENCE]}
+[USER_LIABILITIES] <- {match: (user_balances|total_liabilities), context: "LEDGER"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Макро-логические инварианты
+! (SUM([USER_LIABILITIES]) > [SYSTEM_RESERVE]) : "BLOCKER: Insolvency Detected. The system owes more to users than it holds in reserves. Critical leak or unauthorized minting."
+! ([AGGREGATE_VIEW] -> !CONSISTENCY_SNAPSHOT) : "HIGH: Dirty Read Aggregation. Invariants are checked on a live database without point-in-time snapshots. Risk of false positives due to race conditions."
+! ({{INVARIANT_RULES.CONSERVATION}} == false) : "CRITICAL: Violation of Conservation Law. Money/Assets are appearing or disappearing without a trace in the ledger."
+? (CHECK_FREQUENCY > "1h") : "MEDIUM: Slow Detection. Macro-invariants are checked too rarely. A breach could go unnoticed for a full business cycle."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. GLOBAL_BALANCE_RECONCILIATION:
+   - Проверить наличие скрипта, который суммирует все `current_balance` в таблице `Users` и сравнивает с суммой всех проводок в `Ledger`.
+   - Ожидаемый результат: разница должна быть равна 0.00.
+2. RESERVE_THRESHOLD_MONITORING:
+   - Проверить логику контроля резервов. Если система — это обменник или банк, есть ли проверка того, что мы не продаем активов больше, чем у нас есть на внешних кошельках/счетах?
+3. ASSET_DYNAMICS_AUDIT:
+   - Анализ выпуска (Mint) и сжигания (Burn). Убедиться, что любая эмиссия новой "валюты" внутри системы жестко завязана на внешний входящий платеж.
+4. CROSS-CURRENCY_INVARIANT_CHECK:
+   - Для мультивалютных систем: проверить, что суммарная стоимость всех активов в базовой валюте (например, USD) не скачет аномально из-за ошибок округления или багов в курсах обмена.
+5. EMERGENCY_BRAKE_TRIGGER:
+   - Проверить, что происходит при нарушении инварианта. Система должна автоматически блокировать вывод средств (Kill-switch) до ручного аудита.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_INVARIANT_HEALTH_REPORT:
+  - INVARIANT_NAME | STATUS (Pass/Fail) | DISCREPANCY_AMOUNT | RISK_LEVEL
+VISUALIZE: "Solvency Balance: Comparison of Total Liabilities vs Total Assets in a real-time dashboard."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

@@ -1,0 +1,52 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: INVENTORY_RESOURCE_EXHAUSTION
+@GOAL: PREVENT_DENIAL_OF_INVENTORY_BY_MALICIOUS_RESERVATIONS_AND_STALE_LOCKS
+@PARENT_CONTEXT: value_chain_mapping.protocol, throughput_bottleneck.protocol
+
+<GLOBAL_VARS>
+# Маркеры блокировки ресурсов
+RESERVATION_ACTIONS: "(reserve|hold|addToCart|lockInventory|bookSlot)"
+EXPIRY_LOGIC: "(timeout|expires_at|cleanup_interval|ttl|release_hold)"
+RESOURCE_LIMITS: "(max_items_per_cart|reservation_window|concurrent_holds)"
+
+# Критические объекты
+LIMITED_ASSETS: "(hotel_room|flight_seat|concert_ticket|limited_edition_item|promo_item)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[LOCK_TRIGGER]   <- {match: {{RESERVATION_ACTIONS}}, layer: [SERVICE|API]}
+[EXPIRY_WATCHER] <- {match: {{EXPIRY_LOGIC}}, scope: "BACKGROUND_JOB"}
+[ASSET_STORE]    <- {match: {{LIMITED_ASSETS}}, scope: "PERSISTENCE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты удержания ресурсов
+! ([LOCK_TRIGGER] -> ![EXPIRY_WATCHER]) : "BLOCKER: Infinite Hold. Resource is locked upon adding to cart/booking but has no expiration logic. One user can block all stock forever."
+! ([LOCK_TRIGGER] -> !{{RATE_THRESHOLD_ABUSE.QUOTA_CHECK}}) : "CRITICAL: Bulk Reservation. No limit on how many unique items one user/IP can put on hold. Easy target for Inventory Denial of Service."
+! ({{EXPIRY_LOGIC}} -> !ATOMIC_RELEASE) : "HIGH: Ghost Reservation. Expiry logic exists but doesn't reliably release the lock in DB due to race conditions or missing error handling."
+? (RESERVATION_WINDOW > "30m") : "MEDIUM: Excessive Hold Time. Holding limited assets for more than 30 minutes without payment increases risk of stock exhaustion by bots."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. RESERVATION_FLOW_AUDIT:
+   - Найти все точки входа, где `status` товара меняется на `RESERVED` или `IN_CART`.
+   - Проверить, уменьшается ли доступное количество (`available_stock`) в этот момент.
+2. TTL_VERIFICATION:
+   - Изучить механизм освобождения (Release). Это Cron-задача, Redis TTL или триггер в БД?
+   - Убедиться, что время удержания коррелирует с типом бизнеса (билеты в кино — 10 мин, кроссовки — 30 мин).
+3. GHOST_LOCK_TEST (Логический):
+   - Проверить, что произойдет, если пользователь закроет вкладку или удалит приложение после резерва.
+   - Есть ли обработчик прерванных сессий, который возвращает товар в продажу?
+4. UNPAID_ORDER_PURGE:
+   - Проверить логику удаления заказов в статусе `PENDING_PAYMENT`. 
+   - Если такие заказы висят сутками, блокируя товар — флаг "Business Process Flaw".
+5. SYBIL_RESERVATION_CHECK:
+   - Проверить наличие защиты от создания 1000 корзин с одного IP. (Связка с `multi_accounting.protocol`).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_EXHAUSTION_RISK_REPORT:
+  - ASSET_TYPE | HOLD_DURATION | RELEASE_MECHANISM (Auto/Manual/None) | EXHAUSTION_RISK
+VISUALIZE: "Inventory State Diagram: Available -> Reserved (with Timer) -> Sold OR Available (on Timeout)."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

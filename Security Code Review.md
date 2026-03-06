@@ -4,6 +4,7 @@
 
 ### Architecture.
 
+%% Насколько прочна конструкция, в которой это живет? %%
 ##### Component Topology.
 * Layered Analysis (layered_analysis.protocol)
 * Идентификация Statefull и Stateless компонентов (state_analysis.protocol)
@@ -48,9 +49,72 @@
 
 ---
 
-### Бизнес-процессы
+### Бизнес-процессы. 
+
+%% Понимание того, как приложение превращает код в деньги и ценность %%
+
+##### Value Chain Mapping 
+* Monetization Points Identification (monetization_points.protocol)
+* Asset Lifecycle Trace (asset_lifecycle_trace.protocol)
+* Business-Critical Dependency Tree (business_critical_dependencies.protocol)
+* Throughput & Bottleneck Analysis (throughput_bottleneck.protocol)
+* Compliance & Regulatory Anchors (compliance_anchors.protocol)
+##### Transaction Integrity & Non-Repudiation
+* Atomic Business Operations (atomic_business_operations.protocol)
+* Idempotency & Duplicate Protection (idempotency_protection.protocol)
+* Immutable Audit Trail (immutable_audit_trail.protocol)
+* Intent & Origin Proof (intent_origin_proof.protocol)
+* Data Consistency & Checksums (data_consistency_checksums.protocol)
+* Temporal Integrity (temporal_integrity.protocol)
+##### Business Logic Abuse
+* Incentive & Reward Manipulation (incentive_reward_manipulation.protocol)
+* Multi-Step Flow Bypassing (multi_step_flow_bypassing.protocol)
+* Rate & Threshold Abuse (rate_threshold_abuse.protocol)
+* Input-Driven Price & Quantity Tampering (price_quantity_tampering.protocol)
+* Competitive Intelligence & Scraping (competitive_scraping.protocol)
+* Inventory & Resource Exhaustion (inventory_exhaustion.protocol)
+##### BIA: Business Impact Analysis
+* Critical Path Interruption Cost (critical_path_cost.protocol)
+* Recovery Time Objective (RTO) & Recovery Point Objective (RPO) (rto_rpo_analysis.protocol)
+* Cascading Failure Financial Impact (cascading_failure_impact.protocol)
+* Data Breach Financial & Legal Liability (data_breach_liability.protocol)
+* Reputation & Trust Loss Modeling (reputation_trust_loss.protocol)
+* Dependency & Third-Party Outage Risk (third_party_outage.protocol)
+##### Automated Fraud Scenarios
+* Account Takeover (ATO) & Credential Stuffing (ato_credential_stuffing.protocol)
+* Multi-Accounting & Sybil Attacks (multi_accounting_sybil.protocol)
+* Inventory Hoarding & Scalping (inventory_hoarding.protocol)
+* Promotion & Coupon Abuse (promotion_abuse.protoco)
+* Carding & Payment Testing (carding_payment_testing.protocol)
+* Fake Engagement & Reputation Manipulation (fake_engagement.protocol)
+##### Reconciliation & Anti-Tampering
+* External State Sync (external_state_sync.protocol)
+* Double-Entry Bookkeeping Integrity (double_entry_integrity.protocol)
+* Aggregate Invariant Checks (aggregate_invariant_checks.protocol)
+* Integrity Checksumming for Records (record_integrity_checksumming.protocol)
+* Log-to-State Cross-Verification (log_state_cross_verification.protocol)
+* Alerting on Reconciliation Mismatch (reconciliation_alerting.protocol)
+##### Administrative & Governance Logic
+* Privileged Action Governance (four_eyes_principle.protocol)
+* Admin Panel Exposure & Logic Abuse (admin_logic_security.protocol)
+* Access Recertification & Orphaned Accounts (access_governance.protocol)
+* Sensitive Configuration Tampering (config_integrity.protocol)
+* Shadow API & Feature Flag Abuse (feature_flag_governance.protocol)
+
+
+---
 
 ### License Compliance
+
+License Inventory & Taxonomy
+
+Legal Compatibility Analysis
+
+Business & Monetization Impact
+
+Supply Chain & Provenance
+
+
 
 # Modeling
 

@@ -1,0 +1,52 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: TEMPORAL_INTEGRITY_AUDIT
+@GOAL: PREVENT_BACKDATING_REPLAY_ATTACKS_AND_TIME_MANIPULATION_IN_FINANCIAL_LOGIC
+@PARENT_CONTEXT: data_consistency_checksums.protocol, idempotency_protection.protocol
+
+<GLOBAL_VARS>
+# Маркеры времени и защиты от повторов
+TIME_MARKERS: "(timestamp|created_at|expires_at|effective_date|server_time)"
+REPLAY_PROTECTION: "(nonce|timestamp_validation|jti|request_expiry)"
+DANGEROUS_TIME_INPUT: "(req\.body\.date|client_timestamp|new Date())"
+
+# Пороги допустимого дрейфа (Time Drift)
+MAX_TIME_DRIFT: "300s" # 5 минут для синхронизации
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[TIME_SENSITIVE_FLOW] <- {match: (promotion|discount|auction|contract|payment), scope: "BUSINESS_LOGIC"}
+[CLIENT_TIME_SOURCE]  <- {match: {{DANGEROUS_TIME_INPUT}}, context: "INPUT"}
+[EXPIRY_CHECK]        <- {match: (isAfter|isBefore|moment\.isBetween|dayjs), layer: [SERVICE]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты временной целостности
+! ([TIME_SENSITIVE_FLOW] -> [CLIENT_TIME_SOURCE]) : "CRITICAL: Client-side Time Reliance. Business logic uses time from the client request. High risk of Backdating/Postdating fraud."
+! ({{REPLAY_PROTECTION}} -> !{{MAX_TIME_DRIFT}}) : "HIGH: Loose Replay Protection. System accepts old nonces/requests without a strict time-window check."
+! (STATE_CHANGE -> !IMMUTABLE_TIMESTAMP) : "HIGH: Mutable CreatedAt. Database allow UPDATING 'created_at' field. Integrity can be compromised by backdating records."
+? ([EXPIRY_CHECK] -> !TIMEZONE_NORMALIZATION) : "MEDIUM: Ambiguous Timezone. Logic may fail during Daylight Saving Time (DST) or across regions (UTC vs Local)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TIME_SOURCE_AUDIT:
+   - Найти все места, где системное время используется для расчета цен, скидок или прав доступа.
+   - Убедиться, что используется `DB CURRENT_TIMESTAMP` или `Server UTC`, а не данные из тела запроса.
+2. BACKDATING_VULNERABILITY_SCAN:
+   - Проверить API на наличие параметров типа `effective_date`. 
+   - Если они есть, убедиться, что только `SUPER_ADMIN` может их использовать, и каждое такое действие логгируется с `real_timestamp`.
+3. REPLAY_WINDOW_VERIFICATION:
+   - Проанализировать механизмы JWT (поле `iat`, `exp`) или кастомные подписи запросов.
+   - Проверить, отклоняет ли сервер запросы, «пришедшие из будущего» или «слишком старые» (> {{MAX_TIME_DRIFT}}).
+4. EXPIRATION_RACE_CONDITION:
+   - Изучить логику окончания акций/сессий. 
+   - Проверить, что происходит, если запрос начался за 1мс до конца акции, а обработка завершилась после. (Atomic Time Check).
+5. DRIFT_RESILIENCE_CHECK:
+   - В распределенных системах проверить наличие синхронизации NTP. Если логика зависит от времени разных серверов — флаг "Clock Skew Risk".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TEMPORAL_INTEGRITY_REPORT:
+  - FLOW_NAME | TIME_SOURCE (Server/Client/DB) | REPLAY_PROTECTION (Y/N) | DRIFT_RISK
+VISUALIZE: "Timeline Analysis: Show 'Request Sent' vs 'Server Processed' vs 'Record Created' timestamps."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

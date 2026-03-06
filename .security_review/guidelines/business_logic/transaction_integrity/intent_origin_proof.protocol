@@ -1,0 +1,50 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: INTENT_ORIGIN_PROOF
+@GOAL: COLLECT_CONTEXTUAL_EVIDENCE_OF_HUMAN_INTENT_AND_DEVICE_ORIGIN
+@PARENT_CONTEXT: identity_model.protocol, immutable_audit_trail.protocol
+
+<GLOBAL_VARS>
+# Маркеры контекста устройства (Origin)
+DEVICE_FINGERPRINT: "(device_id|fingerprint|user_agent|ip_address|geo_location)"
+NETWORK_CONTEXT: "(proxy_detected|vpn_detected|asn_info|tor_node)"
+
+# Маркеры подтверждения намерения (Intent)
+INTENT_CONFIRMATION: "(2fa_verified|biometric_signed|totp_checked|esignature|checksum_validated)"
+INTERACTION_DATA: "(click_coordinate|time_on_page|keystroke_dynamics)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[HIGH_VALUE_ACTION] <- {from: monetization_points.protocol, type: "CRITICAL_TRANSACTION"}
+[EVIDENCE_COLLECTOR] <- {match: {{DEVICE_FINGERPRINT}}|{{NETWORK_CONTEXT}}, context: "LOGGING"}
+[MFA_CHOKEPOINT]    <- {match: {{INTENT_CONFIRMATION}}, layer: [SERVICE|AUTH]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты доказательства намерения
+! ([HIGH_VALUE_ACTION] -> ![MFA_CHOKEPOINT]) : "CRITICAL: Missing Intent Confirmation. High-value action performed without step-up auth (2FA/Biometrics)."
+! ([HIGH_VALUE_ACTION] -> ![EVIDENCE_COLLECTOR]) : "HIGH: Anonymous Origin. Critical action logged without device fingerprint or network context. Hard to dispute fraud."
+! ({{INTENT_CONFIRMATION}} -> !{{IDEMPOTENCY_KEY}}) : "MEDIUM: Decoupled Intent. Confirmation is not cryptographically linked to a specific transaction ID."
+? ({{NETWORK_CONTEXT}} -> !REPUTATION_CHECK) : "LOW: Missing Context Risk. Action allowed from known TOR/Proxy nodes without additional friction."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CRITICAL_FLOW_IDENTIFICATION:
+   - Использовать `monetization_points.protocol` для поиска действий с высоким риском (вывод средств, смена реквизитов).
+2. CONTEXT_EXTRACTION_AUDIT:
+   - Проверить, сохраняются ли в метаданных транзакции IP, User-Agent и DeviceID.
+   - Искать использование библиотек для фингерпринтинга.
+3. STEP_UP_AUTH_TRACE:
+   - Для [HIGH_VALUE_ACTION] проверить наличие вызова MFA.
+   - Убедиться, что результат проверки MFA (например, `otp_token`) валидируется на сервере ПЕРЕД выполнением бизнес-логики.
+4. ANTI-BOT_VERIFICATION:
+   - Проверить наличие защиты от автоматизации (CAPTCHA, PoW или анализ поведения) на формах подтверждения транзакций.
+5. PAYLOAD_SIGNING_CHECK:
+   - В финтех-системах проверить, подписывается ли тело запроса (Payload) на стороне клиента (Client-side signing), чтобы гарантировать, что данные не были изменены в пути (MitM).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ORIGIN_PROOF_REPORT:
+  - ACTION_NAME | AUTH_LEVEL (Basic/MFA/Signed) | CONTEXT_RICHNESS (Low/High) | DISPUTE_RISK
+VISUALIZE: "Evidence Chain: Show links between User Identity -> Device Fingerprint -> MFA Proof -> Transaction Data."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

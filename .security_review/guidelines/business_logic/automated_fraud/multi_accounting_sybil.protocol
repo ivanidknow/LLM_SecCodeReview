@@ -1,0 +1,50 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: MULTI_ACCOUNTING_SYBIL_ATTACK
+@GOAL: DETECT_MASS_REGISTRATION_AND_SYBIL_NETWORKS_BY_IDENTIFYING_LOW_FRICTION_ENTRY_POINTS
+@PARENT_CONTEXT: intent_origin_proof.protocol, automated_bonus_abuse.protocol
+
+<GLOBAL_VARS>
+# Маркеры доверия (Proof of Personhood)
+TRUST_SIGNALS: "(is_verified|phone_verified|kyc_status|linked_social_account|purchase_history)"
+IDENTITY_BARRIERS: "(recaptcha|hcaptcha|sms_otp|email_confirmation|bank_id)"
+
+# Признаки "Мусорных" аккаунтов (Sybil Signals)
+DISPOSABLE_MAIL: "(mailinator|tempmail|10minutemail|\+alias)"
+PROXY_ASSETS: "(datacenter_ip|vpn_ip|tor_exit_node)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[REGISTRATION_FLOW] <- {match: (signup|register|createUser), layer: [API|SERVICE]}
+[REFERRAL_SINK]    <- {match: (referral_id|invite_code), context: "ATTRIBUTION"}
+[REWARD_EMISSION]   <- {match: (grant_bonus|welcome_pack|airdrop), scope: "BUSINESS_LOGIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты от Sybil-атак
+! ([REGISTRATION_FLOW] -> !{{IDENTITY_BARRIERS}}) : "CRITICAL: Zero-Friction Registration. No CAPTCHA or Email/SMS verification. Botnets can create millions of accounts per hour."
+! ([REWARD_EMISSION] -> !{{TRUST_SIGNALS}}) : "HIGH: Unverified Reward. System grants value (bonus/token) to accounts without phone or KYC verification. Target for Sybil-farmers."
+! ([REGISTRATION_FLOW] -> [DISPOSABLE_MAIL]) : "MEDIUM: Disposable Email Allowed. Attackers can use automated scripts to generate accounts with temporary mailboxes."
+! ({{REFERRAL_SINK}} -> !CROSS_DEVICE_CHECK) : "HIGH: Simple Referral Fraud. Multiple 'referrals' sharing the same IP, Fingerprint, or Cookie. No Sybil-detection in attribution."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENTRY_BARRIER_AUDIT:
+   - Проверить наличие "цены входа". Требует ли регистрация SMS (платно для атакующего) или только Email (бесплатно)?
+   - Проверить сложность CAPTCHA: можно ли её обойти через дешевые сервисы (например, 2nd-line).
+2. DUPLICATE_SIGNAL_ANALYSIS:
+   - Искать проверку уникальности по `Fingerprint`, `IMEI`, `AdvertisingID` (для мобилок).
+   - Если система проверяет только `Email`, пометить как "High Risk of Multi-accounting".
+3. ANOMALY_VELOCITY_CHECK:
+   - Найти логику "всплесков": если с одной подсети /24 или одного ASN пришло 500 регистраций за 10 минут — есть ли автоматическая блокировка?
+4. SOCIAL_GRAPH_INSPECTION (Логический):
+   - Проверить связь между аккаунтами. Если 100 аккаунтов были созданы в течение часа и все они перевели свои "приветственные бонусы" на один и тот же кошелек/аккаунт — флаг "Sybil Cluster Detected".
+5. REPUTATION_SYSTEM_CHECK:
+   - Проверить, имеют ли "молодые" аккаунты те же права, что и старые. (Например, возможность вывода средств должна появляться только после N дней или M трат).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SYBIL_RISK_REPORT:
+  - FLOW_TYPE (Reg/Referral) | FRICTION_LEVEL | SYBIL_RESISTANCE_SCORE (0-100) | DETECTED_LOOPS
+VISUALIZE: "Sybil Network Map: Show a 'Star' topology where one master account controls 1000 puppets."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>

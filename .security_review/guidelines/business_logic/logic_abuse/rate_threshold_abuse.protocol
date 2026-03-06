@@ -1,0 +1,51 @@
+<BUSINESS_LOGIC_SCAN_V3>
+@ID: RATE_THRESHOLD_ABUSE
+@GOAL: DETECT_ABSENCE_OF_BUSINESS_LEVEL_LIMITS_THAT_LEAD_TO_RESOURCE_OR_FINANCIAL_DRAIN
+@PARENT_CONTEXT: business_logic_abuse.protocol, value_chain_mapping.protocol
+
+<GLOBAL_VARS>
+# Маркеры бизнес-лимитов и порогов
+THRESHOLD_MARKERS: "(limit|max_attempts|quota|allowance|threshold|daily_cap|max_per_user)"
+SENSITIVE_ACTIONS: "(apply_promo|request_refund|send_otp|invite_user|free_trial_usage|api_call)"
+COUNTER_LOGIC: "(increment|redis\.incr|count\(\)|usage_track)"
+
+# Бизнес-стандарты (Defaults)
+MAX_OTP_PER_HOUR: 3
+MAX_PROMO_ATTEMPTS: 5
+MAX_REFUND_REQUESTS: 2
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[LIMITED_ACTION]   <- {match: {{SENSITIVE_ACTIONS}}, layer: [API|SERVICE]}
+[QUOTA_CHECK]      <- {match: {{THRESHOLD_MARKERS}}, context: "VALIDATION"}
+[USAGE_COUNTER]    <- {match: {{COUNTER_LOGIC}}, scope: "PERSISTENCE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты бизнес-порогов
+! ([LIMITED_ACTION] -> ![QUOTA_CHECK]) : "CRITICAL: Unbounded Business Action. No limit found for a sensitive operation (e.g., OTP sending). Risk of massive SMS bill or Brute-force."
+! ([QUOTA_CHECK] -> !{{USAGE_COUNTER}}) : "HIGH: Stateless Limit. Quota is checked but usage is not persisted/incremented. Limit can be bypassed by parallel requests."
+! ([LIMITED_ACTION] -> !{{IDENTITY_MODEL.User_ID}}) : "CRITICAL: Global Limit Only. Limit is applied to the whole system but not per-user. One attacker can exhaust the entire company quota."
+? ([QUOTA_CHECK] -> !{{FAIL_SAFE_NOTIFICATION}}) : "MEDIUM: Silent Block. System blocks action but doesn't log/alert on threshold breach. Hard to detect automated abuse."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SENSITIVE_FLOW_INVENTORY:
+   - Составить список всех платных или дефицитных действий (отправка SMS, генерация PDF, вызов тяжелого AI-сервиса, применение купона).
+2. QUOTA_IMPLEMENTATION_AUDIT:
+   - Найти код, отвечающий за проверку лимита.
+   - Проверить "окно" лимита: фиксированное (час/день) или скользящее (Rolling Window).
+3. DISTRIBUTED_LIMIT_SYNC:
+   - Если приложение работает в кластере, убедиться, что счетчик [USAGE_COUNTER] хранится в общем месте (Redis/DB), а не в локальной памяти процесса.
+4. PARALLEL_BYPASS_TEST:
+   - Проверить наличие Race Condition: можно ли совершить 10 действий одновременно, если лимит — 1, пока база данных не успела обновить счетчик? (Искать `SELECT FOR UPDATE` или атомарный `INCR`).
+5. COST_CONTROL_ANALYSIS:
+   - Оценить "цену" отсутствия лимита. Если SMS стоит 5 центов, а лимита нет — рассчитать риск для BIA (Business Impact Analysis).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_THRESHOLD_ABUSE_REPORT:
+  - ACTION_NAME | LIMIT_TYPE (Daily/Hourly/Per_User) | CURRENT_VALUE | BYPASS_RISK (High/Med/Low)
+VISUALIZE: "Usage Curve: Show how an automated bot can spike costs without thresholds."
+</OUTPUT_SPEC>
+</BUSINESS_LOGIC_SCAN_V3>
