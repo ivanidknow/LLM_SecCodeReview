@@ -1,0 +1,54 @@
+<ARCH_SCAN_V3>
+@ID: AUTHORIZATION_MODEL_AUDIT
+@GOAL: EVALUATE_STRICTNESS_OF_ACCESS_CONTROL_LOGIC_AND_PERMISSION_MAPPING
+@PARENT_CONTEXT: identity_mapping.protocol, privilege_transitions.protocol
+
+<GLOBAL_VARS>
+# Типы моделей авторизации
+RBAC_MARKERS: "(@Role|hasRole|checkRole|user\.role|roles\.includes)"
+ABAC_MARKERS: "(@Attribute|checkPolicy|policy\.enforce|context\.attributes)"
+ACL_MARKERS: "(getPermissions|checkAccess|acl\.can|hasPermission)"
+
+# Опасные паттерны "Вседозволенности"
+WILDCARD_PERMS: "('*'|'all'|'any'|'root')"
+BYPASS_LOGIC: "(is_admin\s?==\s?true|isAdmin|skipAuthz|disableACL)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AUTHZ_ENGINE] <- {path: (authz|policy|guard|access-control), match: ({{RBAC_MARKERS}}|{{ABAC_MARKERS}})}
+[SECURE_RESOURCE] <- {match: {{SENSITIVE_ACTIONS}}, layer: [APP]}
+[PERMISSION_MAP] <- {path: (config|seed|migration), match: (permissions|roles|grants)}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты модели авторизации
+! ([SECURE_RESOURCE]) & !([AUTHZ_ENGINE]) : "CRITICAL: Sensitive operation has no associated authorization check."
+! ({{WILDCARD_PERMS}} -> [ZONE_EXT]) : "HIGH: Wildcard permissions assigned to external/low-trust entities."
+? ({{RBAC_MARKERS}} -> !{{OWNER_CHECKS}}) : "HIGH: RBAC used without Ownership check. High risk of BOLA/IDOR (User A accessing User B's data)."
+! ({{BYPASS_LOGIC}}) : "MEDIUM: Hardcoded admin bypass or 'skip' flags detected in authorization flow."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. MODEL_IDENTIFICATION:
+   - Determine the primary AuthZ model: RBAC (Role-based), ABAC (Attribute-based), or ACL. [cite: 13]
+   - Map how roles/permissions are linked to [SECURE_RESOURCE]. [cite: 13]
+2. GRANULARITY_CHECK:
+   - Analyze if the system distinguishes between "Action" (can delete) and "Scope" (can delete *my* record vs *any* record). [cite: 14]
+   - Flag "Coarse-grained" AuthZ where a single 'user' role grants excessive access. [cite: 4]
+3. INHERITANCE_AUDIT:
+   - Check for Role Hierarchy (e.g., Manager inherits User). [cite: 1, 13]
+   - Ensure "Shadow Permissions" are not accidentally granted through complex inheritance. 
+4. STATIC_PERMISSION_SCAN:
+   - Review [PERMISSION_MAP] files (YAML/JSON/DB Seeds). [cite: 29]
+   - Look for over-privileged default roles. 
+5. DYNAMIC_POLICY_INTEGRITY:
+   - For ABAC: Verify that attributes (like `department_id`) are fetched from a secure [ID_STORE] and cannot be manipulated via [INPUT_SOURCES]. [cite: 52, 61]
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_AUTHZ_MODEL_REPORT:
+  - MODEL_TYPE | GRANULARITY_LEVEL | IDENTIFIED_ROLES | MISSING_OWNERSHIP_CHECKS
+VISUALIZE: "Mermaid graph: Role-Permission Matrix or Policy Tree."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

@@ -23,11 +23,11 @@
 * Error Verbosity (error_verbosity.protocol)
 * Dependency & Shadow Interfaces (shadow_interfaces.protocol)
 ##### IAM & Authorization.
-* Identity Model
-* Authentication Strategy
-* Authorization Model
-* Depth of AuthZ
-* Lifecycle & Revocation
+* Identity Model (identity_model.protocol)
+* Authentication Strategy (authentication_strategy.protocol)
+* Authorization Model (authorization_model.protocol)
+* Depth of AuthZ (depth_of_authz.protocol)
+* Lifecycle & Revocation (lifecycle_revocation.protocol)
 ##### Data at Rest & in Transit.
 * Data Inventory
 * Исследование Data at Rest

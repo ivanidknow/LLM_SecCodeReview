@@ -1,0 +1,57 @@
+<ARCH_SCAN_V3>
+@ID: AUTH_STRATEGY_AUDIT
+@GOAL: VERIFY_AUTHENTICATION_FLOW_RESILIENCE_AND_SESSION_MANAGEMENT
+@PARENT_CONTEXT: identity_model.protocol, security_controls.protocol
+
+<GLOBAL_VARS>
+# Параметры жизненного цикла сессий
+SESSION_TIMEOUTS: "(maxAge|expiresIn|ttl|absoluteTimeout)"
+REFRESH_LOGIC: "(refreshToken|rotation|grant_type:refresh_token)"
+
+# Стратегии входа
+AUTH_FLOWS: "(OAuth2|OIDC|SAML|Passwordless|MagicLink|SocialAuth)"
+RECOVERY_VECTORS: "(resetPassword|forgotPassword|changePassword|recoveryCode)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AUTH_FLOW]      <- {match: {{AUTH_FLOWS}}, scope: "AUTHENTICATION"}
+[SESSION_MGMT]   <- {match: (cookie|session|tokenStorage), context: "lifecycle"}
+[RECOVERY_NODE]  <- {match: {{RECOVERY_VECTORS}}, layer: [APP]}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты стратегии аутентификации
+! (REFRESH_LOGIC) & !ROTATION : "CRITICAL: Refresh Token rotation is missing. Risk of long-term session hijacking."
+! ({{SESSION_TIMEOUTS}} > 24h) & (ZONE == "ADMIN") : "HIGH: Excessive session timeout for privileged users."
+! ([RECOVERY_NODE] -> !{{THROTTLING}}) : "HIGH: Password recovery flow missing rate limiting. Risk of bulk enumeration/DoS."
+? ([AUTH_FLOW].OAuth2 -> !PKCE) : "MEDIUM: OAuth2 flow missing PKCE (Proof Key for Code Exchange) for public clients."
+! (MAGIC_LINK -> !SHORT_TTL) : "HIGH: Passwordless link has excessive expiration time (>15 min)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SESSION_LIFECYCLE_AUDIT:
+   - Identify all [SESSION_MGMT] configurations.
+   - Verify Absolute vs. Idle timeouts. 
+   - Flag any "Remember Me" logic that stores long-lived secrets insecurely.
+2. TOKEN_ROTATION_CHECK:
+   - Trace the [REFRESH_LOGIC] implementation.
+   - Ensure old Refresh Tokens are invalidated immediately after a new one is issued.
+3. SSO_INTEGRITY_SCAN:
+   - If using [AUTH_FLOWS] like OIDC/SAML, verify State/Nonce validation to prevent CSRF in Auth.
+   - Check if the system validates the 'aud' (audience) and 'iss' (issuer) claims.
+4. RECOVERY_PATH_HARDENING:
+   - Analyze [RECOVERY_NODE]. 
+   - Ensure recovery tokens are: High-entropy, Single-use, and Time-bound.
+   - Verify that changing a password invalidates ALL existing active sessions.
+5. MULTI_STEP_AUTH_FLOW:
+   - Check for "Partial Authenticated" states (e.g., after password but before MFA).
+   - Ensure [PRIV_OP] from privilege_transitions.protocol are blocked in this state.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_AUTH_STRATEGY_REPORT:
+  - FLOW_TYPE | SESSION_TYPE | TIMEOUT_POLICY | RECOVERY_SECURITY_LEVEL
+VISUALIZE: "Sequence diagram showing: Login -> Token Issue -> Refresh -> Revoke."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

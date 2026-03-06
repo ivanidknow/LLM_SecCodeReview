@@ -1,0 +1,55 @@
+<ARCH_SCAN_V3>
+@ID: IDENTITY_MODEL_AUDIT
+@GOAL: EVALUATE_STRENGTH_OF_AUTHENTICATION_AND_IDENTITY_STORAGE
+@PARENT_CONTEXT: identity_mapping.protocol, state_analysis.protocol
+
+<GLOBAL_VARS>
+# Хранение секретов и паролей
+HASHING_ALGS: "(bcrypt|argon2|scrypt|pbkdf2)"
+WEAK_HASHES: "(md5|sha1|plaintext)"
+SECRET_STORAGE: "(Vault|KMS|AWS_Secrets|process\.env|Config\.get)"
+
+# Механизмы проверки
+MFA_METHODS: "(totp|sms|webauthn|email_code|u2f)"
+PWD_POLICY: "(minLength|complexity|commonPasswordCheck|expiration)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ID_STORE]     <- {path: {{PERSIST_PATH}}, match: (User|Account|Credential|Identity)}
+[HASH_FUNC]    <- {match: {{HASHING_ALGS}}, scope: "CRYPTO"}
+[MFA_LOGIC]    <- {match: {{MFA_METHODS}}, scope: "AUTH"}
+[CRED_LEAK]    <- {match: {{WEAK_HASHES}}, context: "password_storage"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты модели личности
+! ([ID_STORE] -> {{WEAK_HASHES}}) : "CRITICAL: Insecure password storage detected (Plaintext or Weak Hash). Total account takeover risk." 
+! ({{ID_SOURCES.JWT}} -> !SECRET_STORAGE) : "HIGH: JWT signing key or API secrets stored in hardcoded strings/unprotected ENV." 
+? ([ID_STORE] -> !{{MFA_METHODS}}) : "MEDIUM: Critical identities (Admins) lack Multi-Factor Authentication requirements." [cite: 67]
+! (LOGIN_LOGIC -> !{{PWD_POLICY}}) : "LOW: Missing password strength/complexity validation on registration."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PASSWORD_CRYPT_AUDIT:
+   - Identify where passwords are saved to [ID_STORE]. [cite: 52, 59]
+   - Verify the use of [HASH_FUNC] with a secure salt/cost factor.
+2. SECRET_LIFECYCLE_CHECK:
+   - Locate where signing keys (JWT) or Auth secrets are initialized.
+   - Trace if they are pulled from [SECRET_STORAGE] or exposed in code. 
+3. MFA_ENFORCEMENT_SCAN:
+   - Identify high-privilege roles (e.g., 'Admin') from identity_mapping.protocol. [cite: 67]
+   - Check if [MFA_LOGIC] is mandatory for these roles during [GATE] transitions. 
+4. BRUTE_FORCE_PROTECTION:
+   - Check if login attempts are linked to {{THROTTLING}} from security_controls.protocol.
+   - Verify account lockout or CAPTCHA logic after multiple failures.
+5. SESSION_TERMINATION:
+   - Check for "Logout" implementation and server-side session invalidation. 
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_IDENTITY_STRENGTH_REPORT:
+  - COMPONENT | STORAGE_SECURITY | HASH_ALGORITHM | MFA_STATUS | RISK_LEVEL
+VISUALIZE: "Table showing Identity Types vs Security Controls applied."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

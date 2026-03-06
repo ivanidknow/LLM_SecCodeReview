@@ -1,0 +1,52 @@
+<ARCH_SCAN_V3>
+@ID: IAM_LIFECYCLE_REVOCATION_AUDIT
+@GOAL: VERIFY_SESSION_TERMINATION_AND_PERMISSION_PROPAGATION_SPEED
+@PARENT_CONTEXT: identity_model.protocol, authentication_strategy.protocol
+
+<GLOBAL_VARS>
+# Механизмы отзыва (Revocation)
+REVOKE_MARKERS: "(revoke|invalidate|logout|blacklist|denyList|banUser)"
+TOKEN_STORE: "(redis\.del|cache\.setEx|db\.sessions\.delete)"
+
+# События жизненного цикла
+LIFECYCLE_EVENTS: "(onPasswordChange|onRoleUpdate|onAccountLock|onSecurityBreach)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[REVOKER]      <- {match: {{REVOKE_MARKERS}}, scope: "FUNCTION"}
+[SESSIONS_DB]  <- {match: {{TOKEN_STORE}}, layer: [PERSIST]}
+[EVENT_BUS]    <- {match: {{MESSAGE_BUS}}, context: "security_event"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты жизненного цикла
+! (PASSWORD_CHANGE) & !(REVOKE_ALL_SESSIONS) : "CRITICAL: Changing password does not invalidate existing active sessions. High risk of persistent hijacker access."
+! (JWT_AUTH) & !([SESSIONS_DB] | SHORT_TTL) : "HIGH: Stateless JWTs cannot be revoked before expiration. Use a Blacklist or very short TTL."
+? (ROLE_UPDATE) -> !IMMEDIATE_EFFECT : "MEDIUM: Role changes only take effect after next login (Inconsistent state risk)."
+! (LOGOUT_FUNC) -> !([SESSIONS_DB].delete) : "HIGH: Logout only clears client-side state, leaving the server-side session/token valid."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. LOGOUT_INTEGRITY_CHECK:
+   - Identify the `logout` implementation.
+   - Verify if it actively invalidates the token/session in [SESSIONS_DB] or just deletes a cookie.
+2. SECURITY_EVENT_PROPAGATION:
+   - Trace what happens during {{LIFECYCLE_EVENTS}}.
+   - Ensure that a 'Password Reset' triggers a global [REVOKER] call for ALL active tokens of that user.
+3. BLACKLIST_MECHANISM_AUDIT:
+   - If using JWT, identify the storage for revoked tokens (e.g., Redis).
+   - Check if the [API_LEVEL] guard checks this list on EVERY request.
+4. ACCOUNT_LOCKOUT_LOGIC:
+   - Verify if `user.isActive = false` or `user.isLocked` is respected by the [AUTH_STRATEGY].
+   - Ensure a locked user cannot use an already issued (but not expired) token.
+5. STALE_SESSION_CLEANUP:
+   - Check for background jobs that prune expired sessions/tokens from [SESSIONS_DB] to prevent resource exhaustion.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REVOCATION_REPORT:
+  - TRIGGER_EVENT | REVOCATION_METHOD | PROPAGATION_SPEED (Sync/Async) | SECURITY_GAP
+VISUALIZE: "Flowchart: Password_Change -> Event_Bus -> All_Sessions_Terminated."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

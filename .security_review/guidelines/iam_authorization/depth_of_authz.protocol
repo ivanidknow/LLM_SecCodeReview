@@ -1,0 +1,52 @@
+<ARCH_SCAN_V3>
+@ID: DEPTH_OF_AUTHZ_AUDIT
+@GOAL: VERIFY_DEFENSE_IN_DEPTH_FOR_AUTHORIZATION_CHECKS
+@PARENT_CONTEXT: authorization_model.protocol, layered_analysis.protocol
+
+<GLOBAL_VARS>
+# Уровни проверки (Enforcement Points)
+ENTRY_GUARD: "(@UseGuards|@PreAuthorize|middleware\.auth)"
+LOGIC_GUARD: "(checkAccess|authorizeAction|ensurePermission)"
+DATA_GUARD: "(\.where\('ownerId', user\.id\)|scope\('user'\)|RowLevelSecurity)"
+
+# Признаки "Поверхностной авторизации" (Shallow AuthZ)
+SHALLOW_MARKERS: "(@Public|isUnauthenticated|bypassAuth)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[API_LEVEL]     <- {path: {{IFACE_PATH}}, match: {{ENTRY_GUARD}}}
+[SERVICE_LEVEL] <- {path: {{APP_PATH}}, match: {{LOGIC_GUARD}}}
+[DATA_LEVEL]    <- {path: {{PERSIST_PATH}}, match: {{DATA_GUARD}}}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты глубины авторизации
+! ([ZONE_SEC]) & !([DATA_LEVEL]) : "CRITICAL: Missing Row-Level Security (RLS) or ownership filter at the data layer. Risk of mass IDOR."
+! ([API_LEVEL]) & ([SERVICE_LEVEL]) : "WARN: Authorization only at service level. Unnecessary load on application before rejection."
+! ([API_LEVEL]) & !([SERVICE_LEVEL]) : "HIGH: Shallow Authorization. If API guard is bypassed, the entire service layer is exposed."
+? ([DATA_LEVEL] -> !DYNAMIC_FILTER) : "MEDIUM: Data filtering relies on manual 'where' clauses instead of global scopes (Human error risk)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENFORCEMENT_MAP:
+   - For each [SECURE_RESOURCE] identified in authorization_model.protocol, map all present [API_LEVEL], [SERVICE_LEVEL], and [DATA_LEVEL] checks.
+2. DEFENSE_GAP_ANALYSIS:
+   - Identify "Single-Point Failure" paths where only ONE layer of AuthZ exists.
+   - Flag routes where an API decorator is the ONLY security measure.
+3. DATA_LEAK_PREVENTION:
+   - Check if the Data Layer automatically filters results based on the current user context (e.g., Global Query Filters).
+   - Flag "Direct Read" methods that return collections without verifying ownership of each item.
+4. BYPASS_RESILIENCE:
+   - Simulate an [API_LEVEL] bypass (e.g., misconfiguration). 
+   - Check if [SERVICE_LEVEL] or [DATA_LEVEL] would still block unauthorized access.
+5. DECOUPLED_LOGIC_CHECK:
+   - Verify if [LOGIC_GUARD] uses the same Identity Model as [API_LEVEL] to avoid "Identity Confusion".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_DEPTH_REPORT:
+  - RESOURCE | API_GUARD | SERVICE_GUARD | DATA_FILTER | DEFENSE_STRENGTH (Low/Med/High)
+VISUALIZE: "Layered diagram showing AuthZ checkpoints: Ingress -> Logic -> Persistence."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>
