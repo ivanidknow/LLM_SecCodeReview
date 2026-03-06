@@ -17,11 +17,11 @@
 * Идентификация Privilege Transitions (privilege_transitions.protocol)
 * Анализ Outbound Trust (outbound_trust.protocol)
 ##### Interface Mapping.
-* Protocol Discovery
-* Payload Analysis
-* Security Controls
-* Error Verbosity
-* Dependency & Shadow Interfaces
+* Protocol Discovery (protocol_discovery.protocol)
+* Payload Analysis (payload_analysis.protocol)
+* Security Controls (security_controls.protocol)
+* Error Verbosity (error_verbosity.protocol)
+* Dependency & Shadow Interfaces (shadow_interfaces.protocol)
 ##### IAM & Authorization.
 * Identity Model
 * Authentication Strategy

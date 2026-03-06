@@ -1,0 +1,50 @@
+<ARCH_SCAN_V3>
+@ID: ERROR_VERBOSITY_AUDIT
+@GOAL: IDENTIFY_SENSITIVE_DATA_LEAKS_IN_ERROR_RESPONSES
+@PARENT_CONTEXT: protocol_discovery.protocol, security_controls.protocol
+
+<GLOBAL_VARS>
+# Маркеры опасного вывода в ошибках
+VERBOSE_MARKERS: "(stack|trace|message\.details|exception\.internal|fullError|dump)"
+SENSITIVE_DATA_PATTERNS: "(SQL_ERROR|DB_CONNECTION|/home/|/var/www/|node_modules|version:\s\d)"
+
+# Конфигурации окружения
+ENV_CHECK: "(process\.env\.NODE_ENV|app\.get\('env'\)|DEBUG_MODE|show_errors)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ERROR_HANDLER] <- {path: (middleware|filter|exception|logger), match: (catch|err|exception)}
+[API_RESPONSE]   <- {match: (res\.status|res\.send|return\serror|throw)}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты обработки ошибок
+! ([API_RESPONSE] -> {{VERBOSE_MARKERS}}) & (ENV == "production") : "CRITICAL: Stack trace or internal details leaked in API response (Information Disclosure)." [cite: 39, 43, 49]
+! ({{SENSITIVE_DATA_PATTERNS}} -> [API_RESPONSE]) : "HIGH: Database structure or server paths leaked in error message." [cite: 39, 43, 49]
+? ([ERROR_HANDLER] -> !LOG_INTERNAL) : "MEDIUM: Exception caught but not logged internally (Blind error handling)." 
+! ({{ENV_CHECK}} == "development") & (DEPLOYMENT == "prod") : "HIGH: Debug mode active in production environment."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. LOCATE_GLOBAL_HANDLERS:
+   - Identify centralized error handling logic (e.g., Global Exception Filters). [cite: 44, 45, 50]
+2. VERBOSITY_SCAN:
+   - Analyze what exactly is sent back to the client in `catch` blocks. 
+   - Flag any use of `error.stack` or `error.message` without a generic wrapper. 
+3. DB_ERROR_LEAK_CHECK:
+   - Specifically scan Database-related `catch` blocks. [cite: 46]
+   - Ensure raw SQL errors (e.g., "Table 'users' doesn't have column 'X'") are never returned to [ZONE_EXT]. 
+4. ENV_LOGIC_AUDIT:
+   - Check if the code has conditional logic: `if (prod) { send_generic } else { send_full_trace }`.
+   - Verify that the 'prod' check is reliable and default-secure.
+5. INFORMATION_ENUMERATION:
+   - Check if errors allow account enumeration (e.g., "Email already exists" vs "Invalid credentials"). 
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_VERBOSITY_REPORT:
+  - HANDLER_LOCATION | LEAKED_DATA_TYPE | ENV_PROTECTION | RISK_LEVEL
+VISUALIZE: "Comparison table: Internal_Error_Log vs External_Error_Response." 
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

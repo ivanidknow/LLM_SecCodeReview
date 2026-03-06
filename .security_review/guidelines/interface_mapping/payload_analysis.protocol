@@ -1,0 +1,54 @@
+<ARCH_SCAN_V3>
+@ID: PAYLOAD_STRUCTURE_AUDIT
+@GOAL: DETECT_DATA_EXPOSURE_AND_SCHEMA_POISONING_RISKS
+@PARENT_CONTEXT: protocol_discovery.protocol, entry_points.protocol
+
+<GLOBAL_VARS>
+# Форматы сериализации
+SERIALIZERS: "(JSON\.parse|JSON\.stringify|protobuf|xml2js|yaml\.load|pickle\.load)"
+
+# Маркеры чувствительных полей в структурах
+SENSITIVE_FIELDS: "(password|hash|salt|otp|token|ssn|credit_card|secret|cvv|balance)"
+
+# Признаки избыточности (Over-fetching)
+WILDCARD_SELECTORS: "(\.select\('\*'\)|\.find\(\{\}\)|SELECT \*|toJSON\(\))"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DATA_MODEL] <- {path: {{DOM_PATH}}, match: {{DOM_MATCH}}}
+[DTO_OBJECT] <- {path: (dto|request|response|schema), match: (class|interface|type)}
+[SERIALIZER_CALL] <- {match: {{SERIALIZERS}}}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты полезной нагрузки
+! ([DTO_OBJECT] -> {{SENSITIVE_FIELDS}}) : "CRITICAL: Sensitive field exposed in Data Transfer Object. High risk of PII leak."
+! ([SERIALIZER_CALL] -> !SCHEMA) : "HIGH: Deserializing raw data without schema validation. Risk of Prototype Pollution / Injection."
+? ({{WILDCARD_SELECTORS}} -> [DTO_OBJECT]) : "WARN: Over-fetching detected. Database entity is passed to interface without filtering."
+! (JSON.parse -> {{INPUT_SOURCES}}) : "MEDIUM: Parsing untrusted JSON without depth limits or structural checks."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENUMERATE_DTO:
+   - Identify all classes/interfaces used as Request/Response bodies.
+   - Map [DTO_OBJECT] to [INTERFACE_NODE] from protocol_discovery.
+2. SENSITIVE_DATA_SCAN:
+   - Search for {{SENSITIVE_FIELDS}} within [DTO_OBJECT].
+   - Flag any field that should only exist in [ZONE_SEC] but appears in [ZONE_EXT].
+3. OVER_SHARING_CHECK:
+   - Compare [DATA_MODEL] (Database Entity) and [DTO_OBJECT] (API Response).
+   - If they are identical (Direct Entity Exposure), flag as "High: Mass Assignment / Data Leak Risk".
+4. SERIALIZATION_HARDENING:
+   - Identify [SERIALIZER_CALL] locations.
+   - Check for secure configurations (e.g., forbidding `__proto__` in JSON or DTD in XML).
+5. SCHEMA_INTEGRITY:
+   - Verify if [DTO_OBJECT] uses decorators like `@Exclude()` or `@HideField()` for internal-only data.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PAYLOAD_REPORT:
+  - DTO_NAME | FIELDS_COUNT | SENSITIVE_FIELDS_FOUND | EXPOSURE_RISK
+VISUALIZE: "Table comparing Internal_Entity fields vs API_Response fields to show delta."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

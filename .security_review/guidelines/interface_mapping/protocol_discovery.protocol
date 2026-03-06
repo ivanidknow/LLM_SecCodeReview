@@ -1,0 +1,56 @@
+<ARCH_SCAN_V3>
+@ID: PROTOCOL_DISCOVERY_AUDIT
+@GOAL: IDENTIFY_ALL_COMMUNICATION_PROTOCOLS_AND_ENCRYPTION_STATUS
+@PARENT_CONTEXT: segmentation.protocol, entry_points.protocol
+
+<GLOBAL_VARS>
+# Маркеры протоколов в коде
+PROTO_MARKERS: {
+  "REST": "(Express|Router|FastAPI|Flask|Resource|Controller)",
+  "GRPC": "(\.proto|grpc\.loadPackageDefinition|protoc-gen-go)",
+  "GRAPHQL": "(apollo|graphql-tag|GQL_SCHEMA|Query|Mutation)",
+  "MESSAGE_BUS": "(kafka|rabbitmq|amqp|pubsub|nats|sqs|sns)",
+  "WEBSOCKET": "(socket\.io|ws\.on|WebSocketServer|SignalR)",
+  "LEGACY": "(SOAP|WSDL|XML-RPC|telnet|ftp|http\b(?!s))"
+}
+
+# Критерии небезопасности
+UNSECURE_TRANSPORT: "(http://|ws://|ftp://|smtp://|!tls|rejectUnauthorized: false)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[INTERFACE_NODE] <- {match: {{IFACE_MATCH}}, scope: "CLASS|MODULE"}
+[COMM_LIB]       <- {match: {{PROTO_MARKERS}}, scope: "IMPORT"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты протоколов
+! ({{PROTO_MARKERS.LEGACY}}) : "CRITICAL: Legacy or inherently insecure protocol detected in communication."
+! (ANY -> {{UNSECURE_TRANSPORT}}) : "HIGH: Protocol uses unencrypted transport (Plaintext). Risk of MitM."
+? (GRPC | GRAPHQL) -> !SCHEMA_VALIDATED : "MEDIUM: Schema-based protocol missing strict type/schema enforcement at runtime."
+! (ZONE_0 -> MESSAGE_BUS) : "HIGH: Direct external access to internal Message Broker detected (Segmentation Violation)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SCAN_COMM_STACK:
+   - Identify all communication libraries in [COMM_LIB].
+   - Map each library to its specific protocol type (REST, gRPC, etc.).
+2. ENCRYPTION_VERIFY:
+   - Search for {{UNSECURE_TRANSPORT}} in connection strings and client configs.
+   - Check for SSL/TLS certificate validation settings (e.g., `NODE_TLS_REJECT_UNAUTHORIZED`).
+3. PROTOCOL_DIVERSITY_MAP:
+   - Count different protocols used. High diversity (e.g., REST + gRPC + GraphQL + SOAP) increases attack surface.
+4. VERSION_AUDIT:
+   - Check protocol versions (e.g., HTTP/1.1 vs HTTP/2, TLS 1.2 vs 1.3).
+   - Flag deprecated versions.
+5. EXPOSED_INTERNAL_PROTOCOLS:
+   - Check if internal-only protocols (like gRPC or Redis) are exposed to [ZONE_EXT] without a proxy/gateway.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PROTOCOL_INVENTORY:
+  - PROTOCOL_TYPE | LIBRARY_USED | ENCRYPTION_STATUS | EXPOSURE_LEVEL (Internal/External)
+VISUALIZE: "Mermaid graph: use different styles (dashed/solid) for encrypted/unencrypted channels."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>

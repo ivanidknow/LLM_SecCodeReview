@@ -1,0 +1,51 @@
+<ARCH_SCAN_V3>
+@ID: SHADOW_INTERFACE_DISCOVERY
+@GOAL: IDENTIFY_UNDOCUMENTED_ENDPOINTS_AND_HIDDEN_DEPENDENCIES
+@PARENT_CONTEXT: protocol_discovery.protocol, entry_points.protocol
+
+<GLOBAL_VARS>
+# Маркеры скрытых или отладочных интерфейсов
+SHADOW_MARKERS: "(/test/|/debug|/dev/|/tmp/|/internal-only|/swagger-ui|/explorer|/graphiql)"
+HIDDEN_PROPS: "(_internal|__debug|forcedRole|skipAuth|bypass)"
+
+# Признаки "Теневых зависимостей" (Shadow Dependencies)
+SHADOW_DEPS: "(child_process\.exec|vm\.runInContext|eval\(|eval_remote|import\()"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ROUTER] <- {match: {{IFACE_MATCH}}}
+[HIDDEN_ROUTE] <- {match: {{SHADOW_MARKERS}}, scope: "ROUTE_DEFINITION"}
+[REFLECTOR]    <- {match: (Reflect|Object\.keys|introspection), usage: "DYNAMIC_DISPATCH"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты скрытых интерфейсов
+! ({{SHADOW_MARKERS}}) & (ENV == "production") : "CRITICAL: Debug or Test interface exposed in production. High risk of unauthorized access."
+! ([ROUTER] -> {{HIDDEN_PROPS}}) : "HIGH: Internal control property found in public router. Risk of parameter pollution."
+? ([REFLECTOR]) : "MEDIUM: Dynamic dispatch/introspection detected. Ensure it cannot be used to invoke private methods."
+! ({{SHADOW_DEPS}} -> {{INPUT_SOURCES}}) : "CRITICAL: Remote Code Execution (RCE) risk. Input flows into dynamic evaluation/execution."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SHADOW_ROUTE_SCAN:
+   - Perform a deep scan of [ROUTER] for any paths matching {{SHADOW_MARKERS}}.
+   - Check if these routes are disabled in production via environment checks.
+2. ORPHAN_ENDPOINT_CHECK:
+   - Identify endpoints that are defined but NOT linked in any main Navigation/API documentation.
+   - Cross-reference with `entry_points.protocol`.
+3. DYNAMIC_LOGIC_AUDIT:
+   - Locate [REFLECTOR] usage. 
+   - Verify if an attacker can pass a string to call an undocumented function (e.g., `api[req.query.method]()`).
+4. SHADOW_DEPENDENCY_TRACE:
+   - Search for "hidden" outbound calls (e.g., calls to internal IP addresses or localhost) that are not part of the main `topology_map.md`.
+5. COMMENT_RECONNAISSANCE:
+   - Scan comments for TODOs or URLs pointing to internal tools/docs that might be leaked to the client (in JS bundles).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SHADOW_REPORT:
+  - INTERFACE_PATH | TYPE (Debug/Hidden/Internal) | ACCESS_CONTROL | RISK_LEVEL
+VISUALIZE: "Mermaid graph: Highlight 'Orphan' nodes (no incoming links) in YELLOW."
+FILTER: RISK >= MEDIUM
+</OUTPUT_SPEC>
+</ARCH_SCAN_V3>
