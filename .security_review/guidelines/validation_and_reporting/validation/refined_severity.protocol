@@ -1,0 +1,59 @@
+<DFD_MODELING_V3>
+@ID: REFINED_SEVERITY_ASSESSMENT
+@GOAL: CALCULATE_FINAL_BUSINESS_RISK_BY_CORRELATING_EXPLOIT_COMPLEXITY_AND_BLAST_RADIUS
+@PARENT_CONTEXT: poc_development.protocol, contextual_reachability.protocol, bia_risk_mapping.protocol
+
+<GLOBAL_VARS>
+# Матрица корректировки (Adjustment Factors)
+COMPLEXITY_FACTORS: {
+  "LOW": "Automated tool can exploit (No special conditions)",
+  "MEDIUM": "Requires specific timing, user interaction, or non-default config",
+  "HIGH": "Requires complex chaining of multiple bugs or rare system state"
+}
+
+# Blast Radius (Радиус поражения)
+BLAST_RADIUS_SCOPES: {
+  "COMPONENT": "Impact limited to the specific service/container",
+  "SYSTEM": "Impact spreads to the entire application/database",
+  "INFRASTRUCTURE": "Impact allows lateral movement to cloud/cluster management"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[REACHABILITY]   <- {from: contextual_reachability.protocol, scope: "REACHABILITY_LEVELS"}
+[POC_RESULT]     <- {from: poc_development.protocol, scope: "SAFETY_SCORE"}
+[BUSINESS_VALUE] <- {from: bia_risk_mapping.protocol, scope: "CRITICAL_PATH_COST"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты оценки риска
+! (Complexity -> "HIGH" && Reachability -> "INTERNAL") : "SEVERITY_DOWNGRADE: Theoretical path only. High complexity combined with internal access requirements reduces immediate priority."
+! (Blast_Radius -> "INFRASTRUCTURE") : "SEVERITY_UPGRADE: Critical Impact. Regardless of complexity, potential cluster takeover demands CRITICAL status."
+? (Data_Sensitivity -> "PII|Secrets") : "SEVERITY_UPGRADE: Data at risk. Leakage of sensitive records overrides low exploitation complexity."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. EXPLOIT_COMPLEXITY_SCORING:
+   - На основе [POC_RESULT] оценить количество шагов и условий для успеха.
+   - Учесть необходимость аутентификации (Auth_Required) и взаимодействия с пользователем (User_Interaction).
+
+2. BLAST_RADIUS_MAPPING:
+   - Определить границы компрометации.
+   - Ответить на вопрос: "Дает ли этот баг доступ к шине данных, другим неймспейсам или IAM-ролям?"
+
+3. COMPENSATING_CONTROLS_RE-EVALUATION:
+   - Проверить, снижают ли [REACHABILITY.BARRIERS] вероятность атаки до пренебрежимо малой.
+
+4. BUSINESS_IMPACT_CORRELATION:
+   - Сопоставить технический риск с [BUSINESS_VALUE]. Баг в системе оплаты всегда критичнее, чем в системе отзывов.
+
+5. FINAL_SEVERITY_CALCULATION:
+   - Использовать формулу: $Risk = (Impact \times Probability) \times Asset\_Value$.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REFINED_RISK_REPORT:
+  - FINDING_ID | BASE_SEVERITY | REFINED_SEVERITY | COMPLEXITY_SCORE | BLAST_RADIUS | RATIONALE
+VISUALIZE: "Image of a Risk Assessment Heatmap: showing a grid with 'Impact' on one axis and 'Likelihood' on the other, where findings are plotted based on their refined score to prioritize remediation."
+</Output_Spec>
+</DFD_MODELING_V3>

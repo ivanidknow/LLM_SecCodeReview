@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: FINDING_AGGREGATION_AND_SYSTEMIC_ANALYSIS
+@GOAL: CONVERT_INDIVIDUAL_VULNERABILITIES_INTO_SYSTEMIC_SECURITY_GAPS_FOR_STRATEGIC_REMEDIATION
+@PARENT_CONTEXT: refined_severity.protocol, root_cause_analysis.protocol, bia_risk_mapping.protocol
+
+<GLOBAL_VARS>
+# Категории агрегации (Buckets)
+AGGREGATION_BUCKETS: {
+  "IDENTITY_ACCESS": "Issues with AuthN, AuthZ, RBAC, and Secret Management",
+  "DATA_PROTECTION": "Encryption, PII handling, Leaks in logs, and Persistence security",
+  "INFRA_HARDENING": "Container isolation, K8s misconfigs, Cloud perimeter gaps",
+  "SUPPLY_CHAIN": "Third-party risks, Pipeline integrity, SBOM gaps",
+  "BUSINESS_LOGIC": "Abuse scenarios, Race conditions, Transaction integrity"
+}
+
+# Метрики системности
+SYSTEMIC_INDICATORS: {
+  "RECURRENCE": "Finding appears in multiple independent components",
+  "PROCESS_FAILURE": "Finding indicates a lack of a specific SDLC gate (e.g., no SAST)",
+  "ARCHITECTURAL_FLAW": "Fixing requires changes to the core design, not just a patch"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[REFINED_RISK]   <- {from: refined_severity.protocol, scope: "REFINED_SEVERITY"}
+[BIA_MAPPING]    <- {from: bia_risk_mapping.protocol, scope: "CRITICAL_PATH_COST"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты агрегации
+! (Report -> "Count(Findings)" > 50) : "WARNING: Low Signal-to-Noise. Findings must be aggregated to highlight systemic issues instead of overwhelming the reader."
+! (Systemic_Gap -> ![Root_Cause]) : "CRITICAL: Surface-level reporting. An aggregated gap must point to a fundamental cause (e.g., 'Lack of Centralized Logging' vs 'Log leak in App A')."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. FINDING_CLUSTERING:
+   - Сгруппировать все верифицированные находки по [AGGREGATION_BUCKETS].
+   - Выявить дубликаты и взаимосвязанные уязвимости (например, IDOR и отсутствие логов доступа).
+
+2. PATTERN_RECOGNITION:
+   - Оценить [SYSTEMIC_INDICATORS] для каждого кластера.
+   - Если один и тот же тип ошибки (например, секреты в коде) найден в 3+ репозиториях, классифицировать это как "Системный провал процесса управления секретами".
+
+3. IMPACT_WEIGHTING:
+   - Использовать [REFINED_RISK] и [BIA_MAPPING] для определения веса каждого кластера.
+   - Приоритет отдается кластеру, который ставит под угрозу наибольшее количество критических бизнес-процессов.
+
+4. REMEDIATION_EFFICIENCY_ANALYSIS:
+   - Группировать находки по способу их исправления.
+   - Пример: "Внедрение mTLS закроет сразу 15 находок по перехвату трафика в разных сегментах".
+
+5. PRIORITY_MATRIX_FINALIZATION:
+   - Сформировать топ-5 системных проблем, требующих немедленного внимания CISO/CTO.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_AGGREGATED_RISK_MAP:
+  - SYSTEMIC_GAP_NAME | CATEGORY | TOTAL_FINDINGS_LINKED | MAX_REFINED_SEVERITY | BUSINESS_IMPACT
+VISUALIZE: "Image of a Security Finding Aggregation Tree: showing how dozens of individual low and medium findings branch up into a few high-impact systemic issues like 'Weak Identity Perimeter' or 'Unsecured Supply Chain'."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

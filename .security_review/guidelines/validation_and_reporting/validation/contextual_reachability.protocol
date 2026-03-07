@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: CONTEXTUAL_REACHABILITY_ANALYSIS
+@GOAL: DIFFERENTIATE_THEORETICAL_VULNERABILITIES_FROM_EXPLOITABLE_ONES_BY_VERIFYING_ATTACK_PATHS
+@PARENT_CONTEXT: entry_points.protocol, segmentation.protocol, full_path_verification.protocol
+
+<GLOBAL_VARS>
+# Уровни достижимости
+REACHABILITY_LEVELS: {
+  "PUBLIC": "Accessible from unauthenticated internet (Direct Exposure)",
+  "ADJACENT": "Accessible from a compromised peer service (Lateral Movement required)",
+  "INTERNAL": "Requires access to management/internal network (High Barrier)",
+  "AIR_GAPPED": "No logical path exists (Theoretical only)"
+}
+
+# Барьеры на пути (Attack Path Barriers)
+ATTACK_BARRIERS: [
+  "WAF_FILTERING", "NETWORK_SEGMENTATION", "AUTH_LAYER", 
+  "INPUT_VALIDATION_CHOKEPOINT", "K8S_NETWORK_POLICY"
+]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ENTRY_POINTS]   <- {from: entry_points.protocol, scope: "INGRESS_SURFACE"}
+[SEGMENTATION]   <- {from: segmentation.protocol, scope: "TRUST_BOUNDARIES"}
+[EXPLOIT_PATH]   <- {from: full_path_verification.protocol, scope: "DATA_FLOW"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты достижимости
+! (Finding -> ![EXTERNAL_PATH]) : "STATUS: Isolated. Finding exists in code, but no external entry point can reach this function."
+! (Finding -> "Level: PUBLIC" && ![WAF_PROTECTION]) : "CRITICAL: Direct Exposure. Vulnerability is reachable from the internet without any filtering."
+? (Path -> "Auth_Required: true") : "INFO: Barrier Detected. Exploitation requires valid credentials, increasing the attack cost."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. INGRESS_SOURCE_MAPPING:
+   - Сопоставить уязвимый компонент (Sink) с точками входа (Entry Points).
+   - Определить, является ли путь к уязвимости частью штатного API или скрытым/административным эндпоинтом.
+
+2. SEGMENTATION_OVERLAY_AUDIT:
+   - Наложить карту сетевой сегментации ([SEGMENTATION]) на путь атаки.
+   - Проверить, блокирует ли `NetworkPolicy` или `Security Group` трафик от потенциального источника до Sink.
+
+3. SECURITY_CONTROL_INTERCEPTION:
+   - Проверить, проходит ли полезная нагрузка (Payload) через [ATTACK_BARRIERS].
+   - Оценить, может ли WAF/IPS распознать и заблокировать специфический паттерн эксплойта для данной уязвимости.
+
+4. DATA_FLOW_CONTINUITY_CHECK:
+   - Убедиться, что данные передаются без необратимых трансформаций (например, если Sink ожидает JSON, а промежуточный прокси обрезает спецсимволы).
+
+5. REACHABILITY_SCORING:
+   - Присвоить финальный статус согласно [REACHABILITY_LEVELS].
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REACHABILITY_REPORT:
+  - FINDING_ID | SINK | SOURCE_ENTRY_POINT | BARRIERS_DETECTED | FINAL_REACHABILITY_STATUS
+VISUALIZE: "Image of a network attack path analysis: illustrating a layered defense where an external attacker must bypass a WAF, an Authentication layer, and an Internal Firewall to reach a vulnerable microservice."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

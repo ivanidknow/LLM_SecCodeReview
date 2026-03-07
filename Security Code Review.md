@@ -341,3 +341,15 @@
 * Software Bill of Materials (SBOM) & Artifact Integrity (sbom_artifact_integrity.protocol)
 * Post-Build Security Testing Gate (post_build_testing_gate.protocol)
 
+
+---
+
+# Validation & Finalization
+##### Vulnerability Validation & Exploitability Audit
+* Анализ достижимости и путей атаки (contextual_reachability.protocol)
+* Доказательная верификация (poc_development.protocol)
+* Итоговая оценка риска (refined_severity.protocol)
+##### Consolidated Reporting & Executive Synthesis
+* Агрегация и приоритизация (finding_aggregation.protocol)
+* Стратегия устранения (remediation_roadmap.protocol)
+* Финальный синтез (executive_synthesis.protocol)

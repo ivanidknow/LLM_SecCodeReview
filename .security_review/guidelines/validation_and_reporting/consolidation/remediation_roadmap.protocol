@@ -1,0 +1,55 @@
+<DFD_MODELING_V3>
+@ID: REMEDIATION_ROADMAP_STRATEGY
+@GOAL: CONSTRUCT_A_PHASED_AND_REALISTIC_PLAN_FOR_FIXING_SECURITY_GAPS_LINKED_TO_BUSINESS_KPI
+@PARENT_CONTEXT: finding_aggregation.protocol, cost_of_remediation.protocol, root_cause_analysis.protocol
+
+<GLOBAL_VARS>
+# Фазы устранения (Remediation Phases)
+REMEDIATION_PHASES: {
+  "PHASE_1_IMMEDIATE": "Hotfixes for CRITICAL/HIGH reachability findings (Quick Wins)",
+  "PHASE_2_TACTICAL": "Addressing systemic gaps in specific services or pipelines",
+  "PHASE_3_STRATEGIC": "Architectural changes, new security tooling, or process updates",
+  "PHASE_4_MAINTENANCE": "Continuous monitoring and periodic re-audits"
+}
+
+# Критерии применимости исправлений
+FIX_CRITERIA: ["EASE_OF_IMPLEMENTATION", "IMPACT_ON_PRODUCTION", "RESOURCE_AVAILABILITY"]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AGGREGATION]    <- {from: finding_aggregation.protocol, scope: "SYSTEMIC_GAP_NAME"}
+[REFINED_RISK]   <- {from: refined_severity.protocol, scope: "REFINED_SEVERITY"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты дорожной карты
+! (Roadmap -> ![Phase_Allocation]) : "BLOCKER: Flat Remediation List. Treating all fixes as equally urgent leads to team burnout and failure to address critical risks."
+! (Step -> "Action: Fix" && ![Verification_Method]) : "CRITICAL: Missing Validation. Every remediation step must define how the fix will be verified (e.g., 're-run scan', 'manual PoC')."
+? (Strategic_Fix -> "Duration" > "6 months") : "WARNING: Long Lead Time. Architectural fixes need interim compensating controls to mitigate risk during development."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. FINDING_TO_PHASE_MAPPING:
+   - Распределить кластеры из [AGGREGATION] по фазам [REMEDIATION_PHASES].
+   - "Critical" уязвимости с публичной достижимостью ВСЕГДА попадают в Phase 1.
+
+2. COMPENSATING_CONTROL_DESIGN:
+   - Для сложных стратегических задач (Phase 3) разработать временные меры защиты (например, блокировка IP или усиленный логинг), чтобы снизить риск на время разработки.
+
+3. RESOURCE_AND_DEPENDENCY_ANALYSIS:
+   - Выявить зависимости (например, "нельзя внедрить Vault, пока не обновлена версия Kubernetes").
+   - Оценить трудозатраты совместно с техлидами команд разработки.
+
+4. VERIFICATION_CRITERIA_SPECIFICATION:
+   - Для каждого исправления указать метод приемки: автоматический тест, повторный ручной аудит или проверка аттестации в CI/CD.
+
+5. ROADMAP_VISUALIZATION:
+   - Сформировать временную шкалу (Gantt-like) с контрольными точками (Milestones).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REMEDIATION_PLAN:
+  - PHASE | ACTION_ITEM | LINKED_FINDINGS | RESPONSIBLE_TEAM | VERIFICATION_METHOD | DEADLINE
+VISUALIZE: "Image of a Security Remediation Roadmap: illustrating the progression from urgent hotfixes to tactical improvements and finally long-term strategic security architectural changes."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>
