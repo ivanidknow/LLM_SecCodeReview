@@ -1,0 +1,50 @@
+<DFD_MODELING_V3>
+@ID: SECURITY_POSTULATES_AND_CORE_PRINCIPLES
+@GOAL: ESTABLISH_NON_NEGOTIABLE_AXIOMS_FOR_INFRASTRUCTURE_AND_APPLICATION_SECURITY_ASSESSMENT
+@SCOPE: GLOBAL_METHODOLOGY_GOVERNANCE
+
+<GLOBAL_VARS>
+# Основные постулаты (Аксиомы)
+CORE_POSTULATES: {
+  "ZERO_TRUST": "Network location does not imply trust. Every request must be authenticated and authorized regardless of origin.",
+  "DEFENSE_IN_DEPTH": "Security must not rely on a single control. Failure of one layer (e.g., WAF) must not lead to total compromise.",
+  "LEAST_PRIVILEGE": "Subjects must operate with the absolute minimum set of permissions required for their function.",
+  "SECURE_BY_DEFAULT": "The default state of any system, API, or resource must be its most restrictive and secure configuration.",
+  "AUDIT_IMMUTABILITY": "Security-relevant events must be recorded in a way that prevents tampering, even by privileged users."
+}
+
+# Принципы обработки данных
+DATA_AXIOMS: {
+  "MINIMIZATION": "Collect and store only the data strictly necessary for the business process.",
+  "SOVEREIGNTY": "Data must be protected according to its classification and legal jurisdiction throughout its lifecycle."
+}
+</GLOBAL_VARS>
+
+<ASSERTIONS>
+# Проверка соответствия постулатам (Compliance Check)
+! (System_Design -> ![ZERO_TRUST]) : "CRITICAL: Implicit Trust detected. Relying on 'Internal Network' security violates the core foundation."
+! (Security_Control -> "Single_Point_of_Failure") : "HIGH: Violation of Defense-in-Depth. A single bypass leads to data exposure."
+! (Default_Config -> "Permissive") : "BLOCKER: Violation of Secure-by-Default. Systems must not be 'open' by default."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. POSTULATE_ALIGNMENT_REVIEW:
+   - При анализе любого компонента (Discovery/Architecture) проверять его на соответствие [CORE_POSTULATES].
+   - Любое отклонение от постулата должно быть обосновано (Exception) или зафиксировано как риск.
+
+2. CONFLICT_RESOLUTION:
+   - В случае противоречия между функциональностью и безопасностью, приоритет отдается постулату [SECURE_BY_DEFAULT].
+
+3. ARCHITECTURAL_INTEGRITY_CHECK:
+   - Убедиться, что [DEFENSE_IN_DEPTH] соблюден: на пути к Sensitive Data должно быть минимум два независимых барьера (например, mTLS + RBAC).
+
+4. PRIVILEGE_VALIDATION:
+   - Проверить все Identity (люди и сервисы) на соответствие [LEAST_PRIVILEGE]. Любое расширение прав должно иметь временный характер (TTL).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_POSTULATE_COMPLIANCE_SUMMARY:
+  - POSTULATE_NAME | STATUS (ADHERED/VIOLATED) | EVIDENCE_LINK | IMPACT_SCORE
+VISUALIZE: "Image of the Defense-in-Depth model: illustrating concentric circles of security layers (Data, Application, Host, Internal Network, Perimeter) surrounding the central asset."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

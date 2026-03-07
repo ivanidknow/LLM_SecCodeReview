@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: METHODOLOGY_GOVERNANCE_AND_AUDIT_LIFECYCLE
+@GOAL: DEFINE_THE_OPERATIONAL_WORKFLOW_FOR_CONDUCTING_SECURITY_REVIEWS_AND_MAINTAINING_THE_FRAMEWORK
+@PARENT_CONTEXT: security_postulates.protocol, glossary_taxonomy.protocol, vulnerability_definition.protocol
+
+<GLOBAL_VARS>
+# Фазы жизненного цикла аудита (Audit Stages)
+AUDIT_LIFECYCLE: [
+  "STAGE_1_PREPARATION: Scoping, Asset Inventory, BIA Mapping",
+  "STAGE_2_DISCOVERY: Architecture Review, DFD, Trust Boundaries",
+  "STAGE_3_DEEP_SCAN: Static/Manual Code Review, Taint Analysis, IaC Audit",
+  "STAGE_4_VALIDATION: Reachability, PoC, Refined Severity",
+  "STAGE_5_FINALIZATION: Aggregation, Roadmap, Executive Summary"
+]
+
+# Уровни интенсивности аудита
+AUDIT_DEPTH: {
+  "L1_BASELINE": "Automated scans + Infrastructure audit (Fast)",
+  "L2_STANDARD": "L1 + Architecture review + Critical path manual audit",
+  "L3_DEEP": "L2 + Full business logic probe + Supply chain audit (Comprehensive)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[POSTULATES]     <- {from: security_postulates.protocol, scope: "CORE_POSTULATES"}
+[TAXONOMY]       <- {from: glossary_taxonomy.protocol, scope: "ASSET_TAXONOMY"}
+[SCHEMA]         <- {from: vulnerability_definition.protocol, scope: "SCHEMA_FIELDS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты управления методологией
+! (Audit -> "Stage_3_Start" && ! "Stage_1_Complete") : "BLOCKER: Premature Scanning. Deep Scan cannot start without established Scoping and BIA Context."
+! (Protocol_Change -> ![Postulate_Alignment]) : "CRITICAL: Breaking Change. Any modification to a protocol must align with [POSTULATES]."
+? (Audit_Duration > "4 weeks") : "WARNING: Scope Creep. High risk of stale results; consider breaking the audit into smaller, manageable sprints."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SCOPING_AND_DEPTH_SELECTION:
+   - Определить границы аудита (Scope) и выбрать [AUDIT_DEPTH] на основе критичности продукта.
+   - Зафиксировать все исключения (Out-of-Scope) в начальном документе.
+
+2. SEQUENTIAL_EXECUTION_FLOW:
+   - Следовать строгому порядку [AUDIT_LIFECYCLE].
+   - Результаты каждой стадии должны служить входными данными (Context) для следующей.
+
+3. QUALITY_GATE_AUDIT:
+   - Каждая найденная уязвимость должна пройти проверку на соответствие [SCHEMA] перед переходом к фазе валидации.
+
+4. FRAMEWORK_MAINTENANCE:
+   - После каждого крупного аудита проводить "Lessons Learned" сессию.
+   - Обновлять [TAXONOMY] и `Deep Scan` протоколы на основе новых техник атак, выявленных в ходе работ.
+
+5. EVIDENCE_HANDLING_SECURITY:
+   - Все артефакты аудита (PoC, дампы, логи) должны храниться в зашифрованном виде и уничтожаться через 90 дней после закрытия проекта.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_AUDIT_STATUS_DASHBOARD:
+  - STAGE_COMPLETION_PERCENTAGE | FINDINGS_COUNT | DEVIATION_FROM_POSTULATES | ESTIMATED_END_DATE
+VISUALIZE: "Image of a Security Audit Lifecycle Flowchart: showing the sequential stages from Scoping and Discovery to Deep Scanning, Validation, and final Reporting, with feedback loops for framework improvement."
+</Output_Spec>
+</DFD_MODELING_V3>

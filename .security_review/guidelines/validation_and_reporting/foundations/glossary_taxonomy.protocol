@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: SECURITY_TAXONOMY_AND_DEFINITIONS
+@GOAL: UNIFY_TERMINOLOGY_AND_RESOURCE_CLASSIFICATION_TO_ENSURE_CONSISTENT_AUDIT_INTERPRETATION
+@PARENT_CONTEXT: security_postulates.protocol, vulnerability_definition.protocol
+
+<GLOBAL_VARS>
+# Классификация данных (Data Sensitivity Levels)
+DATA_CLASSIFICATION: {
+  "PUBLIC": "Non-sensitive info (e.g., public API docs, marketing)",
+  "INTERNAL": "Business-only info (e.g., internal wiki, jira tickets)",
+  "CONFIDENTIAL": "Sensitive business data (e.g., non-public code, salt/hashes)",
+  "RESTRICTED_PII": "Personally Identifiable Information (e.g., emails, phone numbers)",
+  "CRITICAL_SECRETS": "Auth keys, Private certificates, Root passwords"
+}
+
+# Классификация активов (Asset Types)
+ASSET_TAXONOMY: {
+  "ENTRY_POINT": "Any interface reachable by untrusted actors (API, Webhook, UI)",
+  "CHOKEPOINT": "Centralized validation or security enforcement point",
+  "SINK": "Dangerous function or storage where untrusted data ends up",
+  "TRUST_BOUNDARY": "Perimeter where privilege levels or data sensitivity changes"
+}
+
+# Стандарты терминологии (Glossary)
+TERM_MAPPING: {
+  "IDOR": "Insecure Direct Object Reference (Horizontal Privilege Escalation)",
+  "BOLA": "Broken Object Level Authorization (Modern API term for IDOR)",
+  "TAINT": "Untrusted data originating from a Source and moving through the system",
+  "DRIFT": "Difference between IaC (Desired State) and Cloud (Actual State)"
+}
+</GLOBAL_VARS>
+
+<ASSERTIONS>
+# Инварианты классификации
+! (Finding -> "Severity: Critical" && Data_Type -> "PUBLIC") : "WARNING: Severity Mismatch. Public data exposure rarely justifies a Critical rating unless linked to DoS/Integrity."
+! (Architecture_Review -> ![TRUST_BOUNDARY]) : "CRITICAL: Flat Architecture. No trust boundaries identified, violating the Defense-in-Depth postulate."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. RESOURCE_TAGGING_SYNC:
+   - Присвоить каждому компоненту тип из [ASSET_TAXONOMY] в начале Discovery.
+   - Маркировать все потоки данных согласно [DATA_CLASSIFICATION].
+
+2. VULNERABILITY_NAMING_ENFORCEMENT:
+   - Использовать [TERM_MAPPING] для заполнения поля `title` в [SCHEMA_FIELDS].
+   - Если термин отсутствует в маппинге, использовать классификацию CWE (Common Weakness Enumeration).
+
+3. SENSITIVITY_PROPAGATION_CHECK:
+   - Проверить, что данные уровня `CRITICAL_SECRETS` никогда не попадают в системы уровня `INTERNAL` (например, логи или чаты).
+
+4. TAXONOMY_UPDATE_PROCESS:
+   - При появлении новых технологий (например, AI/ML) дополнять [ASSET_TAXONOMY] терминами вроде "Prompt Injection Sink" или "Model Weights".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TAXONOMY_ALIGNMENT_MATRIX:
+  - COMPONENT_ID | ASSET_TYPE | MAX_DATA_SENSITIVITY | SECURITY_POSTULATE_LINK
+VISUALIZE: "Image of a Security Data Classification Pyramid: illustrating the hierarchy from Public data at the base to Critical Secrets at the apex, mapped to required encryption and access controls."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>
