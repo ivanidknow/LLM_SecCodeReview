@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: ADMISSION_CONTROL_IMAGE_PROVENANCE
+@GOAL: ENFORCE_POLICY_AS_CODE_TO_PREVENT_UNTRUSTED_OR_NON_COMPLIANT_WORKLOADS_FROM_ENTERING_THE_CLUSTER
+@PARENT_CONTEXT: base_image_provenance.protocol, pod_security_context.protocol
+
+<GLOBAL_VARS>
+# Механизмы Admission Control
+CONTROL_MECHANISMS: {
+  "PSA": "Pod Security Admission (Built-in K8s controller)",
+  "DYNAMIC": "Validating & Mutating Admission Webhooks",
+  "POLICY_ENGINES": "(Kyverno|OPA Gatekeeper)"
+}
+
+# Критерии происхождения (Provenance)
+PROVENANCE_CHECKS: {
+  "REGISTRY_WHITELIST": "Allow only internal or official registries",
+  "IMAGE_SIGNING": "Verify signatures using Cosign/Sigstore",
+  "ATTESTATIONS": "Check SBOM presence before deployment"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[BASE_IMAGE]     <- {from: base_image_provenance.protocol, scope: "DIGEST_PINNING"}
+[POD_SECURITY]   <- {from: pod_security_context.protocol, scope: "SECURITY_CONTROLS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты контроля допуска
+! (Cluster -> ![PodSecurityAdmission]) : "BLOCKER: Missing Baseline Protection. No Pod Security Admission configured, allowing pods with root privileges and host access by default."
+! (Admission_Policy -> ! "Allowed_Registries") : "CRITICAL: Untrusted Registry Access. Users can pull images from any public registry (Docker Hub, Quay), bypassing internal security scans."
+! (Image_Spec -> ! "Digest_Verification") : "HIGH: Non-Verified Provenance. The cluster accepts images by tag without verifying their cryptographic signature or digest."
+! (Admission_Policy -> "privileged: true") : "HIGH: Permissive Policy. Admission controller is configured to allow privileged containers in sensitive namespaces."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ADMISSION_CONTROLLER_INVENTORY:
+   - Проверить список включенных контроллеров в API Server (`--enable-admission-plugins`).
+   - Убедиться, что `NodeRestriction` и `PodSecurity` активированы.
+
+2. PSA_LEVEL_AUDIT:
+   - Проверить метки неймспейсов: `pod-security.kubernetes.io/enforce: restricted`.
+   - Убедиться, что уровни соответствуют критичности нагрузки.
+
+3. REGISTRY_WHITELIST_ENFORCEMENT:
+   - Проверить политики Kyverno/OPA. Есть ли правило, блокирующее все `image`, кроме `cr.internal.domain/*`.
+   - Проверить обработку исключений (например, для системных образов).
+
+4. IMAGE_SIGNATURE_VERIFICATION:
+   - Проверить интеграцию с Sigstore/Cosign.
+   - Попытаться запустить неподписанный образ в защищенном неймспейсе — запрос должен быть отклонен.
+
+5. MUTATING_WEBHOOK_AUDIT:
+   - Проанализировать мутирующие вебхуки. Убедиться, что они не вносят небезопасные изменения (например, автоматическое добавление `privileged: true`).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ADMISSION_REPORT:
+  - NAMESPACE | POLICY_ENGINE | ENFORCED_LEVEL | REGISTRY_RESTRICTION | PROVENANCE_STATUS
+VISUALIZE: "Image of Kubernetes Admission Control workflow: illustrating how a request to create a Pod passes through Mutating Webhooks, Object Schema validation, and finally Validating Webhooks before being persisted in etcd."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

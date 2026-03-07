@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: FILESYSTEM_EXECUTION_SECURITY
+@GOAL: ENFORCE_RUNTIME_IMMUTABILITY_AND_PREVENT_PRIVILEGE_ESCALATION_VIA_FILESYSTEM_MISCONFIGURATION
+@PARENT_CONTEXT: least_privilege_user.protocol, attack_surface_reduction.protocol, pod_security_context.protocol
+
+<GLOBAL_VARS>
+# Опасные атрибуты файлов
+RISKY_ATTRIBUTES: {
+  "SUID": "Set User ID (chmod u+s) - executes as file owner",
+  "SGID": "Set Group ID (chmod g+s) - executes as file group",
+  "WORLD_WRITABLE": "chmod 777 - allow anyone to modify"
+}
+
+# Параметры безопасности выполнения
+EXECUTION_CONTROLS: {
+  "READ_ONLY_FS": "--read-only / readOnlyRootFilesystem: true",
+  "NO_NEW_PRIVS": "--security-opt=no-new-privileges",
+  "TEMP_STORAGE": "tmpfs mounts for /tmp and /run"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[USER_ENFORCEMENT] <- {from: least_privilege_user.protocol, scope: "RUNTIME_USER"}
+[K8S_POD_SECURITY] <- {from: pod_security_context.protocol, scope: "SECURITY_CONTEXT"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты безопасности файловой системы
+! (IMAGE -> find / -perm /6000) : "HIGH: SUID/SGID Binaries Found. Presence of SUID/SGID files (like mount, chsh) provides a vector for privilege escalation."
+! (DOCKERFILE -> "chmod 777") : "CRITICAL: World Writable Files. Sensitive directories or scripts are globally writable, allowing an attacker to inject code."
+! (RUNTIME_CONFIG -> ![READ_ONLY_FS]) : "MEDIUM: Writable Root Filesystem. The root filesystem is not read-only, allowing permanent modification of the container environment."
+! (DOCKERFILE -> "ADD" && "http://") : "HIGH: Remote Artifact Injection. Using ADD with URLs does not verify integrity (no checksum), potentially injecting malicious binaries."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SUID_SGID_CLEANUP_AUDIT:
+   - Проверить наличие команды `RUN find / -perm /6000 -type f -exec chmod a-s {} + || true` в Dockerfile.
+   - Если команда отсутствует, проверить список бинарных файлов на наличие лишних привилегий.
+
+2. READ_ONLY_IMMUTABILITY_CHECK:
+   - Оценить возможность запуска контейнера с флагом `--read-only`.
+   - Идентифицировать директории, требующие записи (например, `/tmp`, `/var/run`, `/var/log`), и убедиться, что они монтируются как `tmpfs`.
+
+3. NO_NEW_PRIVILEGES_VERIFICATION:
+   - Убедиться, что в конфигурации запуска (Docker/K8s) включен параметр `no-new-privileges`. Это предотвращает получение новых прав через SUID-бинарники.
+
+4. UMASK_AND_DEFAULT_PERMISSIONS:
+   - Проверить `umask` в скриптах запуска (`entrypoint.sh`).
+   - Убедиться, что новые файлы создаются с минимально необходимыми правами (например, 0027).
+
+5. EXECUTION_PATH_RESTRICTION:
+   - Проверить, не запускается ли приложение из директорий, доступных на запись (например, `/tmp`).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_FILESYSTEM_SECURITY_REPORT:
+  - VULNERABILITY_TYPE | IMPACT | MITIGATION_STATUS | RECOMMENDATION
+VISUALIZE: "Image of a container security layers diagram: showing the defense-in-depth approach including Read-Only Filesystem, No-New-Privileges flag, and the removal of SUID binaries to create a restricted execution environment."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

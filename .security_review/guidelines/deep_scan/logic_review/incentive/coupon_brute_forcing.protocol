@@ -1,0 +1,64 @@
+<DFD_MODELING_V3>
+@ID: COUPON_PROMO_CODE_BRUTE_FORCING
+@GOAL: IDENTIFY_VULNERABILITIES_IN_PROMO_CODE_VALIDATION_ALLOWING_GUESSING_MASS_APPLICATION_OR_ENUMERATION
+@PARENT_CONTEXT: rate_limit_abuse.protocol, post_action_replay.protocol, precision_rounding_attacks.protocol
+
+<GLOBAL_VARS>
+# Характеристики кодов
+CODE_PROPERTIES: {
+  "ENTROPY": "(Short_Numeric|Long_Alphanumeric|Predictable_Prefix)",
+  "VALIDATION_SINK": "/api/cart/apply-promo",
+  "STORAGE_MODEL": "Database_Lookup vs Offline_Algorithm"
+}
+
+# Векторы атаки на купоны
+COUPON_ATTACK_VECTORS: {
+  "DICTIONARY_ATTACK": "Testing common codes like WELCOME10, SAVE2026",
+  "SEQUENTIAL_GUESSING": "Testing PROMO-001, PROMO-002 if IDs are sequential",
+  "MULTI_APPLY": "Applying the same code multiple times to one order",
+  "STACKING": "Applying multiple different codes to bypass the 1-promo limit"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[THROTTLING]     <- {from: rate_limit_abuse.protocol, scope: "RATE_LIMITS"}
+[REPLAY_LOGIC]   <- {from: post_action_replay.protocol, scope: "REPLAY_TARGETS"}
+[MATH_PRECISION] <- {from: precision_rounding_attacks.protocol, scope: "ROUNDING_METHODS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты системы купонов
+! ([VALIDATION_SINK] -> ![THROTTLING]) : "CRITICAL: No Rate Limiting on Promo Interface. Attacker can test thousands of codes per second to find valid discounts."
+! ([CODE_GENERATION] -> "Predictable") : "HIGH: Low Entropy Codes. Promo codes follow a guessable pattern, enabling bulk discovery of active discounts."
+! ([ORDER_TOTAL] < 0) : "BLOCKER: Negative Total via Promo. Excessive or stacked discounts result in a negative order balance (User gets paid to shop)."
+! ([CODE_REUSE] -> [REPLAY_LOGIC.VIOLATION]) : "HIGH: Multi-Use of Single-Use Code. A one-time promo code can be applied to multiple orders before the first one is finalized."
+? ([DISCOUNT_CALC] -> [MATH_PRECISION.ROUND_UP]) : "MEDIUM: Rounding Abuse. Small discounts are rounded in a way that allows users to gain fractional profit through mass application."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENUMERATION_RESISTANCE_TEST:
+   - Проверить длину и состав символов кода. Если код — 4 цифры, общее пространство (10,000) перебирается мгновенно.
+   - Оценить наличие «соли» или контрольных сумм в алгоритме генерации.
+
+2. RATE_LIMIT_BYPASS_PROBE:
+   - Попытаться обойти лимиты через [THROTTLING.BYPASS_METHODS] (смена IP, заголовков).
+   - Проверить, не сбрасывается ли счетчик попыток при очистке корзины или перелогине.
+
+3. PROMO_STACKING_AUDIT:
+   - Исследовать API на предмет возможности передачи массива кодов: `{"promos": ["CODE1", "CODE2"]}`.
+   - Проверить логику «Exclusive» флага: отменяет ли новый код действие предыдущего.
+
+4. EXPIRATION_AND_USAGE_LIMITS:
+   - Проверить атомарность списания лимита использования кода. Убедиться, что при 100 одновременных запросах с одним кодом (лимит 1) не пройдет более 1 транзакции.
+   - См. `race_condition_concurrency.protocol`.
+
+5. INFORMATION_LEAKAGE_ANALYSIS:
+   - Анализ ответов сервера. Отличается ли ошибка «Код не существует» от «Код истек» или «Код для другого региона»? Это помогает сужать область перебора.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_COUPON_SECURITY_REPORT:
+  - PROMO_INTERFACE | RATE_LIMIT_STATUS | ENTROPY_LEVEL | STACKING_POSSIBILITY | SEVERITY
+VISUALIZE: "Image of a coupon brute-forcing attack: showing a high-speed automated script iterating through alphanumeric combinations on a checkout API, capturing 200 OK responses for valid codes."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: INSECURE_DIRECT_OBJECT_REFERENCE_IDOR_DETECTION
+@GOAL: IDENTIFY_MISSING_AUTHORIZATION_CHECKS_WHEN_ACCESSING_RESOURCES_BY_USER_CONTROLLED_IDENTIFIERS
+@PARENT_CONTEXT: identity_model.protocol, untrusted_source_identification.protocol, database_query_sinks.protocol
+
+<GLOBAL_VARS>
+# Типы идентификаторов объектов
+RESOURCE_IDENTIFIERS: {
+  "SEQUENTIAL": "(id|user_id|order_id|account_no)", # Высокий риск перебора
+  "UUID_HASH": "(uuid|guid|hash|slug)",             # Риск утечки через логи/URL
+  "COMPOSITE": "(tenant_id:resource_id)"
+}
+
+# Паттерны уязвимых запросов
+IDOR_SINK_PATTERNS: {
+  "READ": "db.find({ id: req.params.id })",         # Нет проверки владельца
+  "UPDATE": "db.update({ id: req.params.id }, ...)",# Нет проверки прав на изменение
+  "DELETE": "db.delete({ id: req.params.id })"      # Самый критичный вектор
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AUTH_CONTEXT]   <- {from: identity_model.protocol, scope: "SESSION_USER_IDENTITY"}
+[INPUT_PARAMS]   <- {from: untrusted_source_identification.protocol, scope: "URL_PARAMS|BODY"}
+[DB_OPERATIONS]  <- {from: database_query_sinks.protocol, scope: "QUERY_CONSTRUCTORS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты доступа к объектам
+! ([DB_OPERATIONS] -> [RESOURCE_IDENTIFIERS] && ![OWNERSHIP_CHECK]) : "BLOCKER: IDOR Detected. Resource is accessed by ID from [INPUT_PARAMS] without verifying if [AUTH_CONTEXT.USER_ID] owns the object."
+! ([UPDATE|DELETE] -> [RESOURCE_IDENTIFIERS] && ![RBAC_CHECK]) : "CRITICAL: Unauthorized State Change. User can modify or delete objects belonging to others by changing the ID."
+? ([UUID_HASH] -> "Predictable_Generation") : "MEDIUM: Predictable ID. Resource identifiers are non-sequential but follow a guessable pattern."
+! ([TENANT_ID] == [INPUT_PARAMS]) : "HIGH: Cross-Tenant Data Leak. Tenant identifier is taken from user input instead of [AUTH_CONTEXT]."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. OBJECT_ENTRY_POINT_MAPPING:
+   - Выявить все эндпоинты, принимающие идентификаторы из [RESOURCE_IDENTIFIERS].
+   - Особое внимание уделить маршрутам типа `/api/orders/:id` или `/settings/profile?uid=...`.
+
+2. AUTHORIZATION_LOGIC_DISSECTION:
+   - Проверить код контроллера на наличие проверки владения (Ownership Validation).
+   - *Пример безопасного кода:* `db.findOne({ id: req.params.id, ownerId: req.user.id })`.
+   - *Пример уязвимого кода:* `db.findOne({ id: req.params.id })`.
+
+3. INDIRECT_REFERENCE_CHECK:
+   - Проверить, используются ли «мапы» (Indirect References) для скрытия реальных ID в сессии пользователя.
+
+4. SECOND_ORDER_IDOR_PROBE:
+   - Проверить вложенные ресурсы. Если доступ к `Order` защищен, защищен ли доступ к `Order.Invoices[id]`?
+
+5. MULTI_ROLE_ACCESS_VERIFICATION:
+   - Сравнить доступ для разных ролей (User, Editor, Admin).
+   - Убедиться, что "Editor" не может редактировать объекты другого "Editor", если это не предусмотрено бизнес-логикой.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_IDOR_REPORT:
+  - RESOURCE | ENDPOINT | IDENTIFIER_TYPE | AUTH_CHECK_STATUS | EXPLOIT_SCENARIO
+VISUALIZE: "Image of an IDOR attack: showing how changing a 'user_id' parameter from 1001 to 1002 in an API request allows an attacker to view another user's private data."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

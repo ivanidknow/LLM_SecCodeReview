@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: FILE_UPLOAD_STREAM_ANALYSIS
+@GOAL: IDENTIFY_TAINT_SOURCES_IN_FILE_METADATA_AND_STREAMS_TO_PREVENT_PATH_TRAVERSAL_AND_DOS
+@PARENT_CONTEXT: file_system_stream_sinks.protocol, payload_analysis.protocol, resource_lifecycle_smells.protocol
+
+<GLOBAL_VARS>
+# Обработчики загрузки и стриминга (Upload Sinks/Sources)
+UPLOAD_HANDLERS: {
+  "NODEJS": "(multer|busboy|formidable|req\.pipe)",
+  "PYTHON": "(request\.files|FileField|UploadFile)",
+  "JAVA": "(MultipartFile|Part|CommonsMultipartResolver)"
+}
+
+# Атрибуты файла как источники загрязнения
+FILE_TAINT_ATTRS: {
+  "FILENAME": "(.originalname|.filename|getSubmittedFileName())",
+  "MIMETYPE": "(.mimetype|.contentType)",
+  "CONTENT": "(.buffer|.stream|getInputStream())",
+  "PATH": "(.path|.destination)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[FILE_SINKS]      <- {from: file_system_stream_sinks.protocol, scope: "WRITE_OPERATIONS"}
+[PAYLOAD_PARSERS] <- {from: payload_analysis.protocol, scope: "ARCHIVE_PARSERS|IMAGE_PROCESSORS"}
+[LIMITS]          <- {from: resource_lifecycle_smells.protocol, scope: "QUOTAS_TIMEOUTS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты загрузки файлов
+! ([FILE_TAINT_ATTRS.FILENAME] -> [FILE_SINKS] && ![SANITIZERS]) : "BLOCKER: Path Traversal via Filename. Original filename is used in a write operation without sanitization. Risk: Arbitrary file write."
+! ([FILE_TAINT_ATTRS.CONTENT] -> [PAYLOAD_PARSERS] && ![LIMITS]) : "CRITICAL: Zip Bomb / Decompression DoS. File stream is passed to a parser without size or recursion limits."
+! ([FILE_TAINT_ATTRS.MIMETYPE] -> "Logic_Branching") : "HIGH: MIME-Type Spoofing. Application trust the 'Content-Type' header for processing logic instead of verifying the actual file signature (Magic Bytes)."
+? ([UPLOAD_HANDLERS] -> "Temporary_Storage_Leak") : "MEDIUM: Orphaned Temp Files. Uploaded files are not explicitly deleted from [PATH] after processing or on error."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. UPLOAD_ENTRY_IDENTIFICATION:
+   - Найти все маршруты (Routes), использующие компоненты из [UPLOAD_HANDLERS].
+   - Определить конфигурацию хранилища (MemoryStorage vs DiskStorage).
+
+2. METADATA_TAINT_MAPPING:
+   - Пометить [FILE_TAINT_ATTRS.FILENAME] как критический источник для Path Traversal. 
+   - Проследить использование `filename` в функциях формирования пути (`path.join`, `os.path.join`).
+
+3. STREAM_CONSUMPTION_AUDIT:
+   - Анализ [FILE_TAINT_ATTRS.CONTENT]. Проверить, установлены ли лимиты на размер (`fileSize`) и количество файлов (`files`).
+   - Идентифицировать "unbounded streams", которые могут привести к [resource_lifecycle_smells.protocol].
+
+4. ARCHIVE_AND_COMPRESSION_PROBE:
+   - Если загруженный файл передается в [PAYLOAD_PARSERS] (ZIP, TAR, PDF, XML), проверить защиту от атак типа "Zip Slip" и "XXE".
+
+5. POST_PROCESSING_CLEANUP_VERIFY:
+   - Проверить наличие блоков `finally` или обработчиков событий `close`/`end`, гарантирующих удаление временных файлов.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_UPLOAD_SURFACE_REPORT:
+  - HANDLER_TYPE | TARGET_DIR | VALIDATION_GATES | DOS_LIMITS_STATUS | RISK_LEVEL
+VISUALIZE: "Image of a file upload security process: showing filename sanitization, type verification (magic bytes), and virus scanning before storage."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

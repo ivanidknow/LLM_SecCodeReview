@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: UNAUTHORIZED_STATE_TRANSITIONS
+@GOAL: PREVENT_ILLEGAL_OBJECT_STATE_CHANGES_AND_CROSS_USER_STATE_MANIPULATION
+@PARENT_CONTEXT: idor_detection.protocol, step_skipping_logic.protocol, broken_access_control.protocol
+
+<GLOBAL_VARS>
+# Типы недопустимых переходов
+ILLEGAL_TRANSITIONS: {
+  "TERMINAL_REVERSION": "Moving from 'Completed/Cancelled' back to 'Active/Pending'",
+  "PRIVILEGE_JUMP": "User triggering a transition reserved for 'Admin' or 'System' (e.g., 'Verify_Payment')",
+  "CROSS_ENTITY": "Triggering a transition on a resource belonging to another user (IDOR + State)",
+  "LOGICAL_IMPOSSIBILITY": "Transitioning from 'Created' to 'Refunded' without 'Paid'"
+}
+
+# Регуляторы переходов (Transition Controllers)
+CONTROLLERS: {
+  "STATE_SETTER": "order.setStatus(newStatus)",
+  "TRANSITION_MAP": "const allowed = { 'PENDING': ['PAID', 'CANCELLED'] }",
+  "GUARD_MIDDLEWARE": "validateTransition(current, next)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[IDOR_MAP]       <- {from: idor_detection.protocol, scope: "OWNERSHIP_CHECKS"}
+[RBAC]           <- {from: broken_access_control.protocol, scope: "ROLE_HIERARCHY"}
+[WORKFLOW_MAP]   <- {from: step_skipping_logic.protocol, scope: "STATE_MACHINE_RECONSTRUCTION"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты переходов состояний
+! ([TRANSITION] -> ![TRANSITION_MAP.ALLOWED]) : "CRITICAL: Undefined Transition. The application allows moving between states that have no defined logical path in the business model."
+! ([TRANSITION] -> [IDOR_MAP.VIOLATION]) : "BLOCKER: Cross-User State Manipulation. User A can trigger a state change (e.g., 'Cancel') on an object belonging to User B."
+! ([SENSITIVE_TRANSITION] -> ![RBAC.ADMIN_ROLE]) : "HIGH: Privilege-Limited Transition. A regular user can trigger a state change that should be restricted to administrative staff or automated system processes."
+! ([STATE] == "TERMINAL" && [TRANSITION] == "REVERSE") : "HIGH: Terminal State Reversion. A 'Closed' or 'Finalized' object is moved back to an editable state, bypassing finality constraints."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TRANSITION_MATRIX_EXTRACTION:
+   - Извлечь из кода матрицу допустимых переходов (если есть) или восстановить её на основе `switch/case` логики в контроллерах.
+
+2. OWNERSHIP_TRANSITION_AUDIT:
+   - Проверить, что каждый вызов [CONTROLLERS.STATE_SETTER] защищен проверкой владения из [IDOR_MAP].
+   - *Пример:* Нельзя позволять `PATCH /orders/123/status` без подтверждения, что это заказ текущего пользователя.
+
+3. ROLE_PERMISSION_CORRELATION:
+   - Определить «защищенные» состояния (например, `Verified`, `Refunded`, `Approved`).
+   - Убедиться, что перевод в эти состояния невозможен через публичные API-клиенты обычных пользователей.
+
+4. TERMINAL_STATE_LOCK_CHECK:
+   - Найти логику обработки «архивных» или «финальных» состояний. Проверить, блокирует ли система любые изменения объекта, как только он достиг терминального статуса.
+
+5. INVARIANT_BYPASS_PROBE:
+   - Попытаться «обмануть» логику через конкурентные запросы (Race Condition) или специфические параметры, которые могут заставить парсер пропустить проверку текущего статуса перед обновлением.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TRANSITION_SECURITY_REPORT:
+  - ENTITY_TYPE | CURRENT_STATE | TARGET_STATE | ACTOR_ROLE | VIOLATION_TYPE | SEVERITY
+VISUALIZE: "Image of a state transition matrix with security overlays: showing which roles have permission for specific transitions and highlighting illegal reverse arrows from terminal states."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

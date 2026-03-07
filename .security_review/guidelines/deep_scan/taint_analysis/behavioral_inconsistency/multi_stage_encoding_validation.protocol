@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: MULTI_STAGE_ENCODING_VALIDATION
+@GOAL: VERIFY_INTEGRITY_OF_DATA_PASSING_THROUGH_NESTED_OR_SEQUENTIAL_ENCODINGS_TO_PREVENT_DECODING_BYPASSES
+@PARENT_CONTEXT: canonicalization_encoding_integrity.protocol, output_context_identification.protocol, string_manipulation_transformation.protocol
+
+<GLOBAL_VARS>
+# Цепочки множественного кодирования
+ENCODING_CHAINS: {
+  "DOUBLE_URL": "URL_Encode -> URL_Encode",
+  "HYBRID_BASE64_URL": "Base64_Encode -> URL_Encode",
+  "HTML_JS": "HTML_Entity_Encode -> JS_Literal_Escape",
+  "JSON_BASE64": "JSON_Stringify -> Base64_Encode"
+}
+
+# Признаки опасной десериализации/декодирования
+DECODING_SINK_MARKERS: {
+  "DYNAMIC_EVAL": "(eval|new Function|setTimeout)",
+  "DOM_PARSER": "(DOMParser.parseFromString|innerHTML|outerHTML)",
+  "LOCATION_SINK": "(window.location|document.URL)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ENCODING_STEPS] <- {from: string_manipulation_transformation.protocol, scope: "ENCODING_FUNCTIONS"}
+[OUTPUT_CONTEXT] <- {from: output_context_identification.protocol, scope: "CONTEXT_STACK"}
+[CANONICAL_LOG]  <- {from: canonicalization_encoding_integrity.protocol, scope: "DECODING_CHAINS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты многоэтапного кодирования
+! ([TAINTED_DATA] -> [ENCODING_STEP_1] -> [VALIDATION] -> [ENCODING_STEP_2] -> [SINK]) : "CRITICAL: Validation Mid-Chain. Data is validated when partially encoded, allowing payloads to hide in the second encoding layer."
+! ([OUTPUT_CONTEXT.DEPTH] > 1 && ![MULTI_LAYER_ENCODING]) : "HIGH: Insufficient Multi-Layer Protection. Data is nested (e.g., JS inside HTML) but only one layer of encoding is applied."
+! ([SINK] -> [DECODING_SINK_MARKERS] && ![RE_VALIDATION]) : "BLOCKER: Blind Decoding Sink. Tainted data is decoded right at the sink, bypassing all previous canonicalization checks."
+? ([ENCODING_CHAINS]) : "WARNING: Complex Encoding Chain. High risk of behavioral inconsistency between the validator's view and the sink's view."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENCODING_PATH_RECONSTRUCTION:
+   - Проследить все этапы трансформации переменной от источника до точки вывода.
+   - Зафиксировать последовательность функций из [ENCODING_STEPS].
+
+2. VALIDATION_POINT_AUDIT:
+   - Определить точное местоположение проверок безопасности относительно этапов кодирования.
+   - Выявить случаи, когда данные декодируются *после* прохождения валидации (Order of Operations issue).
+
+3. LAYERED_CONTEXT_MATCHING:
+   - Сопоставить количество слоев кодирования с глубиной [OUTPUT_CONTEXT].
+   - Например: если данные выводятся в `onclick="func('{{data}}')"`, проверить наличие JS-экранирования, а затем HTML-экранирования.
+
+4. DECODER_MISMATCH_PROBE:
+   - Анализ [DECODING_SINK_MARKERS]. Проверить, не используется ли в Sink встроенный декодер, который «раскроет» вредоносный пайлоад, скрытый в кодировке.
+
+5. TAINT_INTEGRITY_VERIFICATION:
+   - Пометить данные как «недостаточно очищенные», если цепочка кодирования/декодирования позволяет восстановить опасные символы без финальной проверки.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_MULTI_STAGE_REPORT:
+  - DATA_FLOW_ID | ENCODING_SEQUENCE | VALIDATION_SLOT | CONTEXT_LAYERS | RISK_LEVEL
+VISUALIZE: "Image of a multi-stage encoding attack: showing how an attacker uses nested encodings (like Base64 inside a URL parameter) to bypass a single-pass security filter."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

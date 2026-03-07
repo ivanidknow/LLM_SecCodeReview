@@ -1,0 +1,59 @@
+<DFD_MODELING_V3>
+@ID: TERRAFORM_STATE_BACKEND_SECURITY
+@GOAL: PROTECT_INFRASTRUCTURE_METADATA_AND_PLAINTEXT_SECRETS_BY_HARDENING_THE_STATE_BACKEND
+@PARENT_CONTEXT: encryption_rest_transit.protocol, iam_least_privilege.protocol, audit_logging_monitoring.protocol
+
+<GLOBAL_VARS>
+# Рекомендуемые бэкенды
+SECURE_BACKENDS: ["s3", "gcs", "azurerm", "consul", "remote (Terraform Cloud)"]
+
+# Угрозы безопасности State
+STATE_THREATS: {
+  "PLAINTEXT_SECRETS": "Database passwords or IAM keys stored in clear text in the state file",
+  "UNAUTHORIZED_ACCESS": "Anyone with read access to the backend can see the entire infra map",
+  "STATE_CORRUPTION": "Simultaneous runs without locking leading to inconsistent infrastructure state"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ENCRYPTION]     <- {from: encryption_rest_transit.protocol, scope: "AT_REST"}
+[IAM_AUDIT]      <- {from: iam_least_privilege.protocol, scope: "RESOURCE_ACCESS"}
+[LOGGING]        <- {from: audit_logging_monitoring.protocol, scope: "LOG_IMMUTABILITY"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты безопасности State-файла
+! (Backend -> "local") : "BLOCKER: Local State Used. State file is stored on the local machine, making it inaccessible to the team and vulnerable to loss or accidental leakage."
+! (Backend_Bucket -> ![ENCRYPTION.AT_REST]) : "CRITICAL: Unencrypted State. The state file, containing plaintext secrets, is stored without server-side encryption."
+! (Backend_S3 -> ! "dynamodb_table") : "HIGH: Missing State Locking. No locking mechanism configured, risking state corruption during concurrent Terraform runs."
+! (Backend_Bucket -> "public_access_block = false") : "BLOCKER: Public State Backend. The infrastructure map and secrets are exposed to the internet."
+! (Backend_Bucket -> ! "versioning") : "MEDIUM: No State Versioning. In case of accidental corruption, there is no way to roll back to a previous valid state."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. REMOTE_BACKEND_VERIFICATION:
+   - Проверить блок `terraform { backend "..." {} }`. Убедиться, что не используется `local`.
+   - Для AWS проверить наличие `bucket`, `key`, `region`, `encrypt = true` и `dynamodb_table`.
+
+2. STATE_ACCESS_CONTROL_AUDIT:
+   - Проверить IAM-политики доступа к бакету бэкенда. Доступ должен быть только у CI/CD-сервиса и ограниченного круга администраторов (см. `iam_least_privilege.protocol`).
+   - Убедиться, что логи доступа к бакету включены.
+
+3. SENSITIVE_VALUE_INSPECTION:
+   - Выполнить `terraform show -json` или вручную проверить `.tfstate`.
+   - Идентифицировать ресурсы (например, `aws_db_instance`), чьи пароли попали в state. Рекомендовать переход на динамическое получение секретов (см. `secret_management_vault.protocol`).
+
+4. VERSIONING_AND_BACKUP_CHECK:
+   - Убедиться, что на бакете включен `versioning = enabled`.
+   - Проверить настройки удаления: использование MFA Delete для предотвращения удаления истории состояний.
+
+5. TERRAFORM_PLAN_PROTECTION:
+   - Проверить, как хранятся файлы `tfplan` в CI/CD. Они также содержат секреты и должны удаляться сразу после `apply`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_STATE_SECURITY_REPORT:
+  - BACKEND_TYPE | ENCRYPTION_ENABLED | LOCKING_STATUS | VERSIONING_STATUS | RISK_LEVEL
+VISUALIZE: "Image of Terraform remote state backend architecture: showing the interaction between the local CLI/CI-CD, the S3 bucket for state storage with encryption/versioning, and the DynamoDB table for state locking."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

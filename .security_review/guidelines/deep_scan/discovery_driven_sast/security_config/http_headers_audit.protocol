@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: HTTP_SECURITY_HEADERS_AUDIT
+@GOAL: VERIFY_IMPLEMENTATION_OF_PROTECTIVE_HTTP_HEADERS_TO_MITIGATE_BROWSER_SIDE_ATTACKS
+@PARENT_CONTEXT: network_infra.protocol, validation_chokepoints.protocol, error_verbosity.protocol
+
+<GLOBAL_VARS>
+# Основной стек защитных заголовков
+REQUIRED_HEADERS: {
+  "CSP": "Content-Security-Policy",
+  "HSTS": "Strict-Transport-Security",
+  "X_FRAME_OPTIONS": "X-Frame-Options",
+  "X_CONTENT_TYPE": "X-Content-Type-Options",
+  "REFERRER_POLICY": "Referrer-Policy",
+  "PERMISSIONS_POLICY": "Permissions-Policy"
+}
+
+# Опасные значения и антипаттерны
+UNSAFE_CSP_DIRECTIVES: "(unsafe-inline|unsafe-eval|data:|\*)"
+WEAK_HSTS_MAX_AGE: "< 31536000" # Менее одного года
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[INFRA_CONFIG]   <- {from: network_infra.protocol, scope: "REVERSE_PROXY|LOAD_BALANCER_SETTINGS"}
+[VALIDATION]     <- {from: validation_chokepoints.protocol, scope: "OUTPUT_ENCODING"}
+[APP_ENTRY]      <- {from: entry_points.protocol, scope: "WEB_INTERFACES"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические проверки конфигурации заголовков
+! ([APP_ENTRY] -> !REQUIRED_HEADERS.CSP) : "CRITICAL: Missing CSP. No Content-Security-Policy defined, leaving the app vulnerable to XSS and data injection."
+! (REQUIRED_HEADERS.CSP -> [UNSAFE_CSP_DIRECTIVES]) : "HIGH: Weak CSP. Policy includes 'unsafe-inline' or 'unsafe-eval', significantly reducing XSS protection."
+! ([APP_ENTRY] -> !REQUIRED_HEADERS.HSTS) : "HIGH: Missing HSTS. Connection can be downgraded to HTTP. Risk: MitM / SSL Stripping."
+! (REQUIRED_HEADERS.X_FRAME_OPTIONS != "DENY|SAMEORIGIN") : "MEDIUM: Clickjacking Risk. X-Frame-Options is missing or misconfigured."
+? (REQUIRED_HEADERS.X_CONTENT_TYPE != "nosniff") : "LOW: MIME-Sniffing Vulnerability. Browser may interpret files as different MIME types."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. MIDDLEWARE_HEADER_SCAN:
+   - Идентифицировать в коде использование библиотек для управления заголовками (например, `helmet` в Node.js, `django-csp` в Python).
+   - Проверить глобальные настройки приложения, где объявляются статические заголовки.
+
+2. CSP_STRICTNESS_ANALYSIS:
+   - Детальный разбор директив `script-src`, `object-src`, `base-uri`.
+   - Проверить наличие `report-uri` или `report-to` для мониторинга попыток нарушения политики.
+
+3. INFRA_VS_APP_CONFLICT_CHECK:
+   - Сопоставить заголовки, выставляемые приложением, с конфигурацией [INFRA_CONFIG] (Nginx/Apache/Cloudflare).
+   - Выявить случаи перетирания (Overwrite) или дублирования заголовков.
+
+4. DYNAMIC_HEADER_VERIFY:
+   - Проверить, изменяются ли заголовки динамически в зависимости от роута (например, более строгий CSP для админ-панели).
+
+5. TLS_DOWNGRADE_PROTECTION_AUDIT:
+   - Проверить наличие флага `includeSubDomains` и `preload` в заголовке HSTS.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_HTTP_HEADERS_REPORT:
+  - HEADER_NAME | CURRENT_VALUE | RECOMMENDED_VALUE | STATUS (PASS/FAIL/WEAK) | RISK_IMPACT
+VISUALIZE: "Image of a browser security model showing how different HTTP headers block various attack vectors like XSS and Clickjacking."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

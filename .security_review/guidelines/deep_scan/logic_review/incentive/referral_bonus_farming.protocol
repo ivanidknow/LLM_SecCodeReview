@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: REFERRAL_SIGNUP_BONUS_FARMING
+@GOAL: DETECT_LOGIC_FLAWS_ALLOWING_MASS_CREATION_OF_ACCOUNTS_FOR_INCENTIVE_EXPLOITATION_AND_REFERRAL_FRAUD
+@PARENT_CONTEXT: authentication_mechanism_hardening.protocol, rate_limit_abuse.protocol, identity_model.protocol
+
+<GLOBAL_VARS>
+# Объекты атаки (Farming Targets)
+FARMING_ASSETS: {
+  "SIGNUP_BONUS": "Initial balance, trial period, or discount code provided at registration",
+  "REFERRAL_REWARD": "Commission or points awarded to the referrer when a new user signs up/purchases",
+  "SYBIL_ATTACK": "Creating multiple fake identities to subvert the system's trust model"
+}
+
+# Индикаторы фрода (Fraud Signals)
+FRAUD_INDICATORS: {
+  "IP_REUSE": "Multiple registrations from the same IP/Subnet in a short window",
+  "EMAIL_PATTERNS": "Disposable emails or '+' aliasing (user+1@gmail.com)",
+  "DEVICE_FINGERPRINT": "Identical browser/hardware signatures for supposedly different users",
+  "IMMEDIATE_TRANSFER": "Bonus funds moved to a central account right after signup"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AUTH_HARDENING] <- {from: authentication_mechanism_hardening.protocol, scope: "BRUTE_FORCE_PROTECTION"}
+[RATE_LIMITS]    <- {from: rate_limit_abuse.protocol, scope: "THROTTLING_LOGIC"}
+[IDENTITY]       <- {from: identity_model.protocol, scope: "USER_ATTRIBUTES"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты бонусной системы
+! ([BONUS_CLAIM] -> ![IDENTITY_VERIFICATION]) : "CRITICAL: Unverified Bonus Grant. Bonuses are issued without email/phone verification, enabling trivial automated farming."
+! ([REFERRAL_LINK] -> [CIRCULAR_REFERRAL]) : "HIGH: Circular Referral. User A invites User B, who invites User A, or User A invites themselves using multiple accounts to trigger rewards."
+! ([SIGNUP_FLOW] -> ![FRAUD_INDICATORS.CAPTCHA_OR_WAF]) : "MEDIUM: Bot-Friendly Signup. Registration lacks anti-bot measures, allowing script-based mass account creation."
+? ([BONUS_TYPE] == "WITHDRAWABLE" && ![KYC_LEVEL]) : "CRITICAL: Instant Cash-out Risk. Bonus funds can be withdrawn without additional trust verification (KYC/Purchase history)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. INCENTIVE_TRIGGER_ANALYSIS:
+   - Определить точный момент начисления бонуса (Registration, Email Verification, First Purchase).
+   - Проверить, можно ли вызвать этот триггер повторно для одного аккаунта.
+
+2. REFERRAL_CHAIN_AUDIT:
+   - Проанализировать связь «Referrer <-> Referee». Проверить наличие проверок на совпадение IP, отпечатков браузера или платежных данных между ними.
+   - Убедиться, что реферал считается валидным только после совершения целевого действия (например, оплаты), а не просто регистрации.
+
+3. EMAIL_ALIASING_TEST:
+   - Попробовать зарегистрировать несколько аккаунтов на `user+1@domain.com`, `user+2@domain.com`.
+   - Проверить, считает ли их система разными пользователями для начисления бонусов.
+
+4. MULTI_ACCOUNT_CONSOLIDATION_PROBE:
+   - Исследовать методы передачи активов между аккаунтами.
+   - Проверить, есть ли ограничения на «слив» бонусов с множества аккаунтов на один «мастер-аккаунт».
+
+5. RATE_LIMIT_EFFECTIVENESS:
+   - Сопоставить лимиты из [RATE_LIMITS] с экономической выгодой. Если лимит позволяет создать 100 аккаунтов в час, а бонус — $1, атака экономически целесообразна.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_FARMING_EXPOSURE_REPORT:
+  - INCENTIVE_TYPE | TRIGGER_CONDITION | BOT_PROTECTION_STATUS | FRAUD_DETECTION_GAPS | RISK_LEVEL
+VISUALIZE: "Image of a referral farming attack: showing a single attacker using a botnet to create hundreds of fake accounts through referral links to aggregate small bonuses into one primary account."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

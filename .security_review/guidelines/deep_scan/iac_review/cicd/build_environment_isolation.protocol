@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: BUILD_ENVIRONMENT_ISOLATION
+@GOAL: PREVENT_DATA_LEAKAGE_BETWEEN_JOBS_AND_PROTECT_RUNNER_HOSTS_FROM_MALICIOUS_BUILD_ARTIFACTS
+@PARENT_CONTEXT: runner_security_isolation.protocol, pod_security_context.protocol, secret_sprawl_detection.protocol
+
+<GLOBAL_VARS>
+# Типы раннеров
+RUNNER_TYPES: {
+  "EPHEMERAL": "One-time use VM/Container (Best: GitHub-hosted, GitLab Autoscaling)",
+  "PERSISTENT": "Static VM/Bare-metal (Risky: Requires deep cleanup)",
+  "CONTAINER_BASED": "Docker-in-Docker or Kaniko"
+}
+
+# Риски среды выполнения
+ISOLATION_RISKS: {
+  "SIDE_CHANNEL": "Accessing metadata service from the runner",
+  "WORKSPACE_POLLUTION": "Previous job left credentials in /tmp or ~/.aws",
+  "DOCKER_SOCKET": "Mounting /var/run/docker.sock allows host takeover"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[K8S_POD_SEC]    <- {from: pod_security_context.protocol, scope: "SECURITY_CONTROLS"}
+[SPRAWL]         <- {from: secret_sprawl_detection.protocol, scope: "LOCAL_STORAGE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты изоляции среды
+! (Runner -> "Type: Persistent" && ! "Cleanup_Script") : "CRITICAL: Workspace Pollution. Files and secrets from previous runs are not deleted, allowing a compromised job to steal data from a subsequent one."
+! (CI_Config -> "volume: /var/run/docker.sock") : "BLOCKER: Docker Socket Exposure. Providing access to the Docker socket allows any build step to escape the container and gain root on the host."
+! (Self_Hosted_Runner -> "Access_to_IMDS") : "HIGH: Cloud Metadata Exposure. The runner can access 169.254.169.254 to steal the machine's IAM role tokens."
+! (Job -> "Privileged: true") : "CRITICAL: Privileged Build Container. Running build steps with extended kernel capabilities is a major security risk; use rootless tools like Kaniko."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. RUNNER_LIFECYCLE_AUDIT:
+   - Отдавать приоритет **эфеметарным** (одноразовым) раннерам.
+   - Если используются статические раннеры, проверить скрипты очистки: удаление всех файлов в `$GITHUB_WORKSPACE`, очистка `/tmp` и деавторизация в реестрах после каждого шага.
+
+2. DOCKER_EXECUTION_STRATEGY:
+   - Запретить использование `docker.sock`.
+   - Рекомендовать использование **Kaniko** или **Buildah** для сборки образов без привилегированного доступа к демону Docker.
+
+3. NETWORK_ISOLATION_CHECK:
+   - Ограничить сетевой доступ раннеров. Они не должны иметь доступа к внутренней сети (Intranet), кроме необходимых эндпоинтов (Artifactory, Vault).
+   - Заблокировать доступ к Cloud Metadata Service через фаервол или настройки `http-tokens=required`.
+
+4. ARTIFACT_INTEGRITY_VERIFICATION:
+   - Проверить, как передаются артефакты между стадиями (jobs). Они должны быть подписаны или проверяться по хэшу при загрузке (upload/download).
+
+5. RUNNER_USER_PRIVILEGE_SCAN:
+   - Убедиться, что процесс раннера запущен от имени не-привилегированного пользователя на хосте.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ENVIRONMENT_ISOLATION_REPORT:
+  - RUNNER_NAME | ISOLATION_TYPE | DOCKER_SOCKET_STATUS | CLEANUP_STATUS | RISK_LEVEL
+VISUALIZE: "Image of Ephemeral vs Persistent CI Runners: illustrating how ephemeral runners provide a clean state for every job, preventing cross-job contamination, while persistent runners accumulate risk over time."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

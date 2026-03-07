@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: ENCODING_BYPASS_DOUBLE_DECODING_PROBE
+@GOAL: DETECT_VULNERABILITIES_WHERE_RECURSIVE_DECODING_BY_BACKEND_COMPONENTS_ALLOWS_BYPASSING_SECURITY_FILTERS
+@PARENT_CONTEXT: multi_stage_encoding_validation.protocol, canonicalization_encoding_integrity.protocol, behavioral_inconsistency.protocol
+
+<GLOBAL_VARS>
+# Маркеры двойного кодирования
+DOUBLE_ENCODING_PATTERNS: {
+  "URL_DOT": "%252e | %252E",          # Двойное кодирование точки
+  "URL_SLASH": "%252f | %252F",        # Двойное кодирование слеша
+  "URL_BACKSLASH": "%255c | %255C",    # Двойное кодирование обратного слеша
+  "HEX_NULL": "%2500"                  # Двойное кодирование Null-байта
+}
+
+# Компоненты с автоматическим декодированием
+DECODING_LAYERS: {
+  "WAF": "Cloudflare, AWS WAF, Nginx ModSecurity",
+  "WEB_SERVER": "Apache (AllowEncodedSlashes), Nginx",
+  "APP_FRAMEWORK": "Express.js, Django, Spring (URL path handling)",
+  "DATABASE": "MySQL/PostgreSQL string interpretation"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CANONICAL_LOG]  <- {from: canonicalization_encoding_integrity.protocol, scope: "DECODING_CHAINS"}
+[VALIDATION]     <- {from: multi_stage_encoding_validation.protocol, scope: "VALIDATION_SLOT"}
+[SINK_TYPE]      <- {from: sensitive_sink_mapping.protocol, scope: "SINK_CATEGORY"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты двойного декодирования
+! ([TAINTED_DATA] -> "Double_Encoded" && [WAF_VALIDATION] -> ![DECODE_RECURSIVE]) : "CRITICAL: Double Decoding Bypass. WAF/Validator decodes once (seeing %2e), but Application decodes again (seeing '.'), bypassing Path Traversal filters."
+! ([SINK_TYPE] == "FILE_SYSTEM" && [DOUBLE_ENCODING_PATTERNS.URL_SLASH]) : "BLOCKER: Path Traversal via Double Encoding. Double-encoded slashes are often ignored by security filters but interpreted by the OS/File system."
+! ([DECODING_LAYERS.APP] -> [DECODING_LAYERS.DATABASE] && [ENCODING_MISMATCH]) : "HIGH: Cross-Layer Encoding Inconsistency. App and DB use different charsets, allowing bypass via overlong UTF-8 sequences."
+? ([CANONICAL_LOG] -> "Multiple_Decode_Calls") : "WARNING: Unsafe Normalization. Data is normalized through multiple decoding steps without re-validation between steps."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. LAYER_DECODER_MAPPING:
+   - Сопоставить путь прохождения данных через [DECODING_LAYERS].
+   - Идентифицировать, какой слой выполняет каноникализацию и на каком этапе.
+
+2. BYPASS_PATTERN_PROBE:
+   - Проверить код на наличие регулярных выражений или фильтров, которые ищут только одиночное кодирование (например, поиск `../` или `%2e%2e/`).
+   - Оценить риск использования [DOUBLE_ENCODING_PATTERNS] для обхода этих фильтров.
+
+3. RECURSIVE_DECODING_IDENTIFICATION:
+   - Искать в коде циклы декодирования (например, `while (str.includes('%')) { str = decode(str) }`).
+   - Проверить настройки веб-сервера (например, `AllowEncodedSlashes` в Apache), которые могут влиять на предобработку путей.
+
+4. NULL_BYTE_DOUBLE_ENCODE_TEST:
+   - Для [SINK_TYPE] "FILE_SYSTEM" или "OS_COMMAND": проверить реакцию на `%2500`. Если фильтр ищет `%00`, он пропустит двойное кодирование, которое превратится в Null-байт на уровне системы.
+
+5. INCONSISTENCY_VERIFICATION:
+   - Используя `behavioral_inconsistency.protocol`, подтвердить, что «вид» данных для валидатора отличается от «вида» для Sink из-за лишнего этапа декодирования.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_DOUBLE_DECODING_REPORT:
+  - ENTRY_POINT | BYPASS_VECTOR | DECODING_LAYERS_INVOLVED | VULNERABLE_FILTER | RISK_LEVEL
+VISUALIZE: "Image of a double decoding attack sequence: showing a payload in a double-encoded state passing through a WAF, being single-decoded by a middleware, and then finally decoded into a malicious command by the application core."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

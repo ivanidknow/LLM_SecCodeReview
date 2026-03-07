@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: SENSITIVE_DATA_SECRET_LEAKAGE_IN_LAYERS
+@GOAL: DETECT_SENSITIVE_INFORMATION_IN_IMAGE_HISTORY_ENV_VARS_AND_INTERMEDIATE_LAYERS
+@PARENT_CONTEXT: multi_stage_build_optimization.protocol, secret_management_vault.protocol
+
+<GLOBAL_VARS>
+# Паттерны утечек (Leakage Patterns)
+LEAK_SOURCES: {
+  "ENV_VARS": "ENV\\s+(PASSWORD|TOKEN|SECRET|KEY|PWD)=",
+  "BUILD_ARGS": "ARG\\s+(.*_KEY|.*_TOKEN)=",
+  "COMMAND_HISTORY": "RUN echo '.*' > /etc/config",
+  "SSH_LEAK": "COPY .ssh /root/.ssh",
+  "NPM_LEAK": "COPY .npmrc .",
+  "HISTORY_SINK": "docker history <image>"
+}
+
+# Регулярные выражения для поиска секретов
+SECRET_REGEX: {
+  "GENERIC": "(?i)password|token|secret|key",
+  "PRIVATE_KEY": "-----BEGIN (RSA|EC|DSA|OPENSSH) PRIVATE KEY-----"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[BUILD_FLOW]     <- {from: multi_stage_build_optimization.protocol, scope: "STAGE_STRUCTURE"}
+[VAULT_INTEGRITY]<- {from: secret_management_vault.protocol, scope: "SECRET_INJECTION"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты чистоты слоев
+! (DOCKERFILE -> [LEAK_SOURCES.ENV_VARS]) : "BLOCKER: Secret in ENV. Sensitive data is hardcoded in an ENV instruction, making it visible to anyone running 'docker inspect'."
+! (DOCKERFILE -> [LEAK_SOURCES.BUILD_ARGS]) : "CRITICAL: Secret in ARG. Build arguments are stored in the image metadata and can be retrieved via history."
+! (LAYER_HISTORY -> [SECRET_REGEX]) : "CRITICAL: Secret Leak in Layer. A secret was added in a previous layer and then 'deleted' in a later layer. It is still recoverable."
+! (DOCKERFILE -> "COPY" && ".env") : "HIGH: Environment File Leak. The .env file is copied into the image, exposing all local development secrets."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. METADATA_INSPECTION:
+   - Выполнить `docker inspect <image>`.
+   - Проверить секции `Config.Env` и `ContainerConfig.Env` на наличие чувствительных ключей.
+
+2. HISTORY_FORENSICS:
+   - Запустить `docker history --no-trunc <image>`.
+   - Искать команды `RUN`, содержащие вшитые пароли, токен или ключи доступа к репозиториям.
+
+3. LAYER_SCANNING_TOOLS:
+   - Использовать специализированные инструменты: `trivy image --scanners secret <image>` или `dive <image>`.
+   - Проверить каждый слой на наличие файлов типа `.npmrc`, `.netrc`, `.ssh/id_rsa`.
+
+4. DOCKERIGNORE_AUDIT:
+   - Проверить файл `.dockerignore`. Убедиться, что в нем указаны `.git`, `.env`, `Dockerfile`, `docker-compose.yml`, `node_modules` и файлы логов.
+
+5. MOUNT_SECRET_VERIFICATION:
+   - Проверить, используются ли `RUN --mount=type=secret` для передачи временных данных во время сборки. Это единственный безопасный способ, не оставляющий следов в слоях.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_LEAKAGE_REPORT:
+  - LEAK_TYPE | LAYER_ID | CONTENT_PREVIEW | REMEDIATION_STEPS | SEVERITY
+VISUALIZE: "Image of Docker layer security: showing a visual representation of how a file added in layer 2 and deleted in layer 3 still exists in the image's binary storage and can be extracted by an attacker."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

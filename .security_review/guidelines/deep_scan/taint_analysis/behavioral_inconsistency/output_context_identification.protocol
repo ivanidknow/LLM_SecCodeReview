@@ -1,0 +1,64 @@
+<DFD_MODELING_V3>
+@ID: OUTPUT_CONTEXT_IDENTIFICATION
+@GOAL: PRECISELY_MAP_THE_SYNTACTIC_ENVIRONMENT_OF_DATA_OUTPUT_TO_PREVENT_CONTEXT_MISMATCH_BYPASSES
+@PARENT_CONTEXT: sensitive_sink_mapping.protocol, context_specific_sanitizer_matching.protocol
+
+<GLOBAL_VARS>
+# Детектор синтаксических контекстов (Sink Contexts)
+CONTEXT_SIGNATURES: {
+  "HTML_DATA": "<div>{{tainted}}</div> | <span>${tainted}</span>",
+  "HTML_ATTR": "<input value='{{tainted}}'> | <div class=\"${tainted}\">",
+  "JS_LITERAL": "<script> var x = '{{tainted}}'; </script>",
+  "JS_BLOCK": "<script> {{tainted}} </script> # HIGH RISK: Direct execution",
+  "URL_ATTRIBUTE": "<a href='{{tainted}}'> | <iframe src=\"${tainted}\">",
+  "CSS_STYLE": "<div style=\"color: {{tainted}}\"> | <style> .x { content: '${tainted}'; } </style>"
+}
+
+# Признаки опасного смешивания контекстов
+CONTEXT_MIXING_SMELLS: {
+  "NESTED_JS_IN_HTML": "onclick=\"alert('{{tainted}}')\" # Double context: HTML Attr + JS Literal",
+  "DATA_URI": "src=\"data:text/html,{{tainted}}\" # Encapsulated HTML context",
+  "TEMPLATE_LITERALS": "`${tainted}` within a JS block"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SINK_MAP]       <- {from: sensitive_sink_mapping.protocol, scope: "OUTPUT_SINKS"}
+[SANITIZERS]     <- {from: context_specific_sanitizer_matching.protocol, scope: "APPLIED_FUNCTIONS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты идентификации контекста
+! ([SINK] -> "Template_Engine_Output" && ![CONTEXT_DETECTED]) : "CRITICAL: Ambiguous Output Context. Data is rendered in a template without a clear syntactic boundary."
+! ([CONTEXT] == "URL_ATTRIBUTE" && [TAINT_START] == "javascript:") : "BLOCKER: Protocol Injection. Output context is a URL attribute, and tainted data starts with a script protocol."
+! ([CONTEXT] == "JS_LITERAL" && [TAINTED_DATA] -> "</script>") : "HIGH: Context Breakout. Tainted data can terminate the current script block to start a new HTML context."
+? ([CONTEXT_MIXING_SMELLS]) : "WARNING: Polyglot Context Detected. Data is rendered in nested contexts, requiring multi-stage or context-aware encoding."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TEMPLATE_AST_ANALYSIS:
+   - Проанализировать файлы шаблонов (EJS, Pug, Jinja2, Blade).
+   - Идентифицировать все вхождения `{{...}}`, `${...}` или `<%= ... %>`.
+
+2. SYNTACTIC_POSITION_MAPPING:
+   - Для каждой точки вывода определить её «соседей» в DOM-дереве или JS-коде.
+   - Классифицировать позицию согласно [CONTEXT_SIGNATURES].
+
+3. ENCAPSULATION_DEPTH_CHECK:
+   - Выявить наличие вложенных контекстов (например, JS внутри HTML-атрибута).
+   - Построить «стек контекстов» (Context Stack) для каждой точки вывода.
+
+4. AUTO_ESCAPING_POLICY_VERIFICATION:
+   - Проверить настройки шаблонизатора: включен ли `auto-escape` по умолчанию.
+   - Выявить флаги принудительного отключения защиты (например, `| safe` в Jinja или `{{{...}}}` в Handlebars).
+
+5. CONTEXT_STATE_EXPORT:
+   - Передать тип контекста и стек в `contextual_escape_analysis.protocol` для финальной проверки адекватности экранирования.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CONTEXT_MAP_REPORT:
+  - SINK_LOCATION | DETECTED_CONTEXT | CONTEXT_STACK | AUTO_ESCAPE_STATUS | RISK_LEVEL
+VISUALIZE: "Image of a web page source code with different colors highlighting various output contexts: HTML body (green), Attributes (blue), JavaScript (red), and CSS (yellow)."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

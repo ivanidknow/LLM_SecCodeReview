@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: INTER_PROCEDURAL_DATA_FLOW
+@GOAL: TRACK_TAINT_PROPAGATION_ACROSS_FUNCTION_BOUNDARIES_VIA_ARGUMENTS_AND_RETURN_VALUES
+@PARENT_CONTEXT: direct_assignment_aliasing.protocol, critical_paths.protocol
+
+<GLOBAL_VARS>
+# Механизмы передачи данных между процедурами
+CALL_SITES: {
+  "INVOCATION": "(CallExpression|NewExpression)",
+  "ARGUMENTS": "Function parameters mapped to call site values",
+  "RETURN": "(ReturnStatement|ArrowFunctionExpression_ImplicitReturn)",
+  "CALLBACKS": "Passing tainted functions as arguments"
+}
+
+# Режимы анализа (Analysis Modes)
+ANALYSIS_STRATEGY: {
+  "CONTEXT_SENSITIVE": "Differentiate between calls to the same function from different locations",
+  "FLOW_SENSITIVE": "Consider the order of operations within the called function",
+  "DEPTH_LIMIT": 10 # Предел вложенности для предотвращения зависаний
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CALL_GRAPH]     <- {from: critical_paths.protocol, scope: "AST_CALL_TREE"}
+[TAINT_SEEDS]    <- {from: untrusted_source_identification.protocol, scope: "ACTIVE_TAINT_VARS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты межпроцедурного потока
+! ([TAINTED_ARG] -> [FUNCTION_CALL] -> [INTERNAL_SINK]) : "CRITICAL: Inter-Procedural Leak. Tainted argument passed into a function reaches a sensitive sink inside that function."
+! ([FUNCTION_BODY] -> [RETURN_TAINTED] -> [CALLER_SCOPE] -> [SINK]) : "HIGH: Tainted Return Propagation. Function returns tainted data which is then used in a dangerous operation by the caller."
+! ([TAINTED_OBJECT] -> "Method_Call" -> [THIS_CONTEXT_TAINTED]) : "MEDIUM: State Infection. Calling a method on a tainted object infects the internal state ('this' or 'self') of that object."
+? ([RECURSIVE_CALL] -> [TAINTED_DATA]) : "WARNING: Recursive Taint. Potential for complex data flow patterns that may bypass simple linear scanners."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CALL_SITE_PARAMETER_MAPPING:
+   - Идентифицировать вызовы функций [CALL_SITES.INVOCATION] и сопоставить переданные аргументы с параметрами определения функции.
+   - Если аргумент имеет метку из [TAINT_SEEDS], пометить соответствующий параметр внутри функции как "Tainted".
+
+2. FUNCTION_BODY_TRANSVERSAL:
+   - Выполнить локальный Taint-анализ внутри вызванной функции, используя помеченные параметры как новые источники.
+   - Применять правила из `direct_assignment_aliasing.protocol` для внутреннего распространения.
+
+3. RETURN_VALUE_TRACKING:
+   - Если [RETURN] инструкция возвращает переменную, помеченную как "Tainted", пометить результат вызова функции в области видимости вызывающего (Caller) как "Tainted".
+
+4. CROSS_MODULE_ANALYSIS:
+   - Отслеживать импорты и экспорты. Если функция импортирована из другого файла, подгрузить её AST для продолжения трассировки.
+
+5. CALLBACK_PROPAGATION_AUDIT:
+   - Проверить случаи, когда функция передается как аргумент (Higher-Order Functions). Если «грязные» данные попадают в callback, отследить их выполнение.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_INTER_PROCEDURAL_TRACE:
+  - CALLER_FUNCTION | CALLEE_FUNCTION | TAINTED_PARAM_INDEX | FLOW_DIRECTION (IN/OUT) | RISK_LEVEL
+VISUALIZE: "Image of an inter-procedural call graph: showing a red-colored data flow line passing through multiple function layers from a controller to a database helper."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: THIRD_PARTY_ACTION_PLUGIN_PINNING
+@GOAL: PREVENT_SUPPLY_CHAIN_ATTACKS_BY_USING_IMMUTABLE_SHA_REFERENCES_FOR_EXTERNAL_CI_COMPONENTS
+@PARENT_CONTEXT: pipeline_definition_integrity.protocol, base_image_provenance.protocol
+
+<GLOBAL_VARS>
+# Типы внешних зависимостей
+EXTERNAL_COMPONENTS: {
+  "ACTIONS": "GitHub Actions (uses: repo/name@tag)",
+  "PLUGINS": "Jenkins/GitLab plugins and shared libraries",
+  "SCRIPTS": "Remote scripts (curl | bash) used in run steps",
+  "DOCKER": "Images used as service containers or runners"
+}
+
+# Стандарты именования
+PINNING_STANDARDS: {
+  "MANDATORY": "Full 40-character SHA-1/SHA-256 hash",
+  "RECOMMENDED": "SHA hash followed by a comment with the human-readable tag (# v1.2.3)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[BASE_IMAGE]     <- {from: base_image_provenance.protocol, scope: "DIGEST_PINNING"}
+[DEFINITION]     <- {from: pipeline_definition_integrity.protocol, scope: "PROTECTION_CONTROLS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты безопасности зависимостей
+! (Workflow -> "uses: .*@v[0-9]+") : "CRITICAL: Mutable Tag Reference. Using floating tags (e.g., @v2) allows the action author to change the code without your consent."
+! (Workflow -> "uses: .*@master|main") : "BLOCKER: Branch-based Reference. The pipeline tracks a moving branch, making it extremely vulnerable to immediate code injection."
+! (Step -> "curl .* | bash") : "CRITICAL: Remote Script Execution. Running unverified remote scripts is a major security hole; scripts must be downloaded, verified by hash, and then run."
+! (CI_Config -> "uses: private-repo/action" && ![ACCESS_TOKEN]) : "HIGH: Secret Leakage Risk. Using private actions often requires tokens; ensure they are handled via [VAULT_INT]."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DEPENDENCY_INVENTORY_SCAN:
+   - Использовать `actionlint` или `step-security/harden-runner` для обнаружения всех внешних `uses`.
+   - Составить список всех экшенов, не использующих SHA.
+
+2. SHA_CONVERSION_ENFORCEMENT:
+   - Заменить все теги на соответствующие SHA-хэши.
+   - Добавить комментарий с версией: `uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608 # v4.1.0`.
+
+3. REPUTATION_REVIEW:
+   - Проверить авторов экшенов. Для экшенов от GitHub/Microsoft/Verified-Publishers риск ниже, для индивидуальных разработчиков — выше.
+   - Рекомендовать форкать критически важные сторонние экшены в свой внутренний репозиторий.
+
+4. AUTOMATED_UPDATE_STRATEGY:
+   - Настроить `Dependabot` или `Renovate` для автоматического создания PR при выходе новых версий экшенов.
+   - Убедиться, что боты настроены на обновление SHA, а не тегов.
+
+5. SCRIPT_INTEGRITY_CHECK:
+   - Если пайплайн скачивает `kubectl` или `terraform`, проверить наличие сверки контрольной суммы (checksum) перед использованием.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PINNING_COMPLIANCE_REPORT:
+  - COMPONENT_NAME | CURRENT_REF | PINNED_SHA | VULNERABILITY_LEVEL | ACTION_REQUIRED
+VISUALIZE: "Image of GitHub Action SHA pinning vs Tag floating: illustrating how a Tag can move to point to a malicious commit, while a SHA reference remains pointed at the verified code."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

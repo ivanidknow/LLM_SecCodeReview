@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: FULL_PATH_VERIFICATION
+@GOAL: CORRELATE_SOURCES_AND_SINKS_TO_RECONSTRUCT_COMPLETE_EXPLOIT_CHAINS_AND_CONFIRM_VULNERABILITIES
+@PARENT_CONTEXT: untrusted_source_identification.protocol, propagation_path_tracing.protocol, sanitization_validation_verification.protocol, sensitive_sink_mapping.protocol
+
+<GLOBAL_VARS>
+# Критерии подтвержденной цепочки (Exploit Chain Criteria)
+CHAIN_VALIDITY: {
+  "CONTINUITY": "Zero breaks in the data flow graph from Source to Sink",
+  "TAINT_PURITY": "No effective sanitizers from [MATRIX_MATCH] applied in-between",
+  "SINK_REACHABILITY": "Sink is inside an active, non-dead-code branch"
+}
+
+# Статусы верификации
+VERIFICATION_STATUS: ["CONFIRMED", "MITIGATED", "PARTIAL_VALIDATION", "DEAD_END"]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SOURCE_MAP]     <- {from: untrusted_source_identification.protocol, scope: "TAINT_SEEDS"}
+[PROPAGATION]    <- {from: propagation_path_tracing.protocol, scope: "FULL_GRAPH"}
+[VALIDATION]     <- {from: sanitization_validation_verification.protocol, scope: "EFFECTIVE_CLEANSERS"}
+[SINK_MAP]       <- {from: sensitive_sink_mapping.protocol, scope: "DETECTED_SINKS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты сквозной трассировки
+! ([SOURCE] -> [PROPAGATION] -> [SINK] && ![VALIDATION]) : "BLOCKER: Validated Exploit Path. A complete and unprotected path exists from an untrusted source to a dangerous sink."
+! ([PATH_FOUND] && [SINK_CONTEXT] != [SANITIZER_CONTEXT]) : "CRITICAL: Broken Mitigation. A sanitizer exists but its context mismatch makes the path still exploitable."
+? ([SOURCE] -> [PROPAGATION] -> [SINK] && [VALIDATION]) : "INFO: Mitigated Path. The flow exists but is neutralized by a verified security control."
+! ([SOURCE] -> [PROPAGATION] -> [DEAD_CODE]) : "DEBUG: False Positive. Data flow leads to a function or branch that is never executed."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. GRAPH_UNIFICATION:
+   - Объединить локальные графы [PROPAGATION] в единый сквозной граф приложения.
+   - Использовать `inter_procedural_data_flow.protocol` для связки вызовов между модулями.
+
+2. END_TO_END_TRAVERSAL:
+   - Выполнить поиск пути (Pathfinding) от каждой точки [SOURCE_MAP] до каждого [SINK_MAP].
+   - Учитывать асинхронные переходы через `asynchronous_callback_propagation.protocol`.
+
+3. PROTECTION_GATE_OVERLAY:
+   - Наложить на найденные пути «фильтры» из [VALIDATION].
+   - Если на пути встречается [EFFECTIVE_CLEANSERS], соответствующий контексту Sink, пометить путь как "MITIGATED".
+
+4. BYPASS_LOGIC_PROBE:
+   - Применить `validation_bypass_conditional_logic.protocol` для поиска веток, идущих в обход [VALIDATION].
+   - Если обход найден — восстановить статус "CONFIRMED".
+
+5. EVIDENCE_PATH_EXTRACTION:
+   - Зафиксировать последовательность строк кода, переменных и функций, формирующих [CHAIN_VALIDITY].
+   - Подготовить данные для `evidence_generation.protocol`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_FULL_TRACE_REPORT:
+  - VULNERABILITY_TYPE | SOURCE_ENTRY | SINK_FUNCTION | PATH_STEPS (Array) | FINAL_STATUS
+VISUALIZE: "Image of a complete taint analysis flow: highlighting the path from a red-colored HTTP input through logic blocks directly to a critical sink like process.exec or db.query."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

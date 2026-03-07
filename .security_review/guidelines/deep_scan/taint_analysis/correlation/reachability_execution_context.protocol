@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: REACHABILITY_EXECUTION_CONTEXT_ANALYSIS
+@GOAL: VALIDATE_IF_THE_DETECTED_TAINT_PATH_IS_EXECUTABLE_UNDER_CURRENT_ENVIRONMENTAL_AND_RUNTIME_CONSTRAINTS
+@PARENT_CONTEXT: environmental_runtime_match.protocol, full_path_verification.protocol, identity_model.protocol
+
+<GLOBAL_VARS>
+# Факторы достижимости (Reachability Factors)
+EXECUTION_BARRIERS: {
+  "AUTH_CONTEXT": "(req.isAuthenticated() | session.user_id)",
+  "RUNTIME_FLAGS": "(process.env.NODE_ENV | sys.argv)",
+  "OS_PERMISSIONS": "(fs.access | os.geteuid())",
+  "FEATURE_GATES": "(feature_flags.is_enabled)"
+}
+
+# Режимы контекстного анализа
+CONTEXT_MODES: {
+  "SUDO_REQUIRED": "Sink requires root/admin privileges",
+  "NETWORK_DEPENDENT": "Sink requires active egress/ingress connection",
+  "ASYNC_RACE": "Path validity depends on execution timing/order"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ENV_MATCH]      <- {from: environmental_runtime_match.protocol, scope: "OS_RUNTIME_COMPATIBILITY"}
+[FULL_PATH]      <- {from: full_path_verification.protocol, scope: "CONFIRMED_PATHS"}
+[IDENTITY]       <- {from: identity_model.protocol, scope: "AUTH_LEVELS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты достижимости
+! ([FULL_PATH] -> ![AUTH_CONTEXT]) : "BLOCKER: Unauthenticated Exploit Path. Tainted data reaches a sink without any prior authentication check. Risk: Zero-day remote exploit."
+! ([SINK_REQUIRES_ROOT] && ![IDENTITY.IS_ROOT]) : "INFO: Privilege Restricted. Path is valid, but the application process lacks the OS permissions to execute the sink (e.g., writing to /etc/)."
+! ([PATH_CONDITION] != [ENV_MATCH.CURRENT_OS]) : "DEAD_END: Platform Incompatibility. Exploit path relies on OS-specific behavior not present in the current runtime environment."
+? ([FULL_PATH] && [ASYNC_RACE]) : "WARNING: Non-Deterministic Reachability. Path execution depends on a race condition or specific timing in asynchronous flows."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PATH_GUARD_EXAMINATION:
+   - Проанализировать все условные операторы (`if/switch`) вдоль [FULL_PATH].
+   - Идентифицировать проверки из [EXECUTION_BARRIERS], которые могут заблокировать выполнение пути.
+
+2. IDENTITY_CONTEXT_OVERLAY:
+   - Сопоставить [AUTH_CONTEXT] с [IDENTITY]. Определить, какой уровень привилегий требуется для активации пути.
+   - Если путь доступен анонимному пользователю — повысить критичность до "BLOCKER".
+
+3. RUNTIME_STATE_VALIDATION:
+   - Использовать данные из [ENV_MATCH] для проверки достижимости системных ресурсов.
+   - Проверить, не отключен ли уязвимый функционал через `feature_flags` в текущей конфигурации.
+
+4. DEAD_CODE_ELIMINATION:
+   - Убедиться, что [FULL_PATH] не проходит через «мертвый код» или функции, помеченные как `@deprecated` и не вызываемые в реальности.
+
+5. REACHABILITY_SCORING:
+   - Присвоить каждому пути оценку достижимости: "Easily Reachable", "Complex Preconditions", "Unreachable in Current Config".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REACHABILITY_REPORT:
+  - PATH_ID | REQUIRED_PRIVILEGES | ENVIRONMENTAL_DEPENDENCIES | REACHABILITY_SCORE | FINAL_VERDICT
+VISUALIZE: "Image of a code execution tree: showing how security guards and environment checks can block or allow the flow of data to a sensitive function."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

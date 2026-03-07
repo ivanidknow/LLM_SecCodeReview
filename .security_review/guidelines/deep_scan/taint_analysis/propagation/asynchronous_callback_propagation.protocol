@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: ASYNCHRONOUS_CALLBACK_PROPAGATION
+@GOAL: TRACK_TAINTED_DATA_THROUGH_PROMISES_ASYNC_AWAIT_BLOCKS_AND_EVENT_EMITTERS
+@PARENT_CONTEXT: inter_procedural_data_flow.protocol, async_event_driven.protocol
+
+<GLOBAL_VARS>
+# Асинхронные конструкции (Taint Carriers)
+ASYNC_CONSTRUCTS: {
+  "PROMISES": "(\.then\(|await|\.catch\(|\.finally\()",
+  "CALLBACKS": "(setTimeout|setInterval|setImmediate|process\.nextTick)",
+  "EVENT_EMITTERS": "(\.on\(|\.emit\(|\.once\()",
+  "STREAMS": "(\.on\('data'|pipeline|pipe)"
+}
+
+# Правила передачи контекста
+ASYNC_RULES: {
+  "AWAIT_INHERITANCE": "Value from resolved promise inherits taint of the promise source",
+  "CLOSURE_CAPTURE": "Variables captured in async arrow functions maintain their taint status",
+  "EVENT_PAYLOAD": "Data passed via .emit() infects the listener's arguments"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[INTER_PROC_FLOW] <- {from: inter_procedural_data_flow.protocol, scope: "CALL_SITES"}
+[ASYNC_MAP]       <- {from: async_event_driven.protocol, scope: "EVENT_HANDLERS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты асинхронного распространения
+! ([TAINTED_VAR] -> "await" -> [SINK]) : "CRITICAL: Async Taint Leak. Tainted data passed through an awaited promise reaches a sensitive sink."
+! ([TAINTED_DATA] -> ".emit(event, data)" -> [SINK_IN_LISTENER]) : "HIGH: Event-Driven Taint. Tainted payload emitted via event reaches a sink in a detached listener."
+! ([TAINTED_PROMISE] -> ".catch(err => ...)") : "MEDIUM: Error-Path Taint. Tainted data leaks into error handlers, potentially leading to Log Injection or Information Disclosure."
+? ("Unresolved_Promise" -> [TAINTED_DATA]) : "WARNING: Latent Taint. Tainted data is stored in a pending promise; tracking must persist until resolution or rejection."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ASYNC_BOUNDARY_DETECTION:
+   - Идентифицировать все асинхронные вызовы и определения `async` функций.
+   - Найти точки создания промисов и привязки обработчиков `.then()/.catch()`.
+
+2. PROMISE_WRAPPING_TRACE:
+   - Если переменная внутри `Promise` или `async` функции помечена как "Tainted", пометить сам объект `Promise` как загрязненный.
+   - При использовании `await`, перенести метку с промиса на результирующую переменную.
+
+3. CLOSURE_TAINT_AUDIT:
+   - Анализ замыканий (Closures) в асинхронных колбэках. Проверить, не обращается ли колбэк к «грязным» переменным из внешней области видимости.
+
+4. EVENT_FLOW_CORRELATION:
+   - Для [EVENT_EMITTERS]: сопоставить вызовы `.emit()` с соответствующими `.on()`.
+   - Проследить путь аргументов от отправителя события к его обработчику.
+
+5. STREAM_DATA_TRACKING:
+   - Отслеживать данные в потоках (Streams). Пометить чанки (chunks) данных как "Tainted", если источник стрима — недоверенный ввод (например, загрузка файла или сетевой сокет).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ASYNC_FLOW_REPORT:
+  - ASYNC_TYPE | TRIGGER_POINT | RESOLUTION_POINT | TAINT_PAYLOAD | RISK_LEVEL
+VISUALIZE: "Image of an asynchronous data flow diagram: showing how tainted data enters a promise chain and eventually executes in a callback or awaited block."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

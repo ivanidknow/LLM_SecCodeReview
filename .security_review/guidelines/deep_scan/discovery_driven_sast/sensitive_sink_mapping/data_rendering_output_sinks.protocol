@@ -1,0 +1,68 @@
+<DFD_MODELING_V3>
+@ID: DATA_RENDERING_OUTPUT_SINKS
+@GOAL: DETECT_INSECURE_DATA_EXPOSURE_LEADING_TO_XSS_CONTENT_INJECTION_AND_INFO_LEAKS
+@PARENT_CONTEXT: entry_points.protocol, validation_chokepoints.protocol, error_verbosity.protocol
+
+<GLOBAL_VARS>
+# Приемники для вывода в HTML/DOM (XSS)
+HTML_SINKS: {
+  "BROWSER_JS": "(\.innerHTML|\.outerHTML|document\.write|eval)",
+  "REACT": "(dangerouslySetInnerHTML)",
+  "JQUERY": "(\$|jQuery)\((.*)\)\.(html|append|prepend|after|before)"
+}
+
+# Приемники шаблонизаторов (Server-Side Template Injection)
+TEMPLATE_SINKS: {
+  "HANDLEBARS_EJS": "(\{\{\{.*\}\}\}|<%-.*%>)", # Unescaped output
+  "PUG_JADE": "(!\{.*\}|unsafe)",
+  "PYTHON_JINJA2": "(\{\{\s*.*|safe\s*\}\})"
+}
+
+# Приемники HTTP-ответов (Header Injection / CRLF)
+HTTP_RESPONSE_SINKS: {
+  "HEADERS": "(res\.setHeader|res\.header|res\.cookie)",
+  "REDIRECTS": "(res\.redirect|window\.location\.href)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[EXTERNAL_INPUTS] <- {from: entry_points.protocol, scope: "INGRESS_POINTS"}
+[SANITIZERS]      <- {from: validation_chokepoints.protocol, scope: "ENCODERS|XSS_FILTERS"}
+[ERROR_POLICY]    <- {from: error_verbosity.protocol, scope: "CLIENT_ERROR_STRATEGY"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты безопасности вывода
+! ([EXTERNAL_INPUTS] -> [HTML_SINKS] && ![SANITIZERS]) : "BLOCKER: Cross-Site Scripting (XSS). Untrusted data is rendered in the DOM without proper escaping or sanitization."
+! ([EXTERNAL_INPUTS] -> [TEMPLATE_SINKS]) : "CRITICAL: Server-Side Template Injection (SSTI). User input is evaluated as a template, potentially leading to RCE."
+! ([EXTERNAL_INPUTS] -> [HTTP_RESPONSE_SINKS] && "CR|LF") : "HIGH: HTTP Response Splitting / Header Injection. Input containing line breaks is used in headers, allowing session fixation or XSS."
+! ([ERROR_POLICY] -> "Raw_Stack_Trace") : "MEDIUM: Information Disclosure. Rendering raw system errors or stack traces in the client output."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. OUTPUT_INTERFACE_DISCOVERY:
+   - Идентифицировать все методы отправки данных клиенту (например, `res.send`, `res.render`, `res.json`).
+   - Сопоставить используемые шаблонизаторы с [TEMPLATE_SINKS].
+
+2. CONTEXT_AWARE_TAINT_TRACE:
+   - Отследить путь от [EXTERNAL_INPUTS] до точек рендеринга.
+   - Определить контекст вывода: HTML-тег, атрибут (например, `href`), JavaScript-переменная или CSS.
+
+3. ESCAPING_STRATEGY_VERIFY:
+   - Проверить наличие автоматического экранирования в шаблонизаторе.
+   - Идентифицировать места преднамеренного отключения защиты (например, использование `{{{ }}}` вместо `{{ }}`).
+
+4. REDIRECT_AND_HEADER_AUDIT:
+   - Анализ динамических редиректов. Если `res.redirect(userInput)`, проверить наличие валидации домена (Open Redirect).
+   - Проверить установку кук: наличие флагов `HttpOnly`, `Secure`, `SameSite`.
+
+5. CLIENT_SIDE_SINK_SCAN:
+   - Для SPA (React/Vue): Поиск использования методов прямого манипулирования DOM с данными из пропсов или стейта, пришедших из API.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_OUTPUT_SINK_REPORT:
+  - SINK_CATEGORY | RENDERING_METHOD | INPUT_SOURCE | ESCAPING_STATUS | SEVERITY
+VISUALIZE: "Image of a Cross-Site Scripting (XSS) attack flow: showing script injection into a web page and subsequent execution in the user's browser."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

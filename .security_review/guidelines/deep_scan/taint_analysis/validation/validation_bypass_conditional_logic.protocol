@@ -1,0 +1,57 @@
+<DFD_MODELING_V3>
+@ID: VALIDATION_BYPASS_CONDITIONAL_LOGIC
+@GOAL: DETECT_LOGICAL_SHORT_CIRCUITS_THAT_ALLOW_TAINTED_DATA_TO_SKIP_SECURITY_CONTROLS
+@PARENT_CONTEXT: env_specific_hardening.protocol, framework_security_enforcement.protocol, identity_model.protocol
+
+<GLOBAL_VARS>
+# Паттерны логических обходов (Bypass Triggers)
+BYPASS_CONDITIONS: {
+  "DEBUG_FLAGS": "(if (debug) | if (env === 'dev') | if (skipVerify))",
+  "AUTH_EXEMPTIONS": "(if (isAdmin) | if (isInternalRequest) | if (isLocalhost))",
+  "SHORT_CIRCUITS": "(|| true | && false | try { ... } catch { next() })",
+  "FALLBACK_LOGIC": "(validate(input) || input) # Ошибка: возврат грязных данных при отказе"
+}
+
+# Маркеры доверенных субъектов
+TRUSTED_ACTORS: "(system_user|root|internal_service_account)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ENV_CONFIG]     <- {from: env_specific_hardening.protocol, scope: "DEV_ONLY_FEATURES"}
+[AUTH_STRATEGY]  <- {from: identity_model.protocol, scope: "ROLE_PERMISSIONS"}
+[VALIDATION]     <- {from: validation_chokepoints.protocol, scope: "DTO_SCHEMAS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты обхода валидации
+! ([TAINTED_DATA] -> ([BYPASS_CONDITIONS] && ![VALIDATION]) -> [SINK]) : "BLOCKER: Conditional Validation Bypass. Security checks are skipped based on a flag or condition, allowing raw taint to reach a sink."
+! ([ENV_CONFIG.DEBUG_MODES] -> "Disable_Validation") : "CRITICAL: Production-Ready Bypass. Debug mode allows skipping validation, posing a risk if active in production."
+! ([TAINTED_DATA] -> "try { validate() } catch { return_raw }") : "HIGH: Error-Handling Bypass. Validation failure leads to the usage of unvalidated data instead of a hard error."
+? ([AUTH_STRATEGY.ADMIN] -> ![VALIDATION]) : "MEDIUM: Privileged Bypass. Administrative roles bypass input validation, potentially leading to 'Self-XSS' or stored attacks against other admins."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SECURITY_GATE_IDENTIFICATION:
+   - Найти все вызовы функций валидации и санитарии в графе.
+   - Проанализировать окружающие их условные операторы (`if`, `switch`, `ternary`).
+
+2. BYPASS_CONDITION_AUDIT:
+   - Исследовать переменные, управляющие выполнением валидации (например, `skipValidation`, `forceMode`).
+   - Сопоставить их с источниками данных: если флаг обхода сам является "Tainted" (например, берется из заголовка `X-Debug`), пометить как "BLOCKER".
+
+3. ERROR_PATH_ANALYSIS:
+   - Проверить блоки `try-catch`. Убедиться, что при ошибке парсинга или валидации выполнение прерывается (`throw` или `return error`), а не продолжается с исходными данными.
+
+4. ENVIRONMENT_PARITY_VERIFY:
+   - Использовать [ENV_CONFIG] для проверки того, что условия обхода (например, `isDev`) не могут быть подделаны в боевой среде.
+
+5. TAINT_CLEARANCE_VALIDATION:
+   - Снимать метку "Tainted" только в ветках кода, где валидация была **обязательно** выполнена. Если существует логический путь без валидации — метка сохраняется.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_BYPASS_LOGIC_REPORT:
+  - BYPASS_CONDITION | AFFECTED_SINK | TRIGGER_VARIABLE | RISK_SCENARIO | SEVERITY
+VISUALIZE: "Image of a security bypass logic flow: showing how a conditional 'if' statement allows unvalidated user input to flow directly to a database or shell sink."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

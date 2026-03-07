@@ -1,0 +1,59 @@
+<DFD_MODELING_V3>
+@ID: CONFIG_TO_SOURCE_LEAK_DETECTION
+@GOAL: IDENTIFY_DISCREPANCIES_WHERE_SECRETS_LEAK_FROM_CONFIG_TO_SOURCE_LITERALS
+@PARENT_CONTEXT: secrets_management.protocol, persistent_storage.protocol, external_interactors.protocol
+
+<GLOBAL_VARS>
+# Типы файлов для перекрестного анализа
+CONFIG_EXTENSIONS: "(\.env|\.yaml|\.yml|\.json|\.conf|\.ini)"
+SOURCE_EXTENSIONS: "(\.js|\.ts|\.py|\.go|\.java|\.rb)"
+
+# Паттерны для поиска дефолтных значений
+DEFAULT_ASSIGNMENT_PATTERNS: {
+  "JS_TS": "process\.env\.[A-Z_]+ \|\| ['\"](.+)['\"]",
+  "PYTHON": "os\.environ\.get\(['\"][A-Z_]+['\"], ['\"](.+)['\"]\)",
+  "GENERIC_FALLBACK": "(=|:)\s*['\"](.*)['\"]\s*#\s*default"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CONFIG_ASSETS]  <- {from: persistent_storage.protocol, scope: "CONFIG_FILES|ENV_VARS"}
+[VAULT_MAPPING]  <- {from: secrets_management.protocol, scope: "SECRET_KEYS"}
+[CLOUD_SERVICES] <- {from: external_interactors.protocol, scope: "CLOUD_PROVIDERS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Проверки на утечку конфигурационных секретов
+! ([SOURCE_LITERAL] == [CONFIG_VALUE] && [IS_SECRET_CONTEXT]) : "CRITICAL: Config Mirroring. A secret value from a config/env file is found hardcoded in source code."
+! ([SOURCE_DEFAULT_VALUE] && [ENTROPY] > 4.0) : "HIGH: High-Entropy Default. A fallback value in code (e.g., || 'secret') has high entropy, suggesting a real leaked key."
+! ([SOURCE_CODE] -> "hardcoded_url_with_auth") : "BLOCKER: Inline Auth Leak. Source code contains a URL with embedded credentials (e.g., https://user:pass@host)."
+? ([CONFIG_KEY] && ![SOURCE_USAGE]) : "INFO: Dead Secret. A sensitive key is defined in config but never accessed in source, increasing unnecessary attack surface."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CONFIG_DICTIONARY_BUILDING:
+   - Пропарсить все файлы [CONFIG_EXTENSIONS].
+   - Создать карту пар (Key -> Value), фильтруя через [VAULT_MAPPING] и семантические признаки секретов.
+
+2. SOURCE_LITERAL_EXTRACTION:
+   - Извлечь все строковые литералы из [SOURCE_EXTENSIONS].
+   - Особое внимание уделить "fallback" конструкциям и значениям по умолчанию в конструкторах/функциях.
+
+3. FUZZY_AND_EXACT_MATCHING:
+   - Сравнить значения из конфигов со строками в коде.
+   - Выполнить поиск подстрок (например, если в конфиге `full_url`, а в коде только `password` часть).
+
+4. LEAK_CONTEXT_VALIDATION:
+   - Проверить, не является ли совпадение легитимным (например, публичный API-ключ или ссылка на документацию).
+   - Сопоставить с [CLOUD_SERVICES] для подтверждения критичности ключа.
+
+5. ASSIGNMENT_FLOW_AUDIT:
+   - Проанализировать, как переменная из конфига инициализируется. Если есть логика `var x = process.env.X || 'static_val'`, проверить 'static_val' на энтропию.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_LEAK_CORRELATION_REPORT:
+  - CONFIG_KEY | LEAKED_VALUE_SNIPPET | SOURCE_LOCATION | REASONING | SEVERITY
+VISUALIZE: "Mermaid Flowchart: Show data flow from .env/config files into source code fallbacks/literals."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

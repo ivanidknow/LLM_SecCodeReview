@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: INVENTORY_RESOURCE_EXHAUSTION
+@GOAL: PREVENT_BUSINESS_LEVEL_DOS_VIA_UNAUTHORIZED_RESERVATION_OR_UNBOUNDED_CONSUMPTION_OF_SCARCE_RESOURCES
+@PARENT_CONTEXT: step_skipping_logic.protocol, race_condition_concurrency.protocol, rate_limit_abuse.protocol
+
+<GLOBAL_VARS>
+# Типы дефицитных ресурсов
+SCARCE_RESOURCES: {
+  "PHYSICAL": "(stock_count|warehouse_items|seats|tickets)",
+  "DIGITAL": "(api_credits|cloud_storage|compute_quota|invite_codes)",
+  "TEMPORAL": "(booking_slots|reservation_locks|ttl_timers)"
+}
+
+# Признаки «утечки» ресурсов
+EXHAUSTION_SIGNALS: {
+  "PENDING_LOCKS": "Resources are reserved but never released if payment fails/times out",
+  "UNBOUNDED_BASKET": "Ability to add 999,999 items to a cart, locking them from others",
+  "FREE_TIER_ABUSE": "Creation of multiple accounts to bypass usage quotas"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[WORKFLOW]       <- {from: step_skipping_logic.protocol, scope: "STATE_MACHINE"}
+[CONCURRENCY]    <- {from: race_condition_concurrency.protocol, scope: "ATOMIC_OPERATIONS"}
+[THROTTLING]     <- {from: rate_limit_abuse.protocol, scope: "QUOTA_LIMITS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты владения ресурсами
+! ([RESERVATION] -> ![TTL_EXPIRATION]) : "CRITICAL: Permanent Inventory Lock. Resources can be reserved without a timeout, allowing an attacker to permanently block items by leaving them in a 'Pending' state."
+! ([BASKET_QUANTITY] > [AVAILABLE_STOCK]) : "HIGH: Over-reservation. The application allows adding more items to the cart than exist in stock, leading to database or logic errors during checkout."
+! ([ACTION] == "ALLOCATE" && ![CONCURRENCY.LOCKING]) : "BLOCKER: Resource Race Condition. Multiple users can reserve the last remaining item simultaneously, causing 'Double Spending' of inventory."
+? ([ACTION] == "FREE_GIVEAWAY" && ![THROTTLING.STRICT]) : "MEDIUM: Resource Siphoning. Lack of strict rate limiting on free resources allows automated draining of the system's budget."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. LOCK_LIFECYCLE_AUDIT:
+   - Идентифицировать момент, когда ресурс помечается как «зарезервированный» (`Reserved/Locked`).
+   - Найти код, отвечающий за «разморозку» (Release) при отмене заказа или истечении времени ожидания.
+
+2. QUANTITY_LIMIT_VERIFICATION:
+   - Проверить наличие `MAX_QUANTITY` ограничений на уровне корзины и API.
+   - Попытаться забронировать все доступные единицы товара через один запрос или серию мелких запросов.
+
+3. ABANDONED_CART_STRESS_TEST:
+   - Смоделировать атаку: создание тысяч корзин с товарами без перехода к оплате. Проверить, уменьшается ли `available_stock` для других пользователей.
+
+4. QUOTA_BYPASS_PROBE:
+   - Анализ лимитов на цифровые ресурсы (например, количество бесплатных API-вызовов).
+   - Проверить, обновляются ли лимиты атомарно (см. `atomic_operation_integrity.protocol`).
+
+5. RECLAMATION_LOGIC_CHECK:
+   - Проверить наличие фоновых задач (Cron/Workers), которые очищают устаревшие брони. Убедиться, что они работают корректно и не могут быть остановлены внешним воздействием.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_EXHAUSTION_REPORT:
+  - RESOURCE_TYPE | LOCK_MECHANISM | EXPIRATION_STRATEGY | EXPLOIT_VECTOR | SEVERITY
+VISUALIZE: "Image of a resource exhaustion attack on inventory: showing a timeline where multiple unauthenticated users lock stock items, preventing legitimate buyers from completing purchases until the locks expire."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

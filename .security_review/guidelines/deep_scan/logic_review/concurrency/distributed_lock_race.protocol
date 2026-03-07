@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: DISTRIBUTED_LOCK_RACE_CONDITION
+@GOAL: AUDIT_COORDINATION_MECHANISMS_BETWEEN_MICROSERVICES_TO_PREVENT_CONSISTENCY_LEAKS_AND_RACE_CONDITIONS
+@PARENT_CONTEXT: atomic_transaction_integrity.protocol, toctou_analysis.protocol, network_infra.protocol
+
+<GLOBAL_VARS>
+# Инструменты распределенной блокировки
+DISTRIBUTED_LOCKS: {
+  "REDIS_REDLOCK": "Distributed lock using Redis with TTL",
+  "ZOOKEEPER": "Ephemeral nodes for consensus-based locking",
+  "ETCD": "Distributed key-value store with lease mechanisms",
+  "DB_ADVISORY": "Database-level advisory locks (e.g., pg_advisory_lock)"
+}
+
+# Специфические риски (Microservice Race Risks)
+MICRO_RACE_PATTERNS: {
+  "SPLIT_BRAIN": "Network partition leads to two nodes thinking they both hold the lock",
+  "CLOCK_SKEW": "Nodes have different system times, causing TTLs to expire prematurely",
+  "STALE_LOCK": "Process hangs (GC pause), lock expires, another process starts, first process resumes",
+  "EVENTUAL_CONSISTENCY": "Read from a replica that hasn't received the latest update yet"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ATOMICITY]      <- {from: atomic_transaction_integrity.protocol, scope: "DISTRIBUTED_FLOW"}
+[NETWORK]        <- {from: network_infra.protocol, scope: "LATENCY_PARTITIONS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты распределенной согласованности
+! ([ACTION] -> ![DISTRIBUTED_LOCK.VALID_ACQUISITION]) : "BLOCKER: Distributed Race. A globally unique action is performed without a cross-service lock, leading to state corruption."
+! ([LOCK_TTL] < [MAX_PROCESS_EXECUTION_TIME]) : "CRITICAL: Premature Lock Release. The lock expires before the long-running operation finishes, allowing a second worker to start the same task."
+! ([EVENTUAL_CONSISTENCY] -> [CRITICAL_CHECK]) : "HIGH: Stale Data Decision. A service makes a decision (e.g., 'Approve Credit') based on a read from a secondary database that is lagging."
+! ([RETRY_POLICY] -> ![IDEMPOTENCY]) : "HIGH: Non-Idempotent Retry. Network failure causes a retry of a successful action, leading to duplicate execution."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. LOCK_IMPLEMENTATION_REVIEW:
+   - Идентифицировать используемый механизм блокировки из [DISTRIBUTED_LOCKS].
+   - Проверить корректность реализации: используется ли уникальный идентификатор владельца (Owner ID) для предотвращения снятия чужой блокировки.
+
+2. FENCING_TOKEN_AUDIT:
+   - Проверить наличие "Fencing Tokens" (возрастающих чисел). Каждая блокировка должна сопровождаться токеном, который проверяется хранилищем данных при записи.
+
+3. GC_PAUSE_RESILIENCE_CHECK:
+   - Анализ влияния задержек (Stop-the-world в Java/Go). Убедиться, что логика проверяет валидность лока перед самым коммитом данных, а не только в начале.
+
+4. IDEMPOTENCY_KEY_TRACE:
+   - Проследить передачу `Idempotency-Key` через всю цепочку микросервисов. Каждый сервис должен проверять этот ключ перед выполнением побочных эффектов.
+
+5. REPLICA_LAG_ANALYSIS:
+   - В системах с `Read-After-Write` проверить, направляются ли критические проверки на Master-ноду БД или используются ли механизмы синхронизации (например, `WAIT` в Redis).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_DISTRIBUTED_RACE_REPORT:
+  - SERVICE_INTERACTION | LOCK_PROVIDER | TIMEOUT_STRATEGY | CONSISTENCY_MODEL | SEVERITY
+VISUALIZE: "Image of a distributed lock failure scenario: showing Service A holding a lock, a network delay causing the lock to expire in Redis, Service B acquiring the same lock, and then both services writing to the database simultaneously."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: PARSER_MISMATCH_DETECTION
+@GOAL: IDENTIFY_DISCREPANCIES_IN_DATA_INTERPRETATION_BETWEEN_INFRASTRUCTURE_LAYERS_AND_APPLICATION_LOGIC
+@PARENT_CONTEXT: network_infra.protocol, multi_stage_encoding_validation.protocol, canonicalization_encoding_integrity.protocol
+
+<GLOBAL_VARS>
+# Точки расхождения парсеров (Mismatch Vectors)
+PARSER_DISCREPANCIES: {
+  "PARAMETER_POLLUTION": "Handling of duplicate keys: a=1&a=2 (First vs Last vs Array)",
+  "WHITESPACE_INCONSISTENCY": "Interpretation of %00, %09, %0b, %0c, %20",
+  "DELIMITER_CLASH": "Use of ; vs & as parameter separators",
+  "HEADER_SMUGGLING": "Interpretation of Content-Length vs Transfer-Encoding"
+}
+
+# Специфические особенности парсеров (Parser Quirks)
+PARSER_QUIRKS: {
+  "NGINX": "Ignore headers with underscores by default",
+  "EXPRESS_QS": "Parses nested objects via square brackets (obj[prop])",
+  "PHP_QUERY": "Replaces dots and spaces in key names with underscores"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[INFRA]          <- {from: network_infra.protocol, scope: "PROXY_CONFIG"}
+[TAINT_SOURCES]  <- {from: untrusted_source_identification.protocol, scope: "HTTP_QUERY|HTTP_HEADERS"}
+[CANONICAL]      <- {from: canonicalization_encoding_integrity.protocol, scope: "NORMALIZATION_LOGIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты консистентности
+! ([WAF_VIEW] != [APP_VIEW]) : "CRITICAL: Security Logic Mismatch. WAF sees safe data while App sees a payload due to different parameter parsing (HPP)."
+! ([INFRA.PROXY] -> [HEADER_SMUGGLING]) : "BLOCKER: Request Smuggling Potential. Mismatch in CL/TE handling between proxy and backend."
+! ([TAINT_SOURCE] -> [PARSER_QUIRKS] -> [SINK]) : "HIGH: Unexpected Transformation. Parser-specific behavior (like PHP's dot-to-underscore) bypasses validation that targets the original key name."
+? ([WHITESPACE_INCONSISTENCY] -> [AUTH_BYPASS]) : "MEDIUM: Credential Trimming. Parser strips leading/trailing whitespaces, potentially leading to password or token bypasses."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PARAMETER_HANDLING_PROFILE:
+   - Изучить библиотеку парсинга Query-параметров (например, `qs`, `querystring`, `body-parser`).
+   - Определить стратегию при дублировании ключей (First, Last, Array).
+
+2. INFRA_APP_ALIGNMENT_AUDIT:
+   - Сопоставить конфигурацию [INFRA] с поведением [APP_STACK].
+   - Проверить, как прокси и приложение обрабатывают нестандартные разделители (например, `%0a`, `%0d`, `;`).
+
+3. HEADER_PROCESSING_TRACE:
+   - Проанализировать обработку критических заголовков (`Host`, `X-Forwarded-For`, `Content-Length`).
+   - Выявить риск «склеивания» запросов при использовании [HEADER_SMUGGLING].
+
+4. NORMALIZATION_MISMATCH_PROBE:
+   - Используя [CANONICAL], проверить, не удаляет ли один парсер символы, которые другой считает значимыми (например, Null-байты или специфические Unicode-пробелы).
+
+5. INCONSISTENCY_EXPLOIT_MODELING:
+   - Смоделировать ситуацию, когда вредоносный пайлоад «спрятан» в параметре, который игнорируется WAF, но читается приложением.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PARSER_MISMATCH_REPORT:
+  - COMPONENT_A | COMPONENT_B | MISMATCH_TYPE | EXPLOIT_VECTOR | SEVERITY
+VISUALIZE: "Image of an HTTP Request Smuggling attack: showing how a mismatch in Transfer-Encoding and Content-Length handling between a front-end proxy and a back-end server allows an attacker to 'smuggle' a hidden request."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

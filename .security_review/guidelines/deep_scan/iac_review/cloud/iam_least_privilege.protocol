@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: CLOUD_IAM_LEAST_PRIVILEGE_RESOURCE_ACCESS
+@GOAL: MINIMIZE_IMPACT_OF_CREDENTIAL_COMPROMISE_BY_ENFORCING_GRANULAR_PERMISSIONS_FOR_CLOUD_SERVICES_AND_USERS
+@PARENT_CONTEXT: rbac_least_privilege.protocol, public_exposure_perimeter.protocol, secret_management_vault.protocol
+
+<GLOBAL_VARS>
+# Критические и опасные права IAM
+DANGEROUS_ACTIONS: {
+  "AWS": ["iam:CreateAccessKey", "iam:PassRole", "s3:DeleteBucket", "ec2:RunInstances", "sts:AssumeRole"],
+  "GCP": ["iam.serviceAccounts.getAccessToken", "storage.buckets.delete", "compute.instances.create"],
+  "AZURE": ["Microsoft.Authorization/roleAssignments/write", "Microsoft.Compute/virtualMachines/write"]
+}
+
+# Признаки нарушения (IAM Smells)
+IAM_SMELLS: {
+  "WILDCARD_ACTION": "\"Action\": \"*\"",
+  "WILDCARD_RESOURCE": "\"Resource\": \"*\"",
+  "OVERLY_PERMISSIVE_TRUST": "Broad 'Principal' in Trust Relationships",
+  "LONG_TERM_KEYS": "Hardcoded IAM User Access Keys instead of Roles"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[RBAC_K8S]      <- {from: rbac_least_privilege.protocol, scope: "SUBJECT_TYPES"}
+[SECRETS]       <- {from: secret_management_vault.protocol, scope: "AUTH_METHODS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты безопасности IAM
+! (IAM_Policy -> "Action": "*" && "Resource": "*") : "BLOCKER: Full Admin Policy. A resource or user has unrestricted access to the entire cloud environment."
+! (Service_Account -> "iam:PassRole") : "CRITICAL: Potential Privilege Escalation. A service can pass a more privileged role to a resource (like an EC2/Lambda) and then execute code under that role."
+! (IAM_User -> "AccessKey") : "HIGH: Long-lived Credentials. Use of static Access Keys instead of temporary Security Tokens (STS) increases the risk of permanent credential leakage."
+! (Trust_Relationship -> "Principal": {"AWS": "*"}) : "BLOCKER: Anonymous Cross-Account Access. The role can be assumed by any AWS account, creating a massive security hole."
+? (Policy -> "Resource": "*") : "WARNING: Broad Resource Scope. The action (e.g., s3:GetObject) is allowed on all buckets instead of specific ARNs."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PRIVILEGED_POLICY_DISCOVERY:
+   - Использовать `tfsec` или `PMapper` для построения графа зависимостей IAM.
+   - Выявить все политики, содержащие `AdministratorAccess` или аналогичные встроенные (Managed) роли.
+
+2. SERVICE_IDENTITY_AUDIT:
+   - Проверить, что каждый сервис (EC2, Lambda, Pod) имеет свою уникальную роль (Execution Role).
+   - Избегать переиспользования одной роли для разных функциональных узлов.
+
+3. TRUST_POLICY_VERIFICATION:
+   - Проанализировать `AssumeRolePolicyDocument`.
+   - Убедиться, что в `Principal` указаны конкретные сервисы или аккаунты, а также используется `ExternalId`, если это необходимо для сторонних интеграций.
+
+4. ESCALATION_PATH_ANALYSIS:
+   - Проверить комбинацию прав. Например, может ли пользователь с `iam:PutUserPolicy` дать себе права администратора?
+
+5. DYNAMIC_TOKEN_ENFORCEMENT:
+   - Проверить использование **OIDC** для интеграции с GitHub Actions или GitLab CI вместо передачи статических секретов.
+   - См. `ci_cd_pipeline_security.protocol`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_IAM_REPORT:
+  - ENTITY (User/Role) | EXCESSIVE_ACTIONS | ESCALATION_RISK | RECOMMENDATION | SEVERITY
+VISUALIZE: "Image of an IAM privilege escalation attack path: showing how a limited user with 'iam:PassRole' can launch an EC2 instance with an Admin role and then access its metadata service to steal the admin token."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

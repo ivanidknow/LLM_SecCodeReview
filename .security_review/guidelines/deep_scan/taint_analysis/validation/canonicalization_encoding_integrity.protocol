@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: CANONICALIZATION_ENCODING_INTEGRITY
+@GOAL: DETECT_BYPASSES_INVOLVING_DOUBLE_ENCODING_UNICODE_NORMALIZATION_AND_NULL_BYTE_INJECTION
+@PARENT_CONTEXT: custom_validation_logic_analysis.protocol, behavioral_inconsistency.protocol, file_system_stream_sinks.protocol
+
+<GLOBAL_VARS>
+# Функции декодирования и нормализации
+DECODING_FUNCTIONS: {
+  "URL": "(decodeURIComponent|url.unquote|URLDecoder.decode)",
+  "BASE64": "(atob|base64.b64decode|Base64.getDecoder)",
+  "UNICODE": "(\.normalize\('NFKC'\)|unicodedata.normalize)",
+  "HTML": "(he.decode|html.unescape|StringEscapeUtils.unescapeHtml)"
+}
+
+# Опасные последовательности (Bypass Patterns)
+ENCODING_ATTACK_PATTERNS: {
+  "DOUBLE_HEX": "%25[0-9a-fA-F]{2}",
+  "NULL_BYTE": "(\\%00|\\x00|\\u0000)",
+  "OVERLONG_UTF8": "(%c0%af|%e0%80%af)",
+  "UNICODE_HOMOGLYPHS": "(а vs a | \u2024 vs .)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[VAL_LOGIC]      <- {from: custom_validation_logic_analysis.protocol, scope: "REGEX_CHECKS"}
+[FILE_SINK]      <- {from: file_system_stream_sinks.protocol, scope: "PATH_CONSTRUCTION"}
+[NORMALIZATION]  <- {from: behavioral_inconsistency.protocol, scope: "PARSER_MISMATCHES"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты каноникализации
+! ([TAINTED_DATA] -> [VAL_LOGIC] -> [DECODING_FUNCTIONS]) : "CRITICAL: Decoding After Validation. Data is decoded after security checks, allowing encoded payloads to bypass filters. Risk: Path Traversal / XSS."
+! ([TAINTED_DATA] -> [DECODING_FUNCTIONS] -> [DECODING_FUNCTIONS]) : "HIGH: Recursive Decoding Vulnerability. Application decodes data multiple times without re-validation, leading to Double Encoding bypasses."
+! ([FILE_SINK] -> [ENCODING_ATTACK_PATTERNS.NULL_BYTE]) : "CRITICAL: Null Byte Injection. Unsanitized null bytes can terminate string paths in low-level APIs, bypassing extension checks."
+? ([TAINTED_DATA] -> ![UNICODE.normalize]) : "MEDIUM: Unicode Equivalence Issue. Validation may fail to catch visually identical but binary-different characters (Homograph attack)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENCODING_STEP_INVENTORY:
+   - Идентифицировать все вызовы [DECODING_FUNCTIONS] в цепочке распространения данных.
+   - Определить порядок следования: `Input -> Decode -> Validate` (Безопасно) или `Input -> Validate -> Decode` (Уязвимо).
+
+2. DOUBLE_DECODING_PROBE:
+   - Искать циклы или последовательные вызовы декодеров для одной и той же переменной.
+   - Проверить, выполняется ли повторная валидация после каждого шага декодирования.
+
+3. NULL_BYTE_TERMINATION_CHECK:
+   - Проверить, удаляются ли `%00` или `\0` из входных данных, прежде чем они попадут в системные вызовы (особенно в Python/Node.js при работе с C-библиотеками).
+
+4. PATH_NORMALIZATION_AUDIT:
+   - Для [FILE_SINK]: проверить использование функций приведения к абсолютному пути (например, `path.resolve` или `os.path.abspath`) **перед** проверкой на Path Traversal.
+
+5. TAINT_STATE_TRANSITION:
+   - Если данные декодированы, но не прошли повторную валидацию, вернуть им статус "Raw Taint" с пометкой "Needs Re-Validation".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CANONICALIZATION_REPORT:
+  - SOURCE_FIELD | DECODING_CHAIN | VALIDATION_POSITION | BYPASS_POTENTIAL | RISK_LEVEL
+VISUALIZE: "Image of a double encoding attack flow: showing how %252e (double encoded '.') bypasses a filter that only checks for %2e (single encoded '.')."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

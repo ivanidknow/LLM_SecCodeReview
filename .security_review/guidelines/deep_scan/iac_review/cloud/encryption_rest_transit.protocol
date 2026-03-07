@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: ENCRYPTION_REST_TRANSIT
+@GOAL: ENSURE_DATA_CONFIDENTIALITY_BY_ENFORCING_ENCRYPTION_FOR_ALL_STORAGE_AND_COMMUNICATION_CHANNELS
+@PARENT_CONTEXT: public_exposure_perimeter.protocol, secret_management_vault.protocol
+
+<GLOBAL_VARS>
+# Требования к шифрованию
+ENCRYPTION_STANDARDS: {
+  "AT_REST": "AES-256 (via KMS/CMK or Provider-Managed Keys)",
+  "IN_TRANSIT": "TLS 1.2+ with Strong Cipher Suites",
+  "ALGORITHMS": "RSA-3072+, ECC P-256+, AES-GCM"
+}
+
+# Ресурсы, требующие проверки
+ENCRYPTION_TARGETS: [
+  "aws_s3_bucket", "aws_ebs_volume", "aws_db_instance", 
+  "aws_elb", "azurerm_storage_account", "google_storage_bucket"
+]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PERIMETER]      <- {from: public_exposure_perimeter.protocol, scope: "DANGEROUS_INGRESS"}
+[VAULT]          <- {from: secret_management_vault.protocol, scope: "TRANSIT_ENCRYPTION"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты безопасности данных
+! (aws_s3_bucket -> ! "server_side_encryption_configuration") : "BLOCKER: S3 Unencrypted at Rest. Data in the bucket is stored in plaintext on the provider's disks."
+! (aws_db_instance -> "storage_encrypted = false") : "CRITICAL: Database Unencrypted. RDS instance storage is not encrypted, making snapshots and backups vulnerable."
+! (aws_elb -> "listener" && "protocol = HTTP") : "HIGH: Unencrypted In-Transit. Load balancer accepts plain HTTP traffic, exposing sensitive data to sniffing."
+! (aws_s3_bucket_policy -> ! "aws:SecureTransport": "false") : "MEDIUM: Missing Enforced TLS. The bucket policy does not explicitly deny non-HTTPS requests."
+? (TF_RESOURCE -> "kms_key_id" == null) : "WARNING: Using Default Provider Key. Managed keys are better than none, but Customer Managed Keys (CMK) provide better audit and rotation control."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. STORAGE_ENCRYPTION_AUDIT:
+   - Использовать `tfsec` для поиска ресурсов с отключенным `encryption`.
+   - Проверить параметры: `server_side_encryption_configuration` (S3), `storage_encrypted` (RDS), `encrypted = true` (EBS).
+
+2. TLS_TERMINATION_REVIEW:
+   - Проверить конфигурации Load Balancer (ALB/NLB/CloudFront). Убедиться, что используются слушатели только на порту 443 с валидными сертификатами (ACM/Let's Encrypt).
+   - Проверить `ssl_policy`. Исключить поддержку TLS 1.0/1.1 и слабых шифров (DES, RC4).
+
+3. KMS_KEY_POLICY_ANALYSIS:
+   - Если используются CMK, проверить их Key Policies.
+   - Убедиться, что права на `kms:Decrypt` ограничены минимальным набором сервисных ролей (см. `iam_least_privilege.protocol`).
+
+4. INTERNAL_TRAFFIC_ENCRYPTION:
+   - Проверить наличие TLS между компонентами внутри VPC (например, App -> DB).
+   - Для Kubernetes: оценить использование Service Mesh (Istio/Linkerd) для автоматического mTLS.
+
+5. BUCKET_POLICY_HARDENING:
+   - Добавить в Terraform шаблоны S3 политику `Deny` для всех запросов, где `Bool: { "aws:SecureTransport": "false" }`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ENCRYPTION_REPORT:
+  - RESOURCE_ID | DATA_STATE (Rest/Transit) | ENCRYPTION_STATUS | KEY_MANAGEMENT | RISK_LEVEL
+VISUALIZE: "Image of End-to-End Encryption in Cloud: illustrating a data flow where traffic is encrypted via TLS from the user to the Load Balancer, and data is stored in RDS and S3 using KMS-managed keys."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

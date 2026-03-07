@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: OBJECT_PROPERTY_TAINTING
+@GOAL: TRACK_TAINT_PROPAGATION_THROUGH_OBJECT_PROPERTIES_MAPS_AND_PROTOTYPES
+@PARENT_CONTEXT: direct_assignment_aliasing.protocol, payload_analysis.protocol, inter_procedural_data_flow.protocol
+
+<GLOBAL_VARS>
+# Механизмы доступа и изменения свойств
+OBJECT_OPERATIONS: {
+  "PROPERTY_ACCESS": "(obj\.prop|obj['prop']|getattr())",
+  "DESTRUCTURING": "(const { a, b } = tainted_obj;)",
+  "SPREAD_MERGE": "({ ...obj1, ...obj2 }|Object.assign())",
+  "PROTOTYPE_MOD": "(__proto__|constructor\.prototype)"
+}
+
+# Правила заражения (Infection Rules)
+INFECTION_LOGIC: {
+  "SHALLOW_TAINT": "If object is tainted, all its direct properties are tainted",
+  "DEEP_TAINT": "Recursive propagation to nested objects/arrays",
+  "KEY_TAINT": "If the key name itself is user-controlled (Risk: Prototype Pollution)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ALIAS_GRAPH]    <- {from: direct_assignment_aliasing.protocol, scope: "VARIABLE_RELATIONS"}
+[PAYLOAD_FORMAT] <- {from: payload_analysis.protocol, scope: "JSON_PARSING|SCHEMAS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты работы с объектами
+! ([TAINTED_VALUE] -> [OBJECT_OPERATIONS.PROPERTY_ACCESS] -> [OBJECT]) : "INFO: Object Infection. Assigning tainted data to a property infects the parent object."
+! ([TAINTED_KEY] -> [OBJECT_OPERATIONS.PROPERTY_ACCESS]) : "CRITICAL: Prototype Pollution / Dynamic Property Injection. User-controlled key name is used to access or modify an object."
+! ([TAINTED_OBJ] -> [OBJECT_OPERATIONS.SPREAD_MERGE] -> [NEW_OBJ]) : "HIGH: Spread Taint Propagation. Taint is transferred to a new object during merging or cloning operations."
+? ([OBJECT] -> "JSON.parse(user_input)") : "WARNING: Bulk Taint. All properties of an object resulting from raw JSON parsing must be treated as untrusted."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. OBJECT_LIFECYCLE_TRACKING:
+   - Идентифицировать создание объектов (`ObjectExpression`) и их наполнение данными.
+   - Использовать [ALIAS_GRAPH] для отслеживания ссылок на один и тот же объект в памяти.
+
+2. PROPERTY_LEVEL_TAINT_ANALYSIS:
+   - Если свойству `obj.x` присваивается значение из [TAINT_SEEDS], пометить свойство `x` этого конкретного объекта как "Tainted".
+   - Если весь объект `obj` помечен как "Tainted" (например, после `req.body`), любое обращение к его свойствам возвращает "Tainted" результат.
+
+3. PROTOTYPE_POLLUTION_SCAN:
+   - Особое внимание вызовам типа `obj[key] = value`. Если `key` приходит из внешнего источника, проверить на наличие стоп-слов (`__proto__`, `constructor`, `prototype`).
+
+4. SPREAD_AND_ASSIGN_TRACE:
+   - Для операций `Object.assign` или `{...obj}`: проследить перенос помеченных свойств в целевой объект.
+
+5. COLLECTION_ITERATION_AUDIT:
+   - Анализ циклов (`forEach`, `map`). Если массив содержит "Tainted" элементы, итератор (callback) получает "Tainted" аргументы.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_OBJECT_TAINT_REPORT:
+  - OBJECT_ID | INFECTED_PROPERTY | INFECTION_SOURCE | PROPAGATION_TYPE | RISK_LEVEL
+VISUALIZE: "Image of a prototype pollution attack vector: showing how an untrusted property name can modify the base object prototype, affecting all objects in the runtime."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

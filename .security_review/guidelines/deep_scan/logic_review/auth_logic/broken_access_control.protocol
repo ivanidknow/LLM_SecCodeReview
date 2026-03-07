@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: BROKEN_LEVEL_ACCESS_CONTROL
+@GOAL: DETECT_VERTICAL_AND_HORIZONTAL_PRIVILEGE_ESCALATION_DUE_TO_INCORRECT_ROLE_OR_PERMISSION_ENFORCEMENT
+@PARENT_CONTEXT: identity_model.protocol, administrative_interface_exposure.protocol, idor_detection.protocol
+
+<GLOBAL_VARS>
+# Типы контроля доступа
+ACCESS_CONTROL_MODELS: {
+  "RBAC": "Role-Based (User, Editor, Admin)",
+  "ABAC": "Attribute-Based (Ownership, Department, IP_Location)",
+  "PBAC": "Policy-Based (Time-of-day, Subscription_Level)"
+}
+
+# Паттерны нарушений
+VIOLATION_PATTERNS: {
+  "VERTICAL": "Regular user accessing /api/admin/* endpoints",
+  "HORIZONTAL": "User_A viewing User_B's private profile via ID manipulation",
+  "INSECURE_DEFAULT": "New endpoints created without an @Authorized decorator",
+  "MISSING_FUNCTION_LEVEL": "UI hides a button, but the API endpoint remains open to everyone"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ROLES]          <- {from: identity_model.protocol, scope: "USER_ROLES"}
+[ADMIN_SITES]    <- {from: administrative_interface_exposure.protocol, scope: "MANAGEMENT_ENDPOINTS"}
+[RESOURCE_MAP]   <- {from: idor_detection.protocol, scope: "PROTECTED_OBJECTS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты контроля доступа
+! ([SENSITIVE_FUNCTION] -> ![ROLES.VERIFICATION]) : "BLOCKER: Missing Access Control. A sensitive function is executed without any check for user roles or permissions."
+! ([USER_ROLE] -> [ADMIN_SITES]) : "CRITICAL: Vertical Escalation. A user with low privileges can access administrative endpoints."
+! ([ACTION] -> "State_Change" && ![ABAC.OWNERSHIP_CHECK]) : "HIGH: Horizontal Escalation. A user can modify resources belonging to others because the system only checks 'if' the user is logged in, not 'what' they own."
+? ([API_ENDPOINT] -> "Hidden_in_UI" && ![SERVER_SIDE_CHECK]) : "CRITICAL: Client-Side Security Only. Access is restricted in the frontend, but the backend accepts requests from any authenticated user."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PERMISSION_MODEL_MAPPING:
+   - Идентифицировать механизм проверки прав (Middleware, Guards, Decorators).
+   - Построить матрицу доступа: Роль vs Эндпоинт.
+
+2. DECORATOR_CONSISTENCY_CHECK:
+   - Сравнить список всех эндпоинтов со списком защищенных эндпоинтов.
+   - Найти «голые» (unprotected) методы в контроллерах, работающих с [RESOURCE_MAP].
+
+3. VERTICAL_ESCALATION_TEST:
+   - Проверить, проверяет ли `AdminGuard` только наличие токена или конкретную роль в токене/БД.
+   - Попытаться вызвать административные методы, используя сессию обычного пользователя.
+
+4. HORIZONTAL_ESCALATION_AUDIT:
+   - Анализ логики «Владелец-Объект». Убедиться, что для каждого запроса на чтение/запись выполняется проверка: `resource.owner_id == current_user.id`.
+
+5. PARAMETER_TAMPERING_FOR_ROLES:
+   - Проверить, может ли пользователь изменить свою роль через запрос профиля (Mass Assignment).
+   - Искать скрытые параметры типа `isAdmin=true` или `role=admin` в теле запроса при регистрации или обновлении.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ACCESS_CONTROL_REPORT:
+  - ENDPOINT | REQUIRED_ROLE | ACTUAL_PROTECTION | VULNERABILITY_TYPE | IMPACT
+VISUALIZE: "Image of an access control matrix: showing a table of users, roles, and permissions where a 'Broken' cell indicates a user accessing a resource they shouldn't have access to."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

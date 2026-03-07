@@ -1,0 +1,67 @@
+<DFD_MODELING_V3>
+@ID: POD_SECURITY_CONTEXT_PRIVILEGE_ESCALATION
+@GOAL: PREVENT_CONTAINER_BREAKOUT_AND_NODE_COMPROMISE_BY_ENFORCING_RESTRICTIVE_POD_SECURITY_POLICIES
+@PARENT_CONTEXT: least_privilege_user.protocol, filesystem_execution_security.protocol, rbac_least_privilege.protocol
+
+<GLOBAL_VARS>
+# Критические параметры манифеста
+SECURITY_CONTROLS: {
+  "PRIVILEGED": "allowPrivilegeEscalation: false",
+  "READ_ONLY_ROOT": "readOnlyRootFilesystem: true",
+  "RUN_AS_NON_ROOT": "runAsNonRoot: true",
+  "RUN_AS_USER": "runAsUser: > 1000",
+  "CAP_DROP": "capabilities: { drop: ['ALL'] }",
+  "SE_LINUX": "seLinuxOptions",
+  "SECCOMP": "seccompProfile: { type: RuntimeDefault }"
+}
+
+# Векторы эскалации
+ESCALATION_VECTORS: [
+  "hostNetwork: true",
+  "hostPID: true",
+  "hostIPC: true",
+  "privileged: true"
+]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DOCKER_USER]    <- {from: least_privilege_user.protocol, scope: "RUNTIME_USER"}
+[FS_SECURITY]    <- {from: filesystem_execution_security.protocol, scope: "EXECUTION_CONTROLS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты безопасности пода
+! (YAML -> "privileged: true") : "BLOCKER: Privileged Container. The container has full access to the host devices and kernel, equivalent to root on the node."
+! (YAML -> "allowPrivilegeEscalation: true") : "CRITICAL: Privilege Escalation Allowed. Child processes can gain more privileges than their parent, enabling SUID-based attacks."
+! (YAML -> "hostPath" && ![READ_ONLY]) : "CRITICAL: Writable HostPath Mount. Mounting host directories with write access allows escaping to the host filesystem."
+! (YAML -> ! "runAsNonRoot: true") : "HIGH: Missing Non-Root Enforcement. K8s will not check if the image is trying to run as root, relying only on the Dockerfile."
+! (YAML -> ! "capabilities" -> "drop: ['ALL']") : "MEDIUM: Excessive Capabilities. By default, K8s leaves some risky kernel capabilities; all should be dropped and only required ones added back."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. MANIFEST_STATIC_ANALYSIS:
+   - Использовать `kubesec`, `checkov` или `polaris` для автоматизированного поиска [ESCALATION_VECTORS].
+   - Проверить наличие `securityContext` на обоих уровнях (Pod и Container).
+
+2. HOST_NAMESPACE_ISOLATION_AUDIT:
+   - Проверить использование `hostNetwork`, `hostPID`, `hostIPC`.
+   - Если они включены, требовать архитектурное обоснование (например, для CNI или мониторинга).
+
+3. KERNEL_CAPABILITIES_REVIEW:
+   - Убедиться, что в блоке `capabilities` присутствует `drop: ["ALL"]`.
+   - Если добавлены специфические права (например, `NET_ADMIN`), проверить их необходимость.
+
+4. VOLUMES_SECURITY_CHECK:
+   - Анализ всех `volumes`. Избегать `hostPath`. Если используется, проверить, что `readOnly: true`.
+   - Предпочитать `emptyDir` или `PersistentVolumeClaims`.
+
+5. ADMISSION_CONTROL_COMPLIANCE:
+   - Проверить, настроены ли в кластере `Pod Security Admissions` (PSA) или `Kyverno/OPA Gatekeeper` для блокировки небезопасных манифестов.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_POD_SECURITY_REPORT:
+  - NAMESPACE | POD_NAME | PRIVILEGED_STATUS | MISSING_CONTROLS | RISK_SCORE
+VISUALIZE: "Image of Kubernetes Pod Security Context layers: illustrating how runAsNonRoot, allowPrivilegeEscalation, and dropping capabilities create a secure isolation boundary between the container and the node."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: CURRENCY_UNIT_MISMATCH
+@GOAL: DETECT_LOGIC_ERRORS_WHERE_DIFFERENT_CURRENCIES_OR_UNITS_ARE_MIXED_WITHOUT_NORMALIZATION
+@PARENT_CONTEXT: precision_rounding_attacks.protocol, negative_zero_injection.protocol
+
+<GLOBAL_VARS>
+# Группы единиц измерения (Unit Groups)
+UNIT_DIMENSIONS: {
+  "CURRENCY": "(USD|EUR|GBP|JPY|SATOSHI|WEI)",
+  "WEIGHT_MASS": "(kg|g|mg|lb|oz)",
+  "TIME": "(s|ms|ns|min|hr)",
+  "FRACTIONAL": "(dollars|cents|units|pennies)"
+}
+
+# Паттерны «слепого» сложения
+MISMATCH_SMELLS: {
+  "TYPE_AGNOSTIC_SUM": "sum = item1.amount + item2.amount # Missing currency check",
+  "HARDCODED_RATIO": "total = cents + dollars * 100 # Potential for precision loss",
+  "INTERNAL_EXTERNAL_CLASH": "App uses 'ms' but API input is in 'seconds'"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[NUMERIC_SINK]   <- {from: negative_zero_injection.protocol, scope: "NUMERIC_TARGETS"}
+[PRECISION_LOG]  <- {from: precision_rounding_attacks.protocol, scope: "CONVERSION_RATES"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты размерности
+! ([OP] == "ADD/SUB" && [CURRENCY_A] != [CURRENCY_B]) : "BLOCKER: Cross-Currency Addition. The application sums different currencies without a conversion step, allowing users to pay in low-value currency for high-value assets."
+! ([DB_VALUE] == "CENTS" && [INPUT_VALUE] == "DOLLARS" && ![NORMALIZATION]) : "CRITICAL: Unit Magnitude Mismatch. Data is stored in minor units (cents) but input is treated as major units (dollars), leading to 100x discrepancy."
+! ([CONVERSION_RATE] -> [PRECISION_LOG.ROUNDING_ISSUE]) : "HIGH: Conversion Drift. Rounding during currency conversion allows for arbitrage or 'dust' accumulation attacks."
+? ([API_SPEC] -> "Ambiguous_Units") : "MEDIUM: Documentation Gap. The API does not explicitly define the unit (e.g., 'weight' instead of 'weight_kg'), leading to inconsistent client implementations."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. UNIT_TYPE_INVENTORY:
+   - Идентифицировать все поля в коде и БД, представляющие числовые величины.
+   - Определить их «базовую единицу» (например, все деньги в БД хранятся в центах/Integer).
+
+2. CROSS_DOMAIN_OPERATION_SEARCH:
+   - Проанализировать функции агрегации (Total, Sum, Average).
+   - Убедиться, что перед операцией проверяется равенство метаданных (например, `if (a.currency === b.currency)`).
+
+3. CONVERSION_LOGIC_AUDIT:
+   - Найти код, отвечающий за обмен валют или перевод единиц (кг -> г).
+   - Проверить актуальность курсов и точность коэффициентов (избегать `3.14` там, где нужно `3.14159`).
+
+4. INPUT_OUTPUT_CONSISTENCY_CHECK:
+   - Сопоставить типы данных во внешнем API и внутренней логике.
+   - Искать места, где `System.currentTimeMillis()` (ms) сравнивается с `Unix Timestamp` (s).
+
+5. OVERFLOW_VIA_CONVERSION_TEST:
+   - Попытаться перевести очень большую сумму в «мелкую» валюту (например, USD в WEI или SATOSHI).
+   - Проверить, не вызывает ли это переполнение, описанное в `integer_overflow_underflow.protocol`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_UNIT_MISMATCH_REPORT:
+  - FIELD_A | FIELD_B | OPERATION | MISSING_CONVERSION (Yes/No) | CALCULATED_ERROR_MARGIN
+VISUALIZE: "Image of a currency conversion logic error: showing a sum of different currency objects where the lack of a normalization step leads to a logically incorrect total value."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

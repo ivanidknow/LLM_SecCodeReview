@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: INTEGER_OVERFLOW_UNDERFLOW
+@GOAL: IDENTIFY_ARITHMETIC_OPERATIONS_THAT_EXCEED_DATA_TYPE_LIMITS_LEADING_TO_LOGIC_CORRUPTION
+@PARENT_CONTEXT: negative_zero_injection.protocol, precision_rounding_attacks.protocol
+
+<GLOBAL_VARS>
+# Границы типов данных (Platform Specific)
+TYPE_LIMITS: {
+  "INT32_SIGNED": "[-2,147,483,648 to 2,147,483,647]",
+  "UINT32_UNSIGNED": "[0 to 4,294,967,295]",
+  "INT64_SIGNED": "[-9.22e18 to 9.22e18]",
+  "JS_MAX_SAFE": "9,007,199,254,740,991 (2^53 - 1)"
+}
+
+# Опасные операции
+DANGEROUS_OPERATIONS: {
+  "ACCUMULATION": "total += price (in loops)",
+  "SUBTRACTION": "balance - withdrawal (without floor check)",
+  "MULTIPLICATION": "quantity * unit_price",
+  "BITWISE": "Shifting operations on signed integers"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[NUMERIC_SINK]   <- {from: negative_zero_injection.protocol, scope: "NUMERIC_TARGETS"}
+[PRECISION]      <- {from: precision_rounding_attacks.protocol, scope: "VULNERABLE_TYPES"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты переполнения
+! ([VALUE] > [TYPE_LIMITS.MAX] && ![CHECK_BEFORE_ADD]) : "BLOCKER: Integer Overflow. Adding to a value near the limit results in a wrap-around to a small or negative number."
+! ([UNSIGNED_VALUE] < 0) : "CRITICAL: Integer Underflow. Subtracting from an unsigned zero results in the maximum possible value (e.g., 0 - 1 = 4,294,967,295)."
+! ([JS_ENVIRONMENT] && [VALUE] > [TYPE_LIMITS.JS_MAX_SAFE]) : "HIGH: Precision Loss Overflow. JavaScript integers lose accuracy beyond 2^53, causing comparison errors (x + 1 === x)."
+? ([INPUT_VALIDATION] -> ![LIMIT_CHECK]) : "MEDIUM: Unbounded Input. The application accepts extremely large numbers that are passed directly to arithmetic logic."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TYPE_DEFINITION_REVIEW:
+   - Проверить типизацию в языках со строгой типизацией (C#, Java, Go) и схемы БД.
+   - Идентифицировать использование `uint` (unsigned), наиболее подверженных underflow.
+
+2. ARITHMETIC_SINK_TRACE:
+   - Проследить математические операции в [DANGEROUS_OPERATIONS].
+   - Особое внимание функциям расчета суммарной стоимости корзины или общего объема ресурсов.
+
+3. BOUNDARY_VALUE_TESTING:
+   - Попытаться отправить значения, близкие к [TYPE_LIMITS].
+   - Проверить логику на «магические числа» (например, если лимит установлен как `2147483647`).
+
+4. LIBRARY_PROTECTION_AUDIT:
+   - Проверить наличие использования safe-math библиотек (например, `SafeMath` в Solidity или встроенные проверки в современных компиляторах).
+
+5. COMPARISON_LOGIC_PROBE:
+   - Искать условия типа `if (a + b < threshold)`. При переполнении `a + b` может стать очень маленьким, что приведет к ложному срабатыванию условия.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_OVERFLOW_REPORT:
+  - VARIABLE_NAME | DATA_TYPE | OPERATION | OVERFLOW_SCENARIO | BUSINESS_IMPACT
+VISUALIZE: "Image of an integer overflow wrap-around: showing how adding 1 to the maximum value of a signed 8-bit integer (127) results in the minimum value (-128) due to bit representation."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

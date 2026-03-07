@@ -1,0 +1,55 @@
+<DFD_MODELING_V3>
+@ID: MULTI_STAGE_BUILD_OPTIMIZATION
+@GOAL: PHYSICALLY_SEPARATE_BUILD_DEPENDENCIES_FROM_RUNTIME_ARTIFACTS_TO_MINIMIZE_IMAGE_SIZE_AND_LEAKAGE
+@PARENT_CONTEXT: attack_surface_reduction.protocol, base_image_provenance.protocol, sensitive_data_leakage_layers.protocol
+
+<GLOBAL_VARS>
+# Признаки Multi-stage
+MULTISTAGE_MARKERS: {
+  "STAGES": "FROM.*AS\\s+(\\w+)",
+  "ARTIFACT_TRANSFER": "COPY --from=(\\w+)"
+}
+
+# Что НЕ должно быть в финальном слое
+BUILD_TIME_LEFTOVERS: [
+  ".git", ".ssh", ".npmrc", "ssh-keys", 
+  "source-code", "compilers", "build-logs"
+]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SURFACE]        <- {from: attack_surface_reduction.protocol, scope: "DANGEROUS_UTILITIES"}
+[LEAKAGE]        <- {from: sensitive_data_leakage_layers.protocol, scope: "SECRET_PATTERNS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты многоэтапной сборки
+! (DOCKERFILE -> ! "COPY --from") : "HIGH: Single-Stage Build Detected. Build tools and source code are likely present in the production image, increasing the attack surface."
+! (DOCKERFILE -> "COPY ." && "FROM.*AS final") : "CRITICAL: Source Code Leak. Copying all files (including .git) into the final stage exposes the entire history and secrets of the project."
+! (FINAL_STAGE -> [SURFACE.DANGEROUS_UTILITIES]) : "MEDIUM: Bloated Final Image. The final stage inherits a heavy base image instead of a minimal one (Alpine/Distroless)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. STAGE_STRUCTURE_AUDIT:
+   - Проверить наличие нескольких инструкций `FROM`.
+   - Убедиться, что первая стадия (например, `builder`) использует полный образ с SDK, а последняя — минимальный Runtime-образ.
+
+2. ARTIFACT_TRANSFER_VERIFICATION:
+   - Проверить команды `COPY --from`. Убедиться, что копируется только скомпилированный бинарный файл или необходимые `node_modules`, а не весь каталог проекта.
+
+3. SOURCE_CODE_ISOLATION:
+   - Убедиться, что исходный код (`*.go`, `*.ts`, `*.java`) отсутствует в финальном образе. Код должен существовать только в промежуточных слоях, которые отбрасываются.
+
+4. BUILD_SECRET_HYGIENE:
+   - Если для сборки нужны SSH-ключи или токены (например, для доступа к приватным репозиториям), проверить, что они передаются через `--mount=type=secret` или используются только в `builder` стадии и не попадают в `final`.
+
+5. LAYER_COUNT_OPTIMIZATION:
+   - Проверить объединение команд `RUN` в финальной стадии для минимизации количества слоев, хотя в Multi-stage это менее критично для безопасности, чем для размера.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_MULTISTAGE_OPTIMIZATION_REPORT:
+  - STAGE_NAME | BASE_IMAGE | PURPOSE (Build/Final) | ARTIFACTS_EXTRACTED | STATUS
+VISUALIZE: "Image of a multi-stage Docker build process: showing how the build environment (Stage 1) produces an artifact, which is then copied into a fresh, minimal runtime environment (Stage 2), leaving behind all build-time tools and source code."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

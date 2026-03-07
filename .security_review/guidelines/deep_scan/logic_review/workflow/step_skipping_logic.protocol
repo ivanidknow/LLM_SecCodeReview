@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: STEP_SKIPPING_OUT_OF_ORDER_EXECUTION
+@GOAL: DETECT_LOGIC_FLAWS_ALLOWING_USERS_TO_BYPASS_WORKFLOW_STEPS_OR_EXECUTE_ACTIONS_IN_ILLEGAL_STATES
+@PARENT_CONTEXT: session_management_termination.protocol, broken_access_control.protocol, business_logic_mapping.protocol
+
+<GLOBAL_VARS>
+# Признаки управления состоянием (State Management)
+STATE_INDICATORS: {
+  "DB_COLUMN": "(status|state|step_level|is_verified)",
+  "SESSION_VAR": "(req.session.currentStep|req.session.workflowId)",
+  "URL_PARAM": "(\/step1|\/step2|\/final_confirmation)"
+}
+
+# Паттерны нарушений (Workflow Violation Patterns)
+VIOLATION_PATTERNS: {
+  "FORCED_BROWSING": "Directly calling /api/checkout/complete while status is 'PENDING_PAYMENT'",
+  "PARAMETER_TAMPERING": "Sending 'step=4' when the server thinks user is on 'step=1'",
+  "STATE_REPLAY": "Submitting a 'confirm' action multiple times to trigger duplicate logic"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[BUSINESS_FLOW]  <- {from: business_logic_mapping.protocol, scope: "STATE_MACHINE_DIAGRAM"}
+[AUTH_CONTROL]   <- {from: broken_access_control.protocol, scope: "FUNCTION_LEVEL_CHECKS"}
+[SESSION_DATA]   <- {from: session_management_termination.protocol, scope: "STATEFUL_ATTRIBUTES"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты целостности воркфлоу
+! ([ACTION] -> ![PRE_CONDITION_MET]) : "BLOCKER: Step Skipping. An action is performed (e.g., 'Ship Order') without verifying if the prerequisite state (e.g., 'Paid') was achieved."
+! ([STATE_TRANSITION] -> [USER_CONTROLLED_INPUT]) : "CRITICAL: Untrusted State Transition. The next state or step is determined by a parameter from the user request rather than server-side logic."
+! ([API_ENDPOINT] -> "State_Agnostic") : "HIGH: Order-of-Execution Vulnerability. Backend API processes requests regardless of the current object state in the database."
+? ([SESSION_VAR.STEP] != [DB_COLUMN.STATUS]) : "MEDIUM: State Desynchronization. Client session thinks it's on step X, but DB says step Y, leading to inconsistent logic paths."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. STATE_MACHINE_RECONSTRUCTION:
+   - Идентифицировать все возможные состояния объекта (например, `enum OrderStatus`).
+   - Найти функции, отвечающие за переход между состояниями (Transitions).
+
+2. TRANSITION_GUARD_AUDIT:
+   - Для каждой функции перехода проверить наличие "Guard Clauses".
+   - *Пример:* `if (order.status !== 'READY_FOR_SHIPMENT') throw Error();`.
+   - Если проверка отсутствует — пометить как потенциальный [STEP_SKIPPING].
+
+3. FORCED_ENDPOINT_TESTING:
+   - Проанализировать API-маршруты. Попытаться вызвать методы "финальных" стадий, имея объект в "начальной" стадии.
+   - Проверить, полагается ли сервер на `referer` или `hidden fields` для определения текущего шага.
+
+4. MULTI_STEP_SESSION_VERIFY:
+   - Если прогресс хранится в сессии: проверить, не затирается ли состояние при открытии второй вкладки или смене параметров в одном запросе.
+
+5. CONDITIONAL_BRANCHING_AUDIT:
+   - Проверить логику `if/else`, зависящую от статуса. Искать пути, которые позволяют «провалиться» в защищенную ветку при неожиданном вводе.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_WORKFLOW_INTEGRITY_REPORT:
+  - WORKFLOW_NAME | TARGET_STEP | BYPASS_METHOD | CURRENT_STATE_CHECK | RISK_IMPACT
+VISUALIZE: "Image of a broken state machine diagram: showing a legal transition from Step 1 to Step 2, and an illegal bypass arrow directly from Step 1 to the 'Success' state."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

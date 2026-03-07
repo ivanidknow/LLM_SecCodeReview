@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: ATOMIC_OPERATION_TRANSACTION_INTEGRITY
+@GOAL: AUDIT_COMPLEX_DATA_CHANGES_FOR_ATOMICS_CONSISTENCY_AND_ROLLBACK_RELIABILITY_UNDER_FAILURE
+@PARENT_CONTEXT: toctou_analysis.protocol, negative_zero_injection.protocol, post_action_replay.protocol
+
+<GLOBAL_VARS>
+# Характеристики атомарности
+ATOMICITY_MARKERS: {
+  "TRANSACTION_BLOCKS": "(BEGIN TRANSACTION|COMMIT|ROLLBACK|session.startTransaction())",
+  "DISTRIBUTED_TX": "(2PC|Two-Phase-Commit|Saga_Pattern)",
+  "ATOMIC_OPERATIONS": "($inc|$push|UPDATE SET balance = balance - X)"
+}
+
+# Сценарии нарушения целостности
+INTEGRITY_VIOLATIONS: {
+  "PARTIAL_COMMIT": "First update succeeds, second fails, but first is not rolled back",
+  "DIRTY_READ": "One transaction reads uncommitted changes from another",
+  "PHANTOM_RESOURCES": "Resource is deducted from pool but never assigned to user due to crash",
+  "DISTRIBUTED_DESYNC": "Microservice A completes, Microservice B fails without compensation"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[TOCTOU_LOG]     <- {from: toctou_analysis.protocol, scope: "RACE_PHASES"}
+[MONEY_TARGETS]  <- {from: negative_zero_injection.protocol, scope: "FINANCIAL"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты целостности транзакций
+! ([COMPOSITE_ACTION] -> ![TRANSACTION_SCOPE]) : "BLOCKER: Non-Atomic Composite Action. Multiple DB updates are performed sequentially without a transaction wrapper, leading to inconsistent state on partial failure."
+! ([ERROR_HANDLER] -> ![ROLLBACK]) : "CRITICAL: Missing Rollback. An exception is caught, but previously executed DB changes in the same logical flow are not reverted."
+! ([DISTRIBUTED_FLOW] -> ![COMPENSATION_LOGIC]) : "HIGH: Missing Saga Compensation. In a multi-service flow, a failure in a downstream service does not trigger a compensating 'undo' action in upstream services."
+! ([UPDATE] -> "Application_Side_Math" && ![LOCKING]) : "HIGH: Lost Update. Server-side code calculates a new value (val = old + 1) instead of using atomic DB increments, causing overwrites during concurrency."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TRANSACTION_BOUNDARY_SCAN:
+   - Идентифицировать все «многоступенчатые» изменения данных (например, Order + Payment + Stock_Update).
+   - Проверить наличие явных границ транзакций в коде [ATOMICITY_MARKERS].
+
+2. PARTIAL_FAILURE_STRESS_TEST:
+   - Смоделировать сбой (Throw Error) между двумя зависимыми записями в БД.
+   - Убедиться, что первая запись была успешно отменена (Rollback).
+
+3. ISOLATION_LEVEL_AUDIT:
+   - Проверить уровень изоляции БД (Read Committed, Repeatable Read, Serializable).
+   - Проверить, не возникают ли «грязные чтения» (Dirty Reads), которые могут привести к принятию решений на основе временных данных.
+
+4. ATOMIC_INCREMENT_VERIFICATION:
+   - Для счетчиков и балансов проверить использование атомарных операторов БД (например, `$inc` в MongoDB или `UPDATE table SET val = val + 1` в SQL).
+   - Пометить как уязвимые паттерны `record.val += 1; record.save();`.
+
+5. DISTRIBUTED_CONSISTENCY_PROBE:
+   - Если используется микросервисная архитектура: проверить логику идемпотентности и подтверждения (Acknowledgement) между сервисами.
+   - См. `idempotency_strategy_audit` в `post_action_replay.protocol`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TRANSACTION_REPORT:
+  - FLOW_NAME | DB_ENGINE | TRANSACTION_SUPPORTED | FAILURE_RESILIENCE | RISK_LEVEL
+VISUALIZE: "Image of an atomic vs non-atomic transaction flow: showing a split screen where a failed non-atomic flow leaves orphaned data, while an atomic flow rolls back to a clean state."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: PERSISTENCE_TO_MEMORY_TAINTING
+@GOAL: IDENTIFY_SECOND_ORDER_TAINT_SOURCES_FROM_DATABASES_AND_CACHES_TO_PREVENT_LATENT_EXPLOITATION
+@PARENT_CONTEXT: database_query_sinks.protocol, data_inventory.protocol, volatile_storage.protocol
+
+<GLOBAL_VARS>
+# Источники вторичного загрязнения (Second-Order Sources)
+PERSISTENT_SOURCES: {
+  "SQL_NOSQL": "(db\.find|db\.query|SELECT\s+.*|collection\.findOne)",
+  "CACHE": "(redis\.get|memcached\.get|cache\.fetch)",
+  "S3_OBJECTS": "(s3\.getObject|bucket\.read)"
+}
+
+# Признаки снижения бдительности (Trust Bias)
+TRUST_BIAS_MARKERS: {
+  "NO_VALIDATION": "Checking if data from DB bypasses [VALIDATION_GATES]",
+  "UNSAFE_RENDERING": "Direct output of DB fields to UI (XSS)",
+  "DYNAMIC_REQUIRE": "Using DB strings for file paths or module loading"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DATA_ASSETS]    <- {from: data_inventory.protocol, scope: "SENSITIVE_FIELDS|USER_GENERATED_CONTENT"}
+[DB_SINKS]       <- {from: database_query_sinks.protocol, scope: "READ_OPERATIONS"}
+[CACHE_ASSETS]   <- {from: volatile_storage.protocol, scope: "CACHE_KEYS|SERIALIZATION"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты вторичного доверия
+! ([PERSISTENT_SOURCES] -> [INTERNAL_SINK] && ![RE_VALIDATION]) : "CRITICAL: Second-Order Injection. Data retrieved from storage is used in a sensitive sink without re-validation. Risk: Stored XSS / SQLi."
+! ([CACHE] -> "JSON.parse" && ![SCHEMAS]) : "HIGH: Cache Poisoning to RCE. Untrusted data from cache is deserialized into internal objects without schema enforcement."
+! ([DATA_ASSETS.USER_CONTENT] -> "System_Command") : "BLOCKER: Persistent Command Injection. User-controlled strings from DB reach an OS command sink during background tasks."
+? ([PERSISTENT_SOURCES] -> [DATA_INVENTORY.SENSITIVE]) : "MEDIUM: Privacy Leak. Sensitive records retrieved from DB are logged or exposed due to assumed trust."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. STORAGE_READ_IDENTIFICATION:
+   - Идентифицировать все методы чтения данных из [PERSISTENT_SOURCES].
+   - Сопоставить результаты с [DATA_ASSETS], пометив поля, которые могут быть изменены пользователем.
+
+2. TAINT_RE_ENTRY_MAPPING:
+   - Пометить возвращаемые значения из БД/Кэша как "Second-Order Taint Seeds".
+   - Проверить, сохраняется ли "метка загрязнения" (Taint Tag) при передаче этих данных между сервисами.
+
+3. CROSS_CONTEXT_ANALYSIS:
+   - Анализ сценариев, где данные записываются в одном контексте (например, API регистрации), а читаются в другом (например, Admin Dashboard).
+   - Проверить наличие санитайзеров на выходе (Output Sanitization), если они отсутствовали на входе.
+
+4. CACHE_INTEGRITY_AUDIT:
+   - Проверить, как данные попадают в [CACHE]. Если запись в кэш идет из [HTTP_TAINT_SOURCES], пометить кэш как недоверенный источник.
+   - Анализ механизмов сериализации в Redis/Memcached на предмет Insecure Deserialization.
+
+5. BACKGROUND_WORKER_PROBE:
+   - Проверить фоновые задачи (Cron jobs, Workers), которые читают данные из очереди или БД. 
+   - Убедиться, что они применяют те же правила валидации, что и основные контроллеры.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SECOND_ORDER_REPORT:
+  - STORAGE_TYPE | SOURCE_QUERY | TAINTED_FIELD | SINK_REACHED | RISK_LEVEL
+VISUALIZE: "Image of a Second-Order attack flow: showing user input stored in a database and subsequently triggering a vulnerability in a separate administrative context."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

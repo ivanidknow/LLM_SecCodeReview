@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: PARAMETER_POLLUTION_IN_MULTI_STEP_FLOWS
+@GOAL: PREVENT_DATA_INCONSISTENCY_AND_LOGIC_BYPASS_BY_TAMPERING_WITH_INTERMEDIATE_WORKFLOW_PARAMETERS
+@PARENT_CONTEXT: step_skipping_logic.protocol, behavioral_inconsistency.protocol, output_context_identification.protocol
+
+<GLOBAL_VARS>
+# Механизмы передачи состояния между шагами
+STATE_CARRIERS: {
+  "HIDDEN_FIELDS": "<input type='hidden' name='price' value='100'>",
+  "URL_QUERY": "/checkout/step2?discount_id=VOUCHER20",
+  "SESSION_STORAGE": "req.session.temporaryData",
+  "CLIENT_SIDE_JWT": "Signed/Unsigned tokens containing step data"
+}
+
+# Векторы загрязнения (Pollution Vectors)
+POLLUTION_VECTORS: {
+  "SHADOW_OVERWRITE": "Adding a second parameter with the same name: step2?price=100&price=1",
+  "PRE_ACTION_INJECTION": "Injecting parameters meant for Step 3 during Step 1",
+  "STATE_DESYNC": "Modifying a parameter that should be 'locked' after the first step"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[WORKFLOW]       <- {from: step_skipping_logic.protocol, scope: "STATE_MACHINE"}
+[PARSER_LOGIC]   <- {from: behavioral_inconsistency.protocol, scope: "PARAMETER_POLLUTION"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты многошаговых параметров
+! ([STEP_N] -> [INPUT] && [MODIFIES_STEP_N-1_DATA]) : "CRITICAL: Retroactive Parameter Tampering. User can modify data established in previous steps (e.g., price, discount) by re-submitting it in the current step."
+! ([HIDDEN_FIELD] -> ![SERVER_SIDE_VALIDATION]) : "BLOCKER: Trusted Client-Side State. The server trusts a hidden field for a critical value (e.g., 'amount') without re-verifying it against the database."
+! ([PARSER_LOGIC.HPP] -> [STATE_CARRIERS]) : "HIGH: HPP in Workflow. Duplicate parameters cause the server to use an attacker-controlled value instead of the system-set value."
+? ([SESSION_STORAGE] -> "No_Step_Lock") : "MEDIUM: Step Desynchronization. Data from a previous unfinished flow leaks into a new flow because the session object was not cleared."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DATA_PERSISTENCE_MAPPING:
+   - Определить, как данные сохраняются между шагами 1, 2 и 3.
+   - Идентифицировать использование [STATE_CARRIERS].
+
+2. IMMUTABILITY_CHECK:
+   - Найти «критические константы» процесса (ID товара, цена, ID пользователя).
+   - Проверить, не принимаются ли эти значения повторно из `req.body` или `req.query` на финальных этапах.
+
+3. HPP_WORKFLOW_PROBE:
+   - Попытаться отправить дублирующие параметры на каждом шаге. Проверить, какой из них (первый или последний) использует логика сервера для расчетов.
+   - Использовать `parser_mismatch_detection.protocol` для оценки влияния.
+
+4. CROSS_STEP_INJECTION_TEST:
+   - Попытаться отправить параметры Шага 3 (например, `is_confirmed=true`) во время Шага 1. Проверить, сохранит ли их сервер в сессии/объекте до конца процесса.
+
+5. JWT_STATE_INTEGRITY_AUDIT:
+   - Если состояние передается через токены на клиенте: проверить подпись (Signature) и убедиться, что пользователь не может изменить полезную нагрузку.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_POLLUTION_REPORT:
+  - STEP_CONTEXT | POLLUTED_PARAMETER | PERSISTENCE_LAYER | RISK_SCENARIO | SEVERITY
+VISUALIZE: "Image of a multi-step parameter pollution attack: showing how a price parameter set on Step 1 is overwritten by an attacker-supplied hidden field on Step 2, leading to an incorrect total on Step 3."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

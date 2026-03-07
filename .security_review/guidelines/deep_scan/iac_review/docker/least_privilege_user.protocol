@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: LEAST_PRIVILEGE_USER_ENFORCEMENT
+@GOAL: ELIMINATE_ROOT_EXECUTION_IN_CONTAINERS_TO_MINIMIZE_IMPACT_OF_APPLICATION_COMPROMISE
+@PARENT_CONTEXT: pod_security_context.protocol, attack_surface_reduction.protocol
+
+<GLOBAL_VARS>
+# Паттерны проверки Dockerfile
+DOCKER_USER_PATTERNS: {
+  "USER_INSTRUCTION": "USER\\s+(\\w+)",
+  "SUDO_INSTALL": "apt-get install.*sudo",
+  "CHOWN_OPERATIONS": "COPY --chown=[\\w:]+",
+  "ROOT_UID": "0"
+}
+
+# Риски исполнения (Runtime Risks)
+RUNTIME_RISKS: {
+  "FILESYSTEM_ACCESS": "Root can modify sensitive /etc or /proc entries",
+  "PRIVILEGED_PORTS": "Only root can bind to ports < 1024",
+  "CONTAINER_ESCAPE": "Root in container + kernel vulnerability = Root on Host"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[K8S_CONTEXT]    <- {from: pod_security_context.protocol, scope: "RUN_AS_USER"}
+[SURFACE]        <- {from: attack_surface_reduction.protocol, scope: "BINARIES_REMOVAL"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты безопасности пользователя
+! (DOCKERFILE -> ! "USER") : "BLOCKER: Container Running as Root. No USER instruction found in Dockerfile. The process will run with UID 0 by default."
+! (DOCKERFILE -> "USER root") : "CRITICAL: Explicit Root User. The image explicitly switches to root for execution, increasing the risk of container escape."
+! (DOCKERFILE -> "apt-get install sudo") : "HIGH: Sudo in Container. Presence of sudo allows privilege escalation within the container, violating least privilege."
+! (DOCKERFILE -> "COPY" && ! "--chown") : "MEDIUM: Incorrect File Ownership. Files copied into the image are owned by root, forcing the app to run as root to access them."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. USER_INSTRUCTION_AUDIT:
+   - Проверить наличие команды `USER <name|uid>` в финальной стадии Dockerfile.
+   - Убедиться, что пользователь создан заранее через `RUN groupadd -r app && useradd -r -g app app`.
+
+2. PORT_BINDING_CHECK:
+   - Проверить инструкцию `EXPOSE`. Если используются порты < 1024 (например, 80 или 443), убедиться, что приложение перенастроено на непривилегированные порты (например, 8080).
+
+3. FILESYSTEM_PERMISSION_ANALYSIS:
+   - Проанализировать команды `COPY` и `ADD`. Использовать флаг `--chown=user:group` для передачи прав пользователю с низкими привилегиями.
+   - Проверить права на директории логов и кеша: они должны быть доступны на запись только конкретному пользователю приложения.
+
+4. DYNAMIC_RUNTIME_VERIFICATION:
+   - Если есть доступ к запущенному контейнеру: выполнить `id` или `whoami`.
+   - Проверить эффективные способности (Capabilities) через `capsh --print`.
+
+5. BASE_IMAGE_USER_INHERITANCE:
+   - Проверить, не переопределяет ли базовый образ (FROM) пользователя на root.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_USER_HARDENING_REPORT:
+  - DOCKERFILE_PATH | RUNTIME_USER | UID/GID | SUDO_PRESENT | REMEDIATION_STEPS
+VISUALIZE: "Image of a Dockerfile best practices diagram: showing a comparison between a vulnerable Dockerfile (no USER, apt-get sudo) and a hardened version (dedicated USER, non-privileged ports, minimal permissions)."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

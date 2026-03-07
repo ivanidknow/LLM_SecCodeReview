@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: NETWORK_POLICY_MICROSEGMENTATION
+@GOAL: LIMIT_LATERAL_MOVEMENT_BY_ENFORCING_LEAST_PRIVILEGE_NETWORK_ACCESS_BETWEEN_WORKLOADS
+@PARENT_CONTEXT: pod_security_context.protocol, cloud_network_perimeter.protocol
+
+<GLOBAL_VARS>
+# Типы селекторов в политиках
+POLICY_SELECTORS: {
+  "POD_SELECTOR": "Selection by labels (app=backend)",
+  "NAMESPACE_SELECTOR": "Isolation between environments (dev/prod)",
+  "IP_BLOCK": "Restricting access to/from external CIDRs"
+}
+
+# Критические риски
+NET_RISKS: {
+  "EGRESS_TO_METADATA": "Access to Cloud Metadata (169.254.169.254)",
+  "INTERNAL_SCANNING": "Lateral scanning of other Pods/Services",
+  "DATA_EXFILTRATION": "Unrestricted egress to the internet"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[POD_SECURITY]   <- {from: pod_security_context.protocol, scope: "SECURITY_CONTEXT"}
+[CLOUD_PERIMETER]<- {from: cloud_network_perimeter.protocol, scope: "NETWORK_PERIMETER"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты сетевой безопасности
+! (NAMESPACE -> ! "NetworkPolicy") : "BLOCKER: Flat Network Detected. No NetworkPolicies found in the namespace. Any compromised pod can scan and attack the entire cluster."
+! (YAML -> "NetworkPolicy" && ! "podSelector: {}" && ! "policyTypes: [Ingress, Egress]") : "CRITICAL: Missing Default Deny. Without a default-deny policy, the network remains open for any traffic not explicitly covered by other rules."
+! (YAML -> "egress" && "169.254.169.254/32") : "HIGH: Cloud Metadata Exposure. Pods can access the cloud metadata service, potentially leading to IAM token theft."
+! (YAML -> "ingress" && "from: []") : "HIGH: Overly Permissive Ingress. Ingress rules that allow traffic from any pod or namespace (except for LoadBalancers/Ingress Controllers)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DEFAULT_DENY_VERIFICATION:
+   - Проверить наличие политики `default-deny-all` (или аналогичной по смыслу) для каждого Namespace.
+   - Убедиться, что она применяется и к входящему (Ingress), и к исходящему (Egress) трафику.
+
+2. INGRESS_WHITELIST_AUDIT:
+   - Для каждого сервиса (например, DB, Cache) проверить наличие специфической `NetworkPolicy`, разрешающей доступ только от конкретных фронтенд-подов по нужным портам.
+   - Избегать использования `namespaceSelector: {}` (разрешение из любого пространства имен).
+
+3. EGRESS_LIMITATION_CHECK:
+   - Проверить правила исходящего трафика. Ограничить доступ к DNS (только `kube-system/kube-dns`).
+   - Запретить прямой доступ к интернету для внутренних сервисов, которые в этом не нуждаются.
+
+4. CNI_CAPABILITY_AUDIT:
+   - Убедиться, что установленный CNI-плагин (Calico, Cilium, Azure CNI) поддерживает и применяет NetworkPolicies.
+   - Проверить использование продвинутых функций (например, L7-фильтрация в Cilium).
+
+5. INTER-NAMESPACE_ISOLATION:
+   - Проверить, что поды из `Namespace: Dev` не могут общаться с подами из `Namespace: Prod`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_NETWORK_SEGMENTATION_REPORT:
+  - NAMESPACE | POLICY_NAME | SCOPE (Ingress/Egress) | DEFAULT_DENY_STATUS | PERMISSIVENESS_LEVEL
+VISUALIZE: "Image of Kubernetes Network Policies visualization: contrasting a 'Flat Network' without policies (red arrows everywhere) with a 'Segmented Network' using NetworkPolicies (green arrows only for legitimate flows)."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

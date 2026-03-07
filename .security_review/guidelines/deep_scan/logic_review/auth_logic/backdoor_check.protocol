@@ -1,0 +1,58 @@
+<DFD_MODELING_V3>
+@ID: DEFAULT_GUEST_ACCOUNT_BACKDOOR_CHECK
+@GOAL: IDENTIFY_HARDCODED_CREDENTIALS_HIDDEN_LOGIC_BYPASSES_AND_INSECURE_TEST_ACCOUNTS
+@PARENT_CONTEXT: validation_bypass_conditional_logic.protocol, administrative_interface_exposure.protocol, identity_model.protocol
+
+<GLOBAL_VARS>
+# Сигнатуры бэкдоров и дефолтных учеток
+BACKDOOR_MARKERS: {
+  "HARDCODED_CREDS": "(password === '.*'|if \(token === 'DEBUG_TOKEN'\))",
+  "SECRET_PARAMS": "(if \(req.query.bypass === 'true'\)|req.headers\['x-admin-secret'\])",
+  "GUEST_ROLES": "(GuestUser|Anonymous_Admin|Test_Account)",
+  "MOCK_AUTH": "(if \(process.env.NODE_ENV === 'test'\) { auth = true; })"
+}
+
+# Список распространенных дефолтных паролей для поиска в БД/Конфигах
+DEFAULT_PASSWORDS: ["admin", "password", "123456", "guest", "root", "changeme", "qwerty"]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[BYPASS_LOGIC]   <- {from: validation_bypass_conditional_logic.protocol, scope: "SHORT_CIRCUITS"}
+[ADMIN_CONFIG]   <- {from: administrative_interface_exposure.protocol, scope: "ADMIN_PATH_PATTERNS"}
+[ENV_VARS]       <- {from: env_specific_hardening.protocol, scope: "DEV_CREDENTIALS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты отсутствия бэкдоров
+! ([CODE_BASE] -> [BACKDOOR_MARKERS.HARDCODED_CREDS]) : "BLOCKER: Hardcoded Backdoor Found. Logic allows access via a hardcoded password or secret token."
+! ([ENV_PROD] && [BACKDOOR_MARKERS.MOCK_AUTH]) : "CRITICAL: Mock Auth in Production. Test/Mock authentication logic is active in the production environment."
+! ([IDENTITY.ROLES] -> "Guest" && [SENSITIVE_PERMISSIONS]) : "HIGH: Insecure Guest Account. A default guest or anonymous account has excessive permissions to read or modify data."
+! ([DB_SEED] -> [DEFAULT_PASSWORDS]) : "CRITICAL: Default Credentials in Database. Initial database seeds or migration files contain accounts with predictable passwords."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SOURCE_CODE_SECRET_SCAN:
+   - Выполнить поиск по [BACKDOOR_MARKERS] во всей кодовой базе.
+   - Особое внимание уделить файлам `auth.service`, `passport.js`, `middleware/auth.js` и конфигурационным файлам.
+
+2. TEST_ACCOUNT_AUDIT:
+   - Проверить файлы миграций БД и `seed` файлы на наличие создаваемых по умолчанию учетных записей.
+   - Попытаться авторизоваться под стандартными парами логин/пароль из [DEFAULT_PASSWORDS].
+
+3. CONDITIONAL_BYPASS_ANALYSIS:
+   - Использовать [BYPASS_LOGIC] для поиска условий типа `if (process.env.SKIP_AUTH)` или `if (user.is_internal)`.
+   - Проверить, может ли злоумышленник подделать условия этого "Internal" статуса (например, через заголовок `X-Forwarded-For: 127.0.0.1`).
+
+4. HIDDEN_HEADER_PROBE:
+   - Проверить код на наличие проверок специфических HTTP-заголовков, которые могут давать привилегированный доступ (например, `X-Developer-Mode`).
+
+5. DYNAMIC_PRIVILEGE_CHECK:
+   - Исследовать функции, присваивающие роли при регистрации. Убедиться, что нельзя получить роль `Admin`, просто передав соответствующее поле в JSON-объекте (Mass Assignment).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_BACKDOOR_REPORT:
+  - TYPE (Hardcoded/Logic/Default) | LOCATION | EXPLOIT_METHOD | RISK_IMPACT | REMEDIATION
+VISUALIZE: "Image of a backdoor entry point: showing a logic branch where a specific secret header or hardcoded token bypasses the entire authentication and authorization stack."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: SCHEMA_BASED_VALIDATION_AUDIT
+@GOAL: VERIFY_EFFECTIVENESS_OF_DTO_AND_JSON_SCHEMA_VALIDATION_IN_REMOVING_TAINT_TAGS
+@PARENT_CONTEXT: validation_chokepoints.protocol, framework_security_enforcement.protocol, payload_analysis.protocol
+
+<GLOBAL_VARS>
+# Популярные движки валидации
+VALIDATION_ENGINES: {
+  "JS_TS": "(class-validator|ajv|zod|joi)",
+  "PYTHON": "(pydantic|marshmallow|cerberus)",
+  "JAVA": "(hibernate-validator|javax.validation)"
+}
+
+# Критические настройки безопасности схем
+STRICT_SCHEMA_SETTINGS: {
+  "FORBID_UNKNOWN": "whitelist: true / forbidNonWhitelisted: true / additionalProperties: false",
+  "STRIP_EXTRA": "stripUnknown: true",
+  "COERCION_LIMITS": "Check if implicit type conversion is allowed"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[CHOKEPOINTS]    <- {from: validation_chokepoints.protocol, scope: "DTO_SCHEMAS"}
+[FRAMEWORK_SEC]  <- {from: framework_security_enforcement.protocol, scope: "VALIDATION_PIPES"}
+[TAINT_SOURCES]  <- {from: untrusted_source_identification.protocol, scope: "HTTP_BODY|EXTERNAL_API"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты валидации схем
+! ([TAINT_SOURCES] -> [CHOKEPOINTS] && ![STRICT_SCHEMA_SETTINGS.FORBID_UNKNOWN]) : "HIGH: Loose Schema Validation. Schema allows unknown properties, enabling Mass Assignment or Prototype Pollution."
+! ([DTO_DECORATORS] -> "@IsOptional()" && ![SINK_DEFAULT_VALUE]) : "MEDIUM: Missing Default Handling. Optional fields may bypass validation and lead to Uninitialized Variable usage in sinks."
+! ([VALIDATION_ENGINE] -> "implicit_type_coercion: true") : "LOW: Type Juggling Risk. Automated type conversion might bypass specific string or number constraints."
+? ([CHOKEPOINTS] -> "stripUnknown: true") : "INFO: Taint Removal. Unknown properties are automatically removed; only validated fields remain 'Untrusted' (but verified)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SCHEMA_ENGINE_IDENTIFICATION:
+   - Определить используемые библиотеки из [VALIDATION_ENGINES] через анализ зависимостей.
+   - Найти места инициализации глобальных пайпов валидации (например, в NestJS `ValidationPipe`).
+
+2. DTO_STRUCTURE_AUDIT:
+   - Проверить определения классов DTO или JSON-схем на наличие декораторов типа `@IsString()`, `@IsInt()`, `@MaxLength()`.
+   - Убедиться, что для каждого поля из [TAINT_SOURCES] задан строгий тип.
+
+3. UNKNOWN_PROPERTY_POLICY_CHECK:
+   - Проверить наличие настроек [STRICT_SCHEMA_SETTINGS].
+   - Если `additionalProperties` разрешены, пометить схему как "Partial Sanitizer" (не снимать метку Taint с объекта целиком).
+
+4. NESTED_OBJECT_VALIDATION_TRACE:
+   - Проверить рекурсивную валидацию вложенных объектов (например, `@ValidateNested()`).
+   - Если вложенный объект не валидируется — он остается "Full Tainted".
+
+5. TAINT_CLEARANCE_LOGIC:
+   - Если данные успешно прошли через [CHOKEPOINTS] с включенным `whitelist: true`, заменить метку "Raw Taint" на "Validated Data".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SCHEMA_AUDIT_REPORT:
+  - SCHEMA_NAME | ENGINE | STRICTNESS_LEVEL | VULNERABLE_FIELDS | MITIGATION_STATUS
+VISUALIZE: "Image of a JSON schema validation process: showing how an incoming JSON with extra malicious fields is filtered, leaving only whitelisted properties."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

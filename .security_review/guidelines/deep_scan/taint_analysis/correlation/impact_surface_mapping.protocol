@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: IMPACT_SURFACE_MAPPING
+@GOAL: QUANTIFY_THE_POTENTIAL_DAMAGE_AND_DATA_EXPOSURE_RESULTING_FROM_SUCCESSFUL_PATH_EXPLOITATION
+@PARENT_CONTEXT: data_inventory.protocol, bia_risk_mapping.protocol, lateral_movement.protocol
+
+<GLOBAL_VARS>
+# Категории воздействия (Impact Vectors)
+IMPACT_CATEGORIES: {
+  "CONFIDENTIALITY": "(Data Leakage | PII Exposure | Secret Exfiltration)",
+  "INTEGRITY": "(Unauthorized Update | Account Takeover | System Configuration Change)",
+  "AVAILABILITY": "(Service Disruption | Resource Exhaustion | Data Deletion)",
+  "COMPLIANCE": "(PCI-DSS Violation | GDPR Non-compliance)"
+}
+
+# Оценка масштаба (Blast Radius Levels)
+BLAST_RADIUS: {
+  "LOCAL": "Affects only the current user/session",
+  "TENANT": "Affects all users within a specific organization/tenant",
+  "GLOBAL": "Affects the entire application or infrastructure",
+  "SYSTEM": "Potential for Host OS compromise or Cloud Provider escape"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[DATA_ASSETS]    <- {from: data_inventory.protocol, scope: "SENSITIVE_FIELDS|VOLUMES"}
+[BUSINESS_VALUE] <- {from: bia_risk_mapping.protocol, scope: "CRITICAL_PROCESSES"}
+[LATERAL_MOVE]   <- {from: lateral_movement.protocol, scope: "PIVOT_POINTS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты оценки ущерба
+! ([SINK_TYPE] == "RCE" || [SINK_TYPE] == "SQLi_ADMIN") : "CRITICAL: Global Blast Radius. Successful exploitation leads to full system or database compromise."
+! ([PATH_LEADS_TO] -> [DATA_ASSETS.PII]) : "HIGH: Privacy Breach. The exploit path allows unauthorized access to Personally Identifiable Information."
+! ([SINK] -> "Shared_Resource_Lock") : "MEDIUM: Denial of Service Impact. Exploitation can be used to exhaust resources, affecting [AVAILABILITY] for other users."
+? ([PATH] -> [LATERAL_MOVE.PIVOT]) : "HIGH: Pivoting Risk. The compromised component has access to internal networks or management APIs."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DATA_EXPOSURE_ANALYSIS:
+   - Определить, к каким таблицам, объектам или файлам [DATA_ASSETS] имеет доступ уязвимый Sink.
+   - Оценить объем данных (одна запись vs вся база).
+
+2. PRIVILEGE_ESCALATION_PROBE:
+   - Проверить, позволяет ли уязвимость повысить права (например, из обычного пользователя в администратора через IDOR или Mass Assignment).
+
+3. DOWNSTREAM_EFFECT_MAPPING:
+   - Анализ влияния на смежные сервисы. Если сервис скомпрометирован, какие токены или учетные данные он хранит для доступа к другим системам?
+
+4. BUSINESS_PROCESS_CORRELATION:
+   - Сопоставить затронутые компоненты с критическими процессами из [BUSINESS_VALUE].
+   - Оценить финансовые и репутационные риски.
+
+5. BLAST_RADIUS_DETERMINATION:
+   - Сформировать итоговую оценку [BLAST_RADIUS] на основе совокупности факторов.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_IMPACT_SURFACE_REPORT:
+  - EXPLOIT_PATH_ID | IMPACT_CATEGORY | AFFECTED_ASSETS | BLAST_RADIUS_LEVEL | RISK_SCORE
+VISUALIZE: "Image of a blast radius diagram: showing how a vulnerability in a single web component can spread horizontally to other services and vertically to the underlying infrastructure."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

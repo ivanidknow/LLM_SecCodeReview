@@ -1,0 +1,65 @@
+<DFD_MODELING_V3>
+@ID: AUDIT_LOGGING_MONITORING_CONFIGURATION
+@GOAL: ENSURE_VISIBILITY_AND_TRACEABILITY_BY_ENFORCING_COMPREHENSIVE_AUDIT_TRAILS_AND_REAL_TIME_ALERTS
+@PARENT_CONTEXT: encryption_rest_transit.protocol, iam_least_privilege.protocol
+
+<GLOBAL_VARS>
+# Критические источники логов
+AUDIT_SOURCES: {
+  "CONTROL_PLANE": "(aws_cloudtrail|google_logging_project_sink|azurerm_monitor_diagnostic_setting)",
+  "NETWORK_TRAFFIC": "VPC Flow Logs",
+  "DATA_ACCESS": "S3 Data Events / Cloud Storage Object Logging",
+  "DNS_QUERIES": "Route53 / Cloud DNS Query Logs"
+}
+
+# Метрики мониторинга (Alert Thresholds)
+SECURITY_ALERTS: [
+  "Unauthorized API calls",
+  "IAM Policy changes",
+  "Security Group modifications",
+  "Root account usage",
+  "MFA-less logins"
+]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[IAM_AUDIT]      <- {from: iam_least_privilege.protocol, scope: "DANGEROUS_ACTIONS"}
+[ENCRYPTION]     <- {from: encryption_rest_transit.protocol, scope: "AT_REST"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты аудита и мониторинга
+! (Cloud_Account -> ![CloudTrail/ActivityLog]) : "BLOCKER: Control Plane Blindness. Management events are not being recorded globally, making it impossible to audit who did what in the cloud console/API."
+! (Audit_Log_Bucket -> ! "log_file_validation_enabled") : "CRITICAL: Log Integrity at Risk. Without digest validation, an attacker who compromises the account can modify or delete audit trails to hide their tracks."
+! (Audit_Log_Bucket -> ![ENCRYPTION.AT_REST]) : "HIGH: Unencrypted Logs. Audit data containing sensitive metadata is stored in plaintext."
+! (VPC -> ![VPC_Flow_Logs]) : "MEDIUM: No Network Trace. Lack of flow logs prevents investigation of data exfiltration or internal scanning."
+? (Alert_Config -> ! "Critical_IAM_Changes") : "WARNING: Delayed Detection. No real-time alerts for modification of security-critical resources like IAM Roles or KMS Policies."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. GLOBAL_AUDIT_ENFORCEMENT:
+   - Проверить наличие `aws_cloudtrail` с параметром `is_multi_region_trail = true`.
+   - Убедиться, что логи собираются во всех регионах, включая неиспользуемые.
+
+2. LOG_IMMUTABILITY_AUDIT:
+   - Проверить настройки бакета для хранения логов. Обязательно: `Enable log file validation`.
+   - Рекомендовать использование S3 Object Lock (WORM) для предотвращения удаления логов на определенный период.
+
+3. ACCESS_LOGGING_VERIFICATION:
+   - Проверить включение Access Logging для критических бакетов и Load Balancers.
+   - Убедиться, что логи RDS/Database передаются в CloudWatch/Stackdriver.
+
+4. MONITORING_ALERTS_SCAN:
+   - Проверить наличие `aws_cloudwatch_log_metric_filter` для событий из [SECURITY_ALERTS].
+   - Убедиться, что алерты подключены к каналам оповещения (SNS -> Email/Slack/PagerDuty).
+
+5. CENTRALIZED_LOG_MANAGEMENT:
+   - Оценить, передаются ли логи в выделенный Security Account (Log Archive), изолированный от основного продакшена.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_MONITORING_REPORT:
+  - LOG_SOURCE | RETENTION_PERIOD | INTEGRITY_PROTECTION | ALERTS_CONFIGURED | SEVERITY
+VISUALIZE: "Image of a centralized cloud logging architecture: showing various log sources (CloudTrail, VPC Flow Logs, App Logs) flowing into a dedicated and encrypted Log Archive Bucket with real-time monitoring and alerting triggers."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

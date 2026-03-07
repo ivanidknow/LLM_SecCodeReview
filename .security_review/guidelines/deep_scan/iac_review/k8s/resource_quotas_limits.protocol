@@ -1,0 +1,59 @@
+<DFD_MODELING_V3>
+@ID: RESOURCE_QUOTAS_LIMITS_DOS_PROTECTION
+@GOAL: PREVENT_NODE_LEVEL_DOS_AND_ENSURE_FAIR_SCHEDULING_BY_ENFORCING_CPU_AND_MEMORY_CONSTRAINTS
+@PARENT_CONTEXT: inventory_resource_exhaustion.protocol, competitive_resource_exhaustion.protocol
+
+<GLOBAL_VARS>
+# Типы ограничений
+RESOURCE_TYPES: {
+  "REQUESTS": "Guaranteed resources (Minimum for scheduling)",
+  "LIMITS": "Hard cap (Maximum allowed consumption)",
+  "QUOTAS": "Namespace-level aggregate limits"
+}
+
+# Критические риски отсутствия лимитов
+DOS_VECTORS: {
+  "OOM_KILL_CASCADING": "One container triggers node-pressure, killing critical system pods",
+  "CPU_STARVATION": "A malicious miner/process starves the kernel or other apps",
+  "FORK_BOMB": "Exhausting PID limits of the node"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[EXHAUSTION]    <- {from: inventory_resource_exhaustion.protocol, scope: "SCARCE_RESOURCES"}
+[COMPETITION]   <- {from: competitive_resource_exhaustion.protocol, scope: "FAIR_SHARE_QUOTA"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты стабильности ресурсов
+! (Container -> ![resources.limits.memory]) : "BLOCKER: Missing Memory Limit. A memory leak or attack can consume all node RAM, leading to Out-Of-Memory (OOM) instability."
+! (Container -> ![resources.requests]) : "HIGH: Missing Resource Requests. K8s scheduler may oversubscribe the node, causing performance degradation and unexpected evictions."
+! (Namespace -> ![ResourceQuota]) : "MEDIUM: No Namespace Quota. A single dev/team can spawn enough pods to exhaust the entire cluster capacity."
+! (YAML -> "privileged: true" && ![LIMITS]) : "CRITICAL: Privileged Unbounded Container. Maximum risk: root access to the node without any resource constraints."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. LIMIT_PRESENCE_AUDIT:
+   - Проверить каждый контейнер в манифестах на наличие блоков `requests` и `limits`.
+   - Особое внимание к сторонним Helm-чартам и операторам.
+
+2. OOM_SCORE_ADJ_ANALYSIS:
+   - Понять QoS-класс пода (Guaranteed, Burstable, BestEffort).
+   - Убедиться, что критические сервисы имеют класс `Guaranteed` (requests == limits), чтобы их не убило первыми при дефиците памяти.
+
+3. NAMESPACE_QUOTA_REVIEW:
+   - Проверить наличие объектов `ResourceQuota` для каждого неймспейса. Ограничить общее количество Pods, Services, и PVC.
+
+4. PID_LIMITS_VERIFICATION:
+   - Если используется K8s 1.20+, проверить настройки `podPidsLimit` в Kubelet или использование `LimitRange` для ограничения количества процессов (защита от Fork Bomb).
+
+5. LIMIT_RANGE_ENFORCEMENT:
+   - Проверить наличие `LimitRange` в каждом неймспейсе, чтобы автоматически задавать дефолтные лимиты тем, кто забыл их прописать.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_RESOURCE_REPORT:
+  - NAMESPACE | DEPLOYMENT | QOS_CLASS | MISSING_LIMITS | DOS_RESILIENCE_SCORE
+VISUALIZE: "Image of Kubernetes resource management: illustrating the difference between requests and limits, and how ResourceQuotas prevent a single namespace from over-consuming cluster resources."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

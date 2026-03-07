@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: EVIDENCE_GENERATION_POC
+@GOAL: CONSTRUCT_REPRODUCIBLE_EVIDENCE_AND_POC_SCRIPTS_FOR_CONFIRMED_TAINT_PATHS
+@PARENT_CONTEXT: full_path_verification.protocol, exploit_payload_feasibility.protocol, impact_surface_mapping.protocol
+
+<GLOBAL_VARS>
+# Компоненты доказательной базы
+EVIDENCE_COMPONENTS: {
+  "HTTP_REQUEST": "Raw request sample (Curl/Burp format)",
+  "STACK_TRACE": "Sequence of function calls with line numbers",
+  "VARIABLE_STATE": "Value of variables at key propagation points",
+  "SINK_EXECUTION": "Proof that the payload was interpreted by the sink"
+}
+
+# Шаблон PoC
+POC_TEMPLATE: {
+  "TITLE": "Vulnerability Name",
+  "VECTOR": "Input source and protocol",
+  "PAYLOAD": "The specific string that triggers the issue",
+  "REPRODUCTION_STEPS": "Step-by-step guide to trigger the sink"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PATH_TRACE]      <- {from: full_path_verification.protocol, scope: "STEPS"}
+[FEASIBILITY]     <- {from: exploit_payload_feasibility.protocol, scope: "SURVIVING_PAYLOAD"}
+[IMPACT_MAP]      <- {from: impact_surface_mapping.protocol, scope: "RISK_LEVEL"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты генерации доказательств
+! ([EVIDENCE] -> ![REPRODUCTION_STEPS]) : "HIGH: Insufficient Evidence. POC lacks clear steps for reproduction, making it difficult for developers to fix."
+! ([POC_PAYLOAD] != [FEASIBILITY.SURVIVING_PAYLOAD]) : "CRITICAL: Invalid POC. The payload used in evidence will not survive the transformations identified in the feasibility analysis."
+! ([IMPACT_MAP.CRITICAL] -> ![SINK_EXECUTION_PROOF]) : "HIGH: Missing Impact Proof. A critical vulnerability must be accompanied by evidence of execution at the sink level."
+? ([POC_GENERATION] -> "Automated_Testing_Friendly") : "INFO: Fix Verification. The POC outline can be used to create a regression test."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. TRACE_LOG_RECONSTRUCTION:
+   - Собрать все шаги из [PATH_TRACE] в хронологическом порядке.
+   - Зафиксировать файлы и номера строк для каждой точки распространения.
+
+2. PAYLOAD_CRAFTING:
+   - Использовать [FEASIBILITY.SURVIVING_PAYLOAD] для создания финального вектора атаки.
+   - Подготовить различные варианты (например, закодированный и сырой) для разных уровней инфраструктуры.
+
+3. REQUEST_SAMPLE_GENERATION:
+   - Сформировать HTTP-запрос (Curl или Burp Suite формат), который доставляет пайлоад к источнику.
+   - Указать необходимые заголовки, параметры и тело запроса.
+
+4. SINK_OBSERVATION_STRATEGY:
+   - Определить, как подтвердить успех: через ответ сервера (In-band), через внешнее взаимодействие (Out-of-band/DNSLog) или через анализ логов.
+
+5. REPORT_ASSEMBLY:
+   - Объединить технические детали, оценку ущерба из [IMPACT_MAP] и шаги воспроизведения в единый отчет "Exploit Evidence".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_EVIDENCE_POC_DOC:
+  - VULNERABILITY_SUMMARY | EXPLOIT_VECTOR | REPRODUCTION_CURL | EXPECTED_RESULT | REMEDIATION_HINT
+VISUALIZE: "Image of a vulnerability report layout: showing a clear breakdown of the source, the vulnerable code path, and the proof-of-concept request."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

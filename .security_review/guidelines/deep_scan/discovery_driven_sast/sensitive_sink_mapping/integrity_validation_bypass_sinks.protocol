@@ -1,0 +1,65 @@
+<DFD_MODELING_V3>
+@ID: INTEGRITY_VALIDATION_BYPASS_SINKS
+@GOAL: IDENTIFY_POINTS_WHERE_SECURITY_CHECKS_CAN_BE_CIRCUMVENTED_VIA_LOGIC_OR_STATE_MANIPULATION
+@PARENT_CONTEXT: security_controls.protocol, validation_chokepoints.protocol, atomic_business_operations.protocol
+
+<GLOBAL_VARS>
+# Приемники для проверки криптографической целостности
+CRYPTO_SINKS: {
+  "SIGNATURE_VERIFY": "(crypto\.verify|jwt\.verify|OpenSSL\.verify|Signature\.verify)",
+  "HASH_COMPARE": "(crypto\.timingSafeEqual|bcrypt\.compare|hashlib\.compare_digest)",
+  "MAC_CHECK": "(hmac\.digest|crypto\.createHmac)"
+}
+
+# Приемники логического состояния и флагов (Feature Flags / Auth Overrides)
+LOGIC_BYPASS_SINKS: {
+  "FEATURE_FLAGS": "(isEnabled|isFeatureActive|checkFlag)",
+  "AUTH_OVERRIDES": "(isAdmin|hasPermission|skipValidation|bypass_auth)",
+  "STATE_TRANSITIONS": "(transitionTo|updateStatus|commitTransaction)"
+}
+
+# Паттерны для детекции "Loose Comparison" (уязвимости сравнения)
+LOOSE_COMPARISON_PATTERNS: "(==|!=|strcmp|is_equal)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SECURITY_GATEWAYS] <- {from: security_controls.protocol, scope: "ENFORCEMENT_POINTS"}
+[VALIDATION_RULES]  <- {from: validation_chokepoints.protocol, scope: "DTO_SCHEMAS"}
+[BUSINESS_STATES]   <- {from: atomic_business_operations.protocol, scope: "TRANSACTION_FLOWS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты целостности
+! ([EXTERNAL_INPUTS] -> [LOGIC_BYPASS_SINKS] && ![SECURITY_GATEWAYS]) : "BLOCKER: Privilege Bypass. User-controlled data directly influences a security flag or authorization check."
+! ([CRYPTO_SINKS] -> [LOOSE_COMPARISON_PATTERNS]) : "CRITICAL: Crypto Timing Attack / Type Juggling. Comparison of cryptographic hashes or signatures using non-constant-time operators."
+! ([BUSINESS_STATES] -> "Conditional_Skip") : "HIGH: Integrity Bypass. Critical business operation state can be jumped or bypassed via manipulated input variables."
+? ("Config_Parameter" -> [LOGIC_BYPASS_SINKS]) : "MEDIUM: Shadow Configuration. Hardcoded or undocumented configuration parameters that disable security features."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SECURITY_LOGIC_DISCOVERY:
+   - Идентифицировать функции, возвращающие булевы значения для проверок доступа (`isAllowed`, `isValid`).
+   - Найти все точки вызова криптографических библиотек из [CRYPTO_SINKS].
+
+2. COMPARISON_AUDIT:
+   - Проверить все операции сравнения в [CRYPTO_SINKS]. 
+   - Выявить использование `==` вместо `===` (в JS) или отсутствие функций `timingSafeEqual`, предотвращающих атаки по времени.
+
+3. FLAG_ORIGIN_TRACE:
+   - Выполнить обратный Taint-анализ для параметров, управляющих ветвлением логики (например, `if (req.body.isAdmin)`).
+   - Если параметр приходит из [EXTERNAL_INPUTS] без жесткой валидации в [SECURITY_GATEWAYS] — пометить как "BLOCKER".
+
+4. SIGNATURE_STRATEGY_VERIFY:
+   - Для JWT и HMAC: Проверить, что алгоритм (`alg`) зафиксирован на стороне сервера и не принимается от клиента (защита от "alg: none").
+   - Убедиться, что проверка подписи происходит *до* начала обработки полезной нагрузки (Payload).
+
+5. STATE_INVARIANT_CHECK:
+   - Анализ [BUSINESS_STATES]. Проверить, существуют ли условия, при которых `validation_chokepoints` могут быть проигнорированы (например, "Debug Mode" или "Internal Request" флаги).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_INTEGRITY_BYPASS_REPORT:
+  - CHECK_TYPE (Crypto/Logic/State) | BYPASS_CONDITION | DATA_SOURCE | IMPACT | LOCATION
+VISUALIZE: "Image of a logic bypass flow showing how a user-controlled parameter can skip an authentication middleware or a signature verification step."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

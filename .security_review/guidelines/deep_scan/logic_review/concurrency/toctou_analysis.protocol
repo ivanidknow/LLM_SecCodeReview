@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: TOCTOU_CONCURRENCY_ANALYSIS
+@GOAL: IDENTIFY_RACE_CONDITIONS_WHERE_STATE_CHANGES_BETWEEN_VALIDATION_AND_EXECUTION_STEPS
+@PARENT_CONTEXT: post_action_replay.protocol, inventory_resource_exhaustion.protocol, cumulative_discount_stacking.protocol
+
+<GLOBAL_VARS>
+# Фазы TOCTOU
+RACE_PHASES: {
+  "TOC": "Time-of-Check: Server verifies current state/permission",
+  "WINDOW": "Race Window: Delta-T between check and action",
+  "TOU": "Time-of-Use: Server performs action based on stale check"
+}
+
+# Критические паттерны кода (Race Smells)
+RACE_SMELLS: {
+  "NON_ATOMIC_DB": "find() -> logic -> update() # Not an atomic transaction",
+  "FILE_SYSTEM": "fs.exists() -> fs.readFile() # File can be swapped",
+  "LAZY_LOCKING": "Checking balance in App layer instead of DB layer constraint"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[REPLAY_TARGETS] <- {from: post_action_replay.protocol, scope: "REPLAY_TARGETS"}
+[INVENTORY]      <- {from: inventory_resource_exhaustion.protocol, scope: "SCARCE_RESOURCES"}
+[DISCOUNTS]      <- {from: cumulative_discount_stacking.protocol, scope: "OFFER_TYPES"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты конкурентности
+! ([TOC] -> [WINDOW] -> [EXTERNAL_CHANGE] -> [TOU]) : "BLOCKER: TOCTOU Detected. The state verified in the check phase is modified by a parallel request before use, leading to double-spending or limit bypass."
+! ([UPDATE_OP] -> ![DB_LEVEL_LOCKING]) : "CRITICAL: Non-Atomic Update. Multiple concurrent requests can read the same initial value and increment/decrement it incorrectly."
+! ([SENSITIVE_FILE_OP] -> [PRE_CHECK]) : "HIGH: File System Race. Check and use of a file are separate calls, allowing symlink attacks or file content swapping."
+? ([DATABASE] == "NoSQL" && ![ACID_SUPPORT]) : "WARNING: Eventual Consistency Race. Data might not be updated across all nodes fast enough to prevent a race condition."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ATOMIC_FLOW_IDENTIFICATION:
+   - Найти все участки кода, где происходит проверка баланса, квоты или статуса с последующим изменением.
+   - Пометить функции, использующие последовательные асинхронные вызовы (`await find()`, затем `await update()`).
+
+2. DATABASE_TRANSACTION_AUDIT:
+   - Проверить использование транзакций (`BEGIN`, `COMMIT`).
+   - Убедиться, что критические операции используют `SELECT ... FOR UPDATE` или `Optimistic Locking` (версионность).
+
+3. RACE_WINDOW_SIMULATION:
+   - Проанализировать время выполнения блока логики. Есть ли в нем "тяжелые" операции (внешние API, сложные вычисления), которые увеличивают [WINDOW]?
+   - Попытаться искусственно увеличить окно через массовые параллельные запросы.
+
+4. FILE_DESCRIPTOR_SAFETY_CHECK:
+   - Для операций с файловой системой: проверить использование путей вместо дескрипторов. Использовать атомарные функции типа `rename()` или проверять права доступа непосредственно в момент открытия.
+
+5. STATE_INVARIANT_VERIFICATION:
+   - Проверить наличие ограничений на уровне БД (например, `CHECK (balance >= 0)`). Это последняя линия защиты, если логика приложения провалит TOC.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TOCTOU_REPORT:
+  - VULNERABLE_FUNCTION | CHECK_PHASE | USE_PHASE | ESTIMATED_WINDOW | RISK_LEVEL
+VISUALIZE: "Image of a TOCTOU race condition: showing two parallel threads where Thread A checks a condition, Thread B changes the state, and Thread A then performs an action based on the now-invalid initial check."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: PRECISION_ROUNDING_ATTACKS
+@GOAL: DETECT_EXPLOITABLE_ROUNDING_ERRORS_AND_FLOATING_POINT_INACCURACIES_IN_FINANCIAL_CALCULATIONS
+@PARENT_CONTEXT: negative_zero_injection.protocol, currency_unit_mismatch.protocol
+
+<GLOBAL_VARS>
+# Опасные типы данных и функции
+VULNERABLE_TYPES: {
+  "JS_NUMBER": "IEEE 754 (Double precision) - Inaccurate for decimals",
+  "PYTHON_FLOAT": "Native float object (Precision issues)",
+  "SQL_FLOAT": "FLOAT/REAL types vs DECIMAL/NUMERIC"
+}
+
+# Стратегии округления
+ROUNDING_METHODS: {
+  "FLOOR": "Math.floor() - Always rounds down",
+  "CEIL": "Math.ceil() - Always rounds up",
+  "TRUNC": "Truncate - Strips decimals",
+  "BANKERS": "Round to half-even (Standard in some accounting)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[NUMERIC_TARGETS] <- {from: negative_zero_injection.protocol, scope: "FINANCIAL"}
+[UNIT_MAP]        <- {from: currency_unit_mismatch.protocol, scope: "CONVERSION_RATES"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты точности
+! ([TYPE] == "FLOAT/DOUBLE" && [CONTEXT] == "MONEY") : "CRITICAL: Floating Point Money. Use of floating-point types for currency calculation leads to precision drift (e.g., 0.1 + 0.2 != 0.3)."
+! ([CONVERSION] -> [ROUND_DOWN_TO_ZERO]) : "HIGH: Micro-transaction Theft. If 1 unit of A = 0.0001 of B, and rounding is 'Floor', an attacker can trade 1 unit of A for 0 units of B repeatedly to drain small amounts or bypass limits."
+! ([SUM_OF_PARTS] != [TOTAL]) : "BLOCKER: Calculation Inconsistency. Rounding individual items before summing creates a discrepancy with the total (e.g., 1.4 + 1.4 rounded to 1+1=2, while 2.8 rounds to 3)."
+? ([JS_NUMBER.MAX_SAFE_INTEGER]) : "WARNING: Integer Overflow Risk. Calculations exceeding $2^{53}-1$ will lose precision in JavaScript environments."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DATA_TYPE_AUDIT:
+   - Проверить описание схем БД и типы переменных в коде.
+   - Идентифицировать использование специализированных библиотек для точных расчетов (например, `Decimal.js`, `bignum`, `BigDecimal`).
+
+2. ROUNDING_DIRECTION_ANALYSIS:
+   - Определить, кто выигрывает от округления: пользователь или система?
+   - Искать места, где `floor()` применяется к балансу пользователя или `ceil()` к комиссии системы.
+
+3. CONVERSION_PRECISION_TEST:
+   - Анализ формул конвертации (например, BTC в USD).
+   - Попытаться совершить транзакцию на минимально возможную сумму, которая при округлении вниз дает 0, но при накоплении имеет ценность.
+
+4. ACCUMULATION_LOOP_PROBE:
+   - Проверить циклы обработки платежей (batch processing).
+   - Проверить, не накапливается ли ошибка округления при расчете налогов или кэшбека для большого количества транзакций.
+
+5. FLOATING_POINT_EQUALITY_CHECK:
+   - Искать в коде прямые сравнения `float1 === float2`. Заменить на сравнение с использованием `epsilon` (допуска).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PRECISION_REPORT:
+  - CALCULATION_STEP | OBSERVED_DATA_TYPE | ROUNDING_STRATEGY | EXPLOIT_VECTOR | RISK_SCORE
+VISUALIZE: "Image of floating point rounding error: showing how 0.1 plus 0.2 results in 0.30000000000000004 in binary representation, leading to calculation mismatches."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: TEMPLATE_ENGINE_AUTO_ESCAPING_AUDIT
+@GOAL: IDENTIFY_BYPASSES_IN_AUTOMATIC_OUTPUT_ESCAPING_AND_UNSAFE_MANUAL_OVERRIDES
+@PARENT_CONTEXT: output_context_identification.protocol, framework_security_enforcement.protocol
+
+<GLOBAL_VARS>
+# Признаки отключения авто-экранирования по движкам
+UNSAFE_TEMPLATE_DIRECTIVES: {
+  "JINJA2_NUNJUCKS": "(\|safe|{% autoescape false %})",
+  "EJS": "(<%- ... %>)",
+  "HANDLEBARS": "({{{ ... }}})",
+  "BLADE": "({!! ... !!})",
+  "PUG_JADE": "(!=)"
+}
+
+# Опасные встроенные функции/фильтры
+DANGEROUS_FILTERS: {
+  "MARKUP": "(Markup()|Markup.escape())",
+  "RAW_CONTENT": "(raw|noescape|unescaped)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[OUTPUT_CONTEXT] <- {from: output_context_identification.protocol, scope: "CONTEXT_STACK"}
+[APP_STACK]      <- {from: framework_security_enforcement.protocol, scope: "CORE_FRAMEWORKS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты безопасности шаблонов
+! ([TAINTED_DATA] -> [UNSAFE_TEMPLATE_DIRECTIVES]) : "CRITICAL: Manual Escaping Bypass. Automatic protection is explicitly disabled for tainted data. Risk: Direct XSS."
+! ([OUTPUT_CONTEXT] == "ATTR_OR_JS" && [AUTO_ESCAPE] == "HTML_ONLY") : "HIGH: Context-AWARE Escaping Failure. Template engine only escapes HTML entities but fails to protect JS literals or attributes."
+! ([DANGEROUS_FILTERS] -> [TAINTED_DATA]) : "BLOCKER: Raw Taint Injection. Data is marked as 'safe' or 'markup' before it reaches the template, tricking the auto-escaper."
+? ([AUTO_ESCAPE] == "GLOBAL_OFF") : "CRITICAL: Global Security Failure. Template engine is configured with auto-escaping disabled at the environment level."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENGINE_CONFIG_VERIFICATION:
+   - Проверить файлы инициализации (например, `app.set('view engine', ...)` или настройки `Environment` в Jinja).
+   - Убедиться, что `autoescape` включен глобально.
+
+2. UNSAFE_DIRECTIVE_SCAN:
+   - Выполнить поиск всех вхождений из [UNSAFE_TEMPLATE_DIRECTIVES] в файлах шаблонов.
+   - Для каждого совпадения проверить, является ли выводимая переменная "Tainted" через [ALIAS_GRAPH].
+
+3. FILTER_CHAIN_AUDIT:
+   - Проверить использование фильтров из [DANGEROUS_FILTERS].
+   - Особое внимание функциям, которые преобразуют строки в "Markup" объекты в коде контроллеров.
+
+4. ATTRIBUTE_INJECTION_PROBE:
+   - Проверить динамическую генерацию атрибутов: `<div {{tainted_attr}}="val">` или `<div attr="{{tainted_val}}">`.
+   - Проверить, экранирует ли шаблонизатор кавычки в атрибутах так же надежно, как и теги `< >`.
+
+5. CROSS_CONTEXT_LEAK_CHECK:
+   - Использовать [OUTPUT_CONTEXT], чтобы выявить вывод данных внутри блоков `<script>` или `style`.
+   - Если авто-экранирование только HTML-ориентированное, пометить такие выводы как уязвимые.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_TEMPLATE_SECURITY_REPORT:
+  - TEMPLATE_FILE | LINE | UNSAFE_CONSTRUCT | DATA_SOURCE | SEVERITY
+VISUALIZE: "Image of a template engine processing flow: showing how a variable passes through an auto-escaper and how 'safe' or 'raw' filters create a bypass channel."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

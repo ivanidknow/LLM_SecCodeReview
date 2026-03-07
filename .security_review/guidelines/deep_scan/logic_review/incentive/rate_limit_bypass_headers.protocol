@@ -1,0 +1,66 @@
+<DFD_MODELING_V3>
+@ID: RATE_LIMIT_BYPASS_VIA_HEADER_MANIPULATION
+@GOAL: IDENTIFY_MISCONFIGURATIONS_IN_IP_IDENTIFICATION_LOGIC_ALLOWING_ATTACKERS_TO_EVADE_RATE_LIMITS
+@PARENT_CONTEXT: network_infra.protocol, behavioral_inconsistency.protocol, authentication_mechanism_hardening.protocol
+
+<GLOBAL_VARS>
+# Заголовки идентификации источника
+IP_SOURCE_HEADERS: [
+  "X-Forwarded-For",
+  "X-Real-IP",
+  "X-Client-IP",
+  "Forwarded",
+  "CF-Connecting-IP", # Cloudflare specific
+  "True-Client-IP"
+]
+
+# Методы обхода (Bypass Techniques)
+BYPASS_TECHNIQUES: {
+  "SPOOFING": "Injecting random IP into X-Forwarded-For",
+  "NULL_OVERWRITE": "Sending empty or malformed identification headers",
+  "DOUBLING": "Sending multiple headers of the same type to confuse the parser",
+  "PATH_VARIATION": "Adding trailing slashes or junk segments to avoid path-based limits"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PROXY_CONFIG]   <- {from: network_infra.protocol, scope: "TRUSTED_PROXIES"}
+[PARSER_MISMATCH]<- {from: behavioral_inconsistency.protocol, scope: "PARSER_QUIRKS"}
+[THROTTLING]     <- {from: rate_limit_abuse.protocol, scope: "LOGIN_THRESHOLDS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты идентификации клиента
+! ([APP_LOGIC] -> [IP_SOURCE_HEADERS] && ![TRUSTED_PROXY_VALIDATION]) : "CRITICAL: Untrusted IP Source. The application trusts X-Forwarded-For headers from the internet, allowing trivial rate limit bypass via IP spoofing."
+! ([WAF_LIMIT] != [APP_LIMIT]) : "HIGH: Layer Mismatch. WAF blocks based on IP, but App identifies user by a custom header that the WAF doesn't inspect."
+! ([IDENTIFIER] == "X-Forwarded-For" && [PARSER_LOGIC.FIRST_VS_LAST]) : "MEDIUM: Header Parsing Inconsistency. Proxy appends IP to the list, but App picks the first (attacker-controlled) element."
+? ([BYPASS_TECHNIQUES.SPOOFING] -> "Success") : "BLOCKER: Effective Rate Limit Bypass. Attacker can perform unlimited automated actions by rotating spoofed IP headers."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CLIENT_IP_EXTRACTION_AUDIT:
+   - Найти в коде функцию получения IP-адреса (например, `req.ip` в Express или `request.remote_addr` в Flask).
+   - Проверить настройки `trust proxy`. Если включено `true` или `loopback`, проверить, ограничена ли эта доверенность конкретными IP прокси-серверов.
+
+2. HEADER_ROTATION_TEST:
+   - Выполнить серию запросов к защищенному эндпоинту, каждый раз меняя значение в [IP_SOURCE_HEADERS] на случайный IP.
+   - Проверить, сбрасывается ли счетчик лимита.
+
+3. PROXY_OVERWRITE_VERIFICATION:
+   - Проверить конфигурацию Nginx/HAProxy. Перезаписывает ли прокси заголовок `X-Forwarded-For` или просто дополняет его?
+   - Безопасная конфигурация: `proxy_set_header X-Forwarded-For $remote_addr;` (перезапись).
+
+4. MULTIPLE_IDENTIFIER_PROBE:
+   - Проверить, использует ли лимитер дополнительные идентификаторы (User-Agent, API Key, Session ID).
+   - Попытаться обойти лимит, сохраняя один IP, но меняя другие заголовки.
+
+5. WHITELIST_BYPASS_CHECK:
+   - Попробовать установить [IP_SOURCE_HEADERS] в `127.0.0.1` или внутренний IP подсети. Проверить, не отключает ли это лимиты (доверие к «внутреннему» трафику).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_BYPASS_REPORT:
+  - TARGET_ENDPOINT | IDENTIFIED_BY | BYPASS_HEADER | REPRODUCTION_SCRIPT | SEVERITY
+VISUALIZE: "Image of an X-Forwarded-For spoofing attack: showing how a client injects a fake IP into the header to deceive a server-side rate limiter that doesn't validate the proxy chain."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: ATTACK_SURFACE_REDUCTION
+@GOAL: MINIMIZE_THE_CONTAINER_BINARY_FOOTPRINT_TO_PREVENT_POST_EXPLOITATION_ACTIVITIES
+@PARENT_CONTEXT: base_image_provenance.protocol, multi_stage_build_optimization.protocol
+
+<GLOBAL_VARS>
+# Список нежелательных инструментов в Runtime
+DANGEROUS_UTILITIES: [
+  "curl", "wget", "nc", "netstat", "telnet", # Сетевая разведка
+  "apt", "apk", "yum", "dnf",               # Установка малвари
+  "gcc", "make", "python3-dev",             # Компиляция эксплойтов
+  "vi", "vim", "nano",                      # Редактирование конфигов
+  "ssh", "scp"                              # Латеральное перемещение
+]
+
+# Методы очистки
+CLEANUP_STRATEGIES: {
+  "PACKAGE_MANAGER": "rm -rf /var/lib/apt/lists/*",
+  "BINARY_REMOVAL": "RUN rm /usr/bin/curl",
+  "DISTROLESS": "Using non-shell images"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[BASE_IMAGE]     <- {from: base_image_provenance.protocol, scope: "MINIMAL_DISTROS"}
+[MULTI_STAGE]    <- {from: multi_stage_build_optimization.protocol, scope: "ARTIFACT_ISOLATION"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты поверхности атаки
+! (DOCKER_IMAGE -> [DANGEROUS_UTILITIES]) : "HIGH: Unnecessary Tools Present. Dangerous binaries found in the runtime image, providing an attacker with post-exploitation capabilities."
+! (DOCKERFILE -> "apt-get install" && ! "rm -rf /var/lib/apt/lists/*") : "MEDIUM: Package Manager Leak. Cached package lists remain in the image, increasing size and providing information about available software."
+! (DOCKER_IMAGE -> "/bin/sh" || "/bin/bash") : "LOW: Shell Exposure. The presence of a shell allows for interactive execution; consider using Distroless images to remove it."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. BINARY_INVENTORY_AUDIT:
+   - Выполнить команду `docker run --rm <image> which <utility>` для каждого инструмента из [DANGEROUS_UTILITIES].
+   - Определить, какие пакеты были установлены в Dockerfile и не удалены.
+
+2. BUILD_TIME_DEPENDENCY_PURGE:
+   - Проверить наличие `*-dev` пакетов, заголовков (headers) и компиляторов в финальном слое.
+   - Убедиться, что инструменты сборки не попадают в итоговый образ (см. `multi_stage_build_optimization.protocol`).
+
+3. PACKAGE_MANAGER_CLEANUP:
+   - Проверить использование флагов `--no-install-recommends` (для apt).
+   - Убедиться, что кеши пакетного менеджера очищаются в том же слое `RUN`, где производилась установка.
+
+4. SHELL_ACCESS_REVIEW:
+   - Проверить возможность запуска `/bin/sh` или `/bin/bash`. Если приложение — бинарный файл (Go, Rust), рекомендовать переход на `distroless:static`.
+
+5. SSH_DAEMON_CHECK:
+   - Убедиться, что в контейнере не запущен `sshd`. Доступ должен осуществляться через `kubectl exec` или `docker exec`, а не через SSH.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SURFACE_REDUCTION_REPORT:
+  - UTILITY_NAME | STATUS (Found/Missing) | RISK_CATEGORY | REMOVAL_STRATEGY | PRIORITY
+VISUALIZE: "Image of attack surface comparison: showing a standard bloated container image with multiple tools vs. a hardened minimal image containing only the application binary and its direct dependencies."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

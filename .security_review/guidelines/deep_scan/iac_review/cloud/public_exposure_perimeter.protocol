@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: CLOUD_PUBLIC_EXPOSURE_NETWORK_PERIMETER
+@GOAL: IDENTIFY_MISCONFIGURED_CLOUD_RESOURCES_EXPOSED_TO_INTERNET_AND_ENFORCE_NETWORK_SEGMENTATION
+@PARENT_CONTEXT: network_policy_microsegmentation.protocol, iam_least_privilege.protocol
+
+<GLOBAL_VARS>
+# Паттерны опасной экспозиции (Exposure Patterns)
+DANGEROUS_INGRESS: {
+  "ANYWHERE": "0.0.0.0/0",
+  "ANYWHERE_IPV6": "::/0",
+  "SENSITIVE_PORTS": "(22|3389|5432|3306|6379|9200)" # SSH, RDP, DBs, Redis, ES
+}
+
+# Ресурсы-мишени
+EXPOSURE_TARGETS: [
+  "aws_security_group", "google_compute_firewall", "azurerm_network_security_group",
+  "aws_s3_bucket", "google_storage_bucket", "aws_db_instance"
+]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[K8S_NET]        <- {from: network_policy_microsegmentation.protocol, scope: "IP_BLOCK"}
+[IAM_AUDIT]      <- {from: iam_least_privilege.protocol, scope: "RESOURCE_ACCESS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты сетевого периметра
+! (TF_RESOURCE -> "ingress" && [DANGEROUS_INGRESS.ANYWHERE] && [DANGEROUS_INGRESS.SENSITIVE_PORTS]) : "BLOCKER: Publicly Accessible Admin/DB Port. Management or database port is open to the entire internet, enabling brute-force or direct exploit attempts."
+! (aws_s3_bucket -> ! "public_access_block") : "CRITICAL: S3 Public Access Not Blocked. Storage bucket lacks explicit public access prevention, risking data leakage via accidental policy misconfiguration."
+! (TF_RESOURCE -> "publicly_accessible = true") : "HIGH: Public DB Instance. A managed database (RDS/CloudSQL) has a public IP address. DBs should reside in private subnets with Bastion/VPN access."
+! (VPC -> ! "enable_dns_hostnames") : "LOW: Internal Information Leak. Unnecessary internal DNS exposure can assist an attacker in internal reconnaissance."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SECURITY_GROUP_AUDIT:
+   - Проанализировать все правила входящего трафика. Использовать `tfsec` или `checkov` для поиска `0.0.0.0/0`.
+   - Убедиться, что для административного доступа (SSH/RDP) используются только доверенные IP (VPN/Office) или Client VPN.
+
+2. STORAGE_BUCKET_HYGIENE:
+   - Проверить наличие `aws_s3_bucket_public_access_block`.
+   - Убедиться, что ACL не установлены в `public-read` или `public-read-write`.
+
+3. SUBNET_ISOLATION_CHECK:
+   - Проверить структуру VPC. Приложение и базы данных должны находиться в `Private Subnets` без прямого маршрута (`0.0.0.0/0`) через Internet Gateway.
+   - Проверить использование NAT Gateways для исходящего трафика.
+
+4. LOAD_BALANCER_EXPOSURE:
+   - Убедиться, что только Load Balancers (ALB/NLB) имеют публичные IP.
+   - Проверить наличие WAF (Web Application Firewall), подключенного к публичным точкам входа.
+
+5. ORPHANED_ELASTIC_IP_SCAN:
+   - Идентифицировать публичные IP, которые не привязаны к ресурсам, но могут быть использованы для захвата поддоменов (Subdomain Takeover).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PERIMETER_REPORT:
+  - RESOURCE_TYPE | RESOURCE_ID | EXPOSED_PORT | CIDR_ALLOWED | RISK_LEVEL
+VISUALIZE: "Image of a secure cloud network architecture: illustrating a 3-tier VPC with Public (LB), Private (App), and Data (DB) subnets, where only the LB is exposed to the internet via an Internet Gateway."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

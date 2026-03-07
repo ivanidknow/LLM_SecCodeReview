@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: CONTEXT_SPECIFIC_SANITIZER_MATCHING
+@GOAL: VALIDATE_THAT_THE_CHOSEN_SANITIZER_TRANSFORMS_TAINTED_DATA_APPROPRIATELY_FOR_ITS_SPECIFIC_SINK_CONTEXT
+@PARENT_CONTEXT: sensitive_sink_mapping.protocol, string_manipulation_transformation.protocol, contextual_escape_analysis.protocol
+
+<GLOBAL_VARS>
+# Матрица соответствия Контекст -> Валидный Санитайзер
+CONTEXT_SANITIZER_MATRIX: {
+  "HTML_BODY": "(escapeHTML|he.encode|DOMPurify.sanitize)",
+  "HTML_ATTR": "(escapeHTMLAttr|OWASP_Java_Encoder.encodeForHTMLAttribute)",
+  "JS_LITERAL": "(jsStringEscape|JSON.stringify)",
+  "URL_PARAM": "(encodeURIComponent|urlencode)",
+  "CSS_STYLE": "(encodeForCSS)",
+  "SHELL_ARG": "(shell-escape|shlex.quote)"
+}
+
+# Признаки "Mismatch" (несоответствия)
+MISMATCH_INDICATORS: {
+  "INCOMPLETE": "Using HTML-escape for JS context",
+  "DOUBLE_ENCODING": "Applying URL-encode twice (Risk: Logic errors)",
+  "WRONG_SINK": "Applying SQL-escape for NoSQL query"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SINKS]          <- {from: sensitive_sink_mapping.protocol, scope: "ALL_SINKS"}
+[PROPAGATION]    <- {from: string_manipulation_transformation.protocol, scope: "ENCODING_STEPS"}
+[VALIDATION]     <- {from: validation_chokepoints.protocol, scope: "SANITIZERS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты соответствия контексту
+! ([TAINTED_DATA] -> [SANITIZER_A] -> [SINK_B] && ![MATRIX_MATCH(A, B)]) : "CRITICAL: Context Mismatch. Sanitizer used is not designed for the target sink context. Risk: Injection Bypass."
+! ([HTML_BODY_SINK] -> "encodeURIComponent()") : "HIGH: Wrong Sanitization. URL encoding used for HTML output, failing to stop XSS tags like <script>."
+! ([JS_CONTEXT_SINK] -> "escapeHTML()") : "CRITICAL: XSS via JS Context. HTML escaping does not prevent breaking out of a JS string literal via apostrophes."
+? ([SINK] -> "Multiple_Contexts") : "WARNING: Polyglot Payload Risk. Data is used in multiple contexts; ensure the most restrictive sanitizer or context-aware encoding is applied."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SINK_CONTEXT_IDENTIFICATION:
+   - Идентифицировать тип [SINK] и его положение в структуре вывода (например, внутри кавычек в HTML, в теле SQL-запроса или в команде оболочки).
+   - Использовать `contextual_escape_analysis.protocol` для точного определения текущего состояния "Escape-стека".
+
+2. SANITIZER_FUNCTION_LOOKUP:
+   - Найти функцию [SANITIZER], вызванную в цепочке [PROPAGATION] перед попаданием в Sink.
+   - Проверить документацию библиотеки или реализацию на соответствие [CONTEXT_SANITIZER_MATRIX].
+
+3. MISMATCH_VERIFICATION:
+   - Проверить, не используется ли "универсальный" санитайзер там, где нужен специализированный (например, `strip_tags` вместо контекстного экранирования).
+
+4. CHAINED_SANITIZATION_AUDIT:
+   - Анализ цепочек: `URL_ENCODE -> HTML_ESCAPE`. Проверить, сохраняется ли безопасность после каждого шага трансформации.
+
+5. TAINT_CLEARANCE_DECISION:
+   - Снимать метку "Tainted" только в том случае, если [MATRIX_MATCH] подтвержден. В противном случае пометить данные как "Inadequately Protected".
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CONTEXT_MATCH_REPORT:
+  - SINK_NAME | SINK_CONTEXT | APPLIED_SANITIZER | MATCH_STATUS | REMEDIATION_ADVICE
+VISUALIZE: "Image of a context-aware escaping diagram: showing why the same string requires different encoding for HTML, JavaScript, and URL attributes."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

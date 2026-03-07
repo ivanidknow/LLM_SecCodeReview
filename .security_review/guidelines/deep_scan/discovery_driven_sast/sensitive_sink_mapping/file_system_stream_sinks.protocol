@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: FILE_SYSTEM_STREAM_SINKS
+@GOAL: DETECT_INSECURE_FILE_OPERATIONS_LEADING_TO_PATH_TRAVERSAL_LFI_AND_UNAUTHORIZED_FILE_ACCESS
+@PARENT_CONTEXT: persistent_storage.protocol, validation_chokepoints.protocol, security_controls.protocol
+
+<GLOBAL_VARS>
+# Приемники для работы с файловой системой (File I/O)
+FILE_SINKS: {
+  "NODEJS": "(fs\.(readFile|writeFile|open|createReadStream|createWriteStream|appendFile|unlink))",
+  "PYTHON": "(open|os\.remove|os\.path\.(join|abspath|realpath)|pathlib\.Path)",
+  "JAVA": "(FileInputStream|FileOutputStream|File\.createTempFile|Files\.write|Files\.readAllLines)"
+}
+
+# Паттерны для детекции Path Traversal и манипуляций расширениями
+DANGEROUS_PATH_PATTERNS: "(\.\.\/|\.\.\\|%2e%2e%2f|%2e%2e%252f|%2e%2e%5c)"
+FILE_EXTENSION_TAMPERING: "(\.php|\.jsp|\.asp|\.exe|\.sh|\.bat)"
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[EXTERNAL_INPUTS]  <- {from: entry_points.protocol, scope: "INGRESS_POINTS"}
+[SANITIZERS]       <- {from: validation_chokepoints.protocol, scope: "PATH_VALIDATORS|FILENAME_CLEANERS"}
+[STORAGE_ROOTS]    <- {from: persistent_storage.protocol, scope: "ALLOWED_DATA_DIRS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты безопасности файловой системы
+! ([EXTERNAL_INPUTS] -> [FILE_SINKS] && ![SANITIZERS]) : "BLOCKER: Path Traversal / Arbitrary File Read. Untrusted input is used to construct a file path without normalization or whitelist validation."
+! ([FILE_SINKS] -> [FILE_EXTENSION_TAMPERING]) : "CRITICAL: Malicious File Upload/Execution. Potential for writing executable files via manipulated extensions or paths."
+! ([EXTERNAL_INPUTS] -> "stream_piping" -> [HTTP_RESPONSE]) : "HIGH: Local File Inclusion (LFI) via Stream. Internal file content is piped directly to the network output."
+? ([FILE_SINKS] -> ![STORAGE_ROOTS]) : "MEDIUM: Out-of-Bounds Access. File operation targets a directory outside of the predefined [STORAGE_ROOTS]."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. FILE_API_INVENTORY:
+   - Идентифицировать все вызовы функций из [FILE_SINKS] в исходном коде.
+   - Определить используемые обертки (например, кастомные сервисы для работы с S3 или локальным диском).
+
+2. PATH_CONSTRUCTION_TRACE:
+   - Отследить путь данных от [EXTERNAL_INPUTS] до аргумента пути в [FILE_SINKS].
+   - Проверить использование функций конкатенации строк vs безопасных методов сборки пути (например, `path.join`).
+
+3. NORMALIZATION_VERIFY:
+   - Проверить наличие вызовов нормализации (например, `path.resolve`) перед использованием пути.
+   - Убедиться, что нормализованный путь начинается с разрешенного префикса из [STORAGE_ROOTS].
+
+4. STREAM_INTEGRITY_AUDIT:
+   - Анализ потоковой передачи (Piping). Если данные из `createReadStream(userInput)` попадают в `res`, пометить как прямой LFI.
+   - Проверка лимитов на размер загружаемых/читаемых файлов (DoS protection).
+
+5. SYMLINK_AND_PERMISSIONS_CHECK:
+   - Анализ методов обработки символических ссылок (предотвращение атак типа Symlink Race).
+   - Проверка прав доступа, с которыми создаются файлы (например, `chmod 777` является триггером "HIGH").
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_FILE_SINK_REPORT:
+  - SINK_FUNCTION | TARGET_PATH (Source) | NORMALIZATION_STATUS | RISK_LEVEL | LOCATION
+VISUALIZE: "Image of a Path Traversal attack: showing how '../' sequences bypass directory restrictions to access sensitive system files like /etc/passwd."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

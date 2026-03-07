@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: PIPELINE_DEFINITION_WORKFLOW_INTEGRITY
+@GOAL: PROTECT_THE_BUILD_PROCESS_FROM_UNAUTHORIZED_MODIFICATION_AND_CODE_INJECTION_ATTACKS
+@PARENT_CONTEXT: rbac_least_privilege.protocol, secret_management_vault.protocol, third_party_pinning.protocol
+
+<GLOBAL_VARS>
+# Угрозы целостности пайплайна
+INTEGRITY_THREATS: {
+  "UNPROTECTED_CONFIG": "Pipeline files changed by developers without PR review",
+  "PULL_REQUEST_INJECTION": "Execution of untrusted code from PRs (especially from forks)",
+  "COMMAND_INJECTION": "Using untrusted variables in shell commands (e.g., github.event.issue.title)",
+  "MALICIOUS_OVERRIDE": "Redefining build steps to exfiltrate secrets"
+}
+
+# Защитные механизмы
+PROTECTION_CONTROLS: {
+  "CODE_OWNERS": "Strict ownership for .github/workflows or .gitlab-ci.yml",
+  "BRANCH_PROTECTION": "Restricting who can push to the main branch and its configs",
+  "OIDC_AUTH": "Keyless authentication for cloud providers"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[VAULT_INT]      <- {from: secret_management_vault.protocol, scope: "AUTH_METHODS"}
+[RBAC_K8S]       <- {from: rbac_least_privilege.protocol, scope: "SUBJECT_TYPES"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты целостности воркфлоу
+! (Workflow_Config -> ! "CODEOWNERS") : "BLOCKER: Unrestricted Pipeline Modification. Anyone with push access can modify the build process, potentially injecting malicious code or stealing secrets."
+! (GitHub_Action -> "on: pull_request_target") : "CRITICAL: Risky PR Trigger. Using pull_request_target allows untrusted code from forks to run with higher privileges and access to secrets."
+! (Shell_Script -> "${{ github.event.* }}") : "HIGH: Command Injection Risk. Injecting dynamic event data directly into shell commands can lead to arbitrary code execution within the runner."
+! (CI_Config -> "allow_failure: true" && "Step: SecurityScan") : "MEDIUM: Bypassing Security Gates. Security scans are configured to allow failure, making the security gate ineffective."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CONFIGURATION_ACCESS_AUDIT:
+   - Проверить настройки репозитория: защищены ли файлы пайплайнов через `CODEOWNERS`.
+   - Убедиться, что для изменения `.github/workflows` или `.gitlab-ci.yml` требуется одобрение команды безопасности.
+
+2. TRIGGER_SECURITY_REVIEW:
+   - Идентифицировать все триггеры пайплайнов.
+   - Для `pull_request` и `pull_request_target` проверить, не имеют ли они доступа к секретам без явного подтверждения (Approval) для новых контрибьюторов.
+
+3. DYNAMIC_INPUT_SANITIZATION:
+   - Найти места, где данные из внешних событий (Issue title, Commit message, PR body) попадают в `run` секции.
+   - Рекомендовать использование промежуточных переменных окружения: `env: { TITLE: ${{ github.event.issue.title }} }` вместо прямой вставки в скрипт.
+
+4. PERMISSIONS_BLOCK_AUDIT:
+   - Проверить наличие блока `permissions` в GitHub Actions.
+   - Убедиться, что по умолчанию стоит `contents: read`, и права расширяются только для конкретных задач (например, `id-token: write` для OIDC).
+
+5. WORKFLOW_VISIBILITY_TRACE:
+   - Убедиться, что логи пайплайнов не содержат чувствительной отладочной информации (set -x) и включена маскировка секретов.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_WORKFLOW_INTEGRITY_REPORT:
+  - WORKFLOW_FILE | TRIGGER_TYPE | INJECTION_RISK | ACCESS_CONTROL_STATUS | SEVERITY
+VISUALIZE: "Image of a secure CI/CD pipeline workflow with security gates: illustrating the path from code push to production, including mandatory code reviews for pipeline changes, automated security scanning, and restricted access to deployment environments."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: POST_ACTION_REPLAY_LIFECYCLE_RE_ENTRY
+@GOAL: PREVENT_DUPLICATE_EXECUTION_OF_FINALIZED_ACTIONS_AND_ILLEGAL_RE_ENTRY_INTO_COMPLETED_WORKFLOWS
+@PARENT_CONTEXT: step_skipping_logic.protocol, unauthorized_state_transitions.protocol, race_condition_concurrency.protocol
+
+<GLOBAL_VARS>
+# Объекты контроля однократности
+REPLAY_TARGETS: {
+  "TRANSACTION_IDS": "Unique IDs for payments or transfers",
+  "PROMO_CODES": "One-time use vouchers/coupons",
+  "VOTING_TOKENS": "Single-vote identifiers",
+  "PASSWORD_RESET_LINKS": "Already consumed recovery tokens"
+}
+
+# Признаки уязвимости (Replay Indicators)
+REPLAY_SMELLS: {
+  "IDEMPOTENCY_MISSING": "Lack of 'idempotency-key' check in POST requests",
+  "SOFT_DELETE_BYPASS": "Ability to re-activate 'deleted' records by changing a flag",
+  "TIMESTAMP_VALIDATION_ONLY": "Relying only on time instead of a unique 'consumed' status"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[STATE_TRANSITION] <- {from: unauthorized_state_transitions.protocol, scope: "TERMINAL_REVERSION"}
+[RACE_CONDITIONS] <- {from: race_condition_concurrency.protocol, scope: "ATOMIC_OPERATIONS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты предотвращения повторов
+! ([ACTION_EXECUTION] -> ![CONSUMED_STATUS_CHECK]) : "CRITICAL: Post-Action Replay. The application processes a request (e.g., 'Claim Reward') without checking if the associated token/ID was already used."
+! ([TERMINAL_OBJECT] -> [RE_ENTRY_METHOD]) : "HIGH: Lifecycle Re-entry. A finalized object (e.g., 'Completed Order') is allowed to re-enter a mutable state via a hidden or neglected API endpoint."
+! ([UNIQUE_ID] -> "Duplicate_Submission_Accepted") : "BLOCKER: Missing Idempotency. Sending the same transaction ID twice results in two separate business actions (e.g., two bank transfers)."
+? ([ACTION] -> "State_Update_After_Effect") : "WARNING: Potential Race Condition. The business effect (e.g., giving points) happens before the 'consumed' flag is set in the DB."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. IDEMPOTENCY_STRATEGY_AUDIT:
+   - Проверить наличие механизмов идемпотентности (Idempotency Keys).
+   - Убедиться, что сервер хранит список отработанных ключей и возвращает один и тот же результат при повторе, не выполняя логику заново.
+
+2. CONSUMPTION_LOGIC_DISSECTION:
+   - Для всех объектов из [REPLAY_TARGETS] найти код, который помечает их как «использованные».
+   - Проверить наличие атомарности: проверка статуса и его обновление должны происходить в рамках одной транзакции БД.
+
+3. TERMINAL_STATE_ISOLATION_CHECK:
+   - Найти все API-методы, принимающие ID объекта. Проверить, блокируют ли они выполнение, если объект находится в состоянии `COMPLETED`, `CANCELLED` или `USED`.
+
+4. TOKEN_REUSE_PROBE:
+   - Попытаться повторно использовать одноразовые токены (сброс пароля, приглашения, email-верификация).
+   - Проверить, не «оживают» ли токены при добавлении специфических параметров или смене HTTP-метода.
+
+5. LIFECYCLE_BOUNDARY_TEST:
+   - Анализ методов типа `update()`, `patch()`, `save()`. Убедиться, что они не позволяют изменить «замороженные» поля завершенного объекта.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_REPLAY_ANALYSIS_REPORT:
+  - TARGET_ACTION | UNIQUE_IDENTIFIER | REPLAY_PROTECTION_METHOD | BYPASS_SCENARIO | RISK_LEVEL
+VISUALIZE: "Image of a replay attack on a payment gateway: showing how missing idempotency-key validation allows the same 'charge' request to be executed twice, leading to double billing."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

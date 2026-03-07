@@ -1,0 +1,58 @@
+<DFD_MODELING_V3>
+@ID: BASE_IMAGE_PROVENANCE_VULNERABILITY_SCANNING
+@GOAL: ENSURE_THE_INTEGRITY_OF_BASE_IMAGES_AND_MINIMIZE_EXPOSED_CVES_THROUGH_CONTINUOUS_SCANNING
+@PARENT_CONTEXT: least_privilege_user.protocol, attack_surface_reduction.protocol, artifact_integrity.protocol
+
+<GLOBAL_VARS>
+# Критерии выбора базовых образов
+TRUST_CRITERIA: {
+  "OFFICIAL_IMAGES": "Verified publishers on Docker Hub/Quay",
+  "MINIMAL_DISTROS": "(alpine|scratch|distroless)",
+  "VERSION_TAGGING": "Strict semantic versioning instead of 'latest'",
+  "DIGEST_PINNING": "Using SHA256 hashes for immutability"
+}
+
+# Инструментарий сканирования
+SCANNING_TOOLS: ["Trivy", "Grype", "Snyk", "Docker Scout"]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[USER_ENFORCEMENT] <- {from: least_privilege_user.protocol, scope: "USER_INSTRUCTION"}
+[SBOM_INTEGRITY]  <- {from: artifact_integrity.protocol, scope: "SOFTWARE_BILL_OF_MATERIALS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты безопасности базовых образов
+! (DOCKERFILE -> "FROM" && "latest") : "CRITICAL: Floating Tag Usage. Using 'latest' leads to non-deterministic builds and potential introduction of breaking/vulnerable updates."
+! (DOCKERFILE -> "FROM" && ![DIGEST_PINNING]) : "HIGH: Missing Image Digest. Relying on tags allows for tag-switching attacks where a malicious image is pushed under a trusted tag."
+! (IMAGE_SCAN -> [CRITICAL_CVE_COUNT] > 0) : "BLOCKER: Critical Vulnerabilities Detected. The base image contains unpatched critical CVEs that are exploitable."
+? (BASE_IMAGE_TYPE == "Full_OS") : "WARNING: Large Attack Surface. Using a full OS image (e.g., Ubuntu/Debian) instead of Distroless or Alpine increases the number of vulnerable binaries."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PROVENANCE_VERIFICATION:
+   - Проверить инструкцию `FROM`. Убедиться, что образ берется из доверенного приватного реестра или является официальным образом.
+   - Рекомендовать использование `FROM image@sha256:<hash>` для обеспечения неизменяемости.
+
+2. CVE_SCANNING_EXECUTION:
+   - Запустить сканер (например, `trivy image --severity CRITICAL,HIGH <image>`).
+   - Проанализировать результаты: искать уязвимости в системных библиотеках (libc, openssl) и пакетных менеджерах.
+
+3. RELEVANCY_FILTERING:
+   - Отфильтровать CVE, для которых нет исправлений (No-fix), и оценить применимость остальных к среде исполнения.
+
+4. DISTROLESS_ADOPTION_AUDIT:
+   - Оценить возможность перехода на `gcr.io/distroless` или `scratch`.
+   - Если это невозможно, проверить использование минимальных образов типа `alpine` (с учетом особенностей `musl libc`).
+
+5. UPDATING_STRATEGY_REVIEW:
+   - Проверить периодичность обновления базовых образов в CI.
+   - Убедиться, что процесс сборки не завязан на кешированные локально старые версии.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PROVENANCE_REPORT:
+  - BASE_IMAGE | TAG_STABILITY | CRITICAL_CVES | FIXABLE_CVES | IMAGE_SIZE | RECOMMENDATION
+VISUALIZE: "Image of a container security scanning pipeline: showing the progression from pulling a base image, scanning for vulnerabilities with tools like Trivy, and generating a compliance report before allowing the build to proceed."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

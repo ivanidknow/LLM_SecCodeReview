@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: CUMULATIVE_DISCOUNT_STACKABLE_OFFERS_LOGIC
+@GOAL: PREVENT_UNINTENDED_REVENUE_LOSS_DUE_TO_EXCESSIVE_COMBINATION_OF_MULTIPLE_INCENTIVE_RULES
+@PARENT_CONTEXT: precision_rounding_attacks.protocol, coupon_brute_forcing.protocol, parameter_pollution_multistep.protocol
+
+<GLOBAL_VARS>
+# Типы предложений (Incentive Types)
+OFFER_TYPES: {
+  "PERCENTAGE": "X% off the item/total",
+  "FIXED_AMOUNT": "$X off the order",
+  "LOYALTY_POINTS": "Redeeming internal currency",
+  "BUNDLE": "Buy X get Y free",
+  "SHIPPING": "Free shipping thresholds"
+}
+
+# Регуляторы стекинга (Stacking Controllers)
+STACK_CONTROLS: {
+  "EXCLUSIVE_FLAG": "is_exclusive: true (Prevents other codes)",
+  "CATEGORY_LIMIT": "Only one promo per 'Clothing' category",
+  "MIN_PRICE_FLOOR": "Total cannot drop below $1.00 or Cost_Price"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[MATH_PRECISION] <- {from: precision_rounding_attacks.protocol, scope: "ROUNDING_METHODS"}
+[COUPONS]        <- {from: coupon_brute_forcing.protocol, scope: "STACKING"}
+[WORKFLOW]       <- {from: parameter_pollution_multistep.protocol, scope: "STATE_CARRIERS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты суммирования скидок
+! ([TOTAL_DISCOUNT] > [TOTAL_PRICE]) : "BLOCKER: Negative Order Total. The sum of all applied discounts exceeds the order price, effectively paying the user to take the product."
+! ([ACTION] == "APPLY_OFFER" && ![VALIDATE_STACK_LIMITS]) : "CRITICAL: Unbounded Discount Stacking. Multiple offers can be applied sequentially without checking for mutual exclusivity, leading to 'Price Cascading'."
+! ([DISCOUNT_ORDER] -> [PERCENTAGE_AFTER_FIXED]) : "HIGH: Order of Operations Flaw. Applying a % discount after a fixed amount discount (or vice versa) might result in a lower price than intended by the business logic."
+? ([LOYALTY_POINTS] + [PROMO_CODE] == "ALLOWED") : "MEDIUM: Policy Bypass. User combines a personal loyalty discount with a public promo code, exceeding the maximum allowed discount margin."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DISCOUNT_ENGINE_MAPPING:
+   - Идентифицировать все функции, модифицирующие `total_price`.
+   - Построить дерево приоритетов (какое правило применяется первым).
+
+2. EXCLUSIVITY_LOGIC_PROBE:
+   - Проверить наличие флагов `non_stackable` в БД или коде.
+   - Попытаться передать массив промокодов или комбинацию «Промокод + Реферальный бонус» в одном запросе.
+
+3. BOUNDARY_PRICE_TESTING:
+   - Создать корзину с товаром по минимальной цене.
+   - Применить максимально возможную комбинацию скидок. Проверить, падает ли цена ниже себестоимости или нуля.
+
+4. BUNDLE_RECURSION_CHECK:
+   - Анализ «Buy X get Y». Проверить, не считается ли бесплатный товар «Y» за покупку «X» для следующего круга акции (Infinite Loop).
+
+5. POST_DISCOUNT_VALIDATION_AUDIT:
+   - Проверить финальный этап `checkout`. Выполняется ли повторная проверка `grand_total` на сервере ПЕРЕД вызовом платежного шлюза?
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_STACKING_SECURITY_REPORT:
+  - APPLIED_OFFERS_COMBINATION | THEORETICAL_MIN_PRICE | ACTUAL_MIN_PRICE | MARGIN_VIOLATION | SEVERITY
+VISUALIZE: "Image of a discount stacking vulnerability: showing a sequence of price reductions where a seasonal sale, a promo code, and loyalty points are applied linearly, resulting in a zero or negative final balance."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

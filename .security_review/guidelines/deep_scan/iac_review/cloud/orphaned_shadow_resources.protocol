@@ -1,0 +1,56 @@
+<DFD_MODELING_V3>
+@ID: ORPHANED_SHADOW_RESOURCES_DETECTION
+@GOAL: IDENTIFY_UNMANAGED_AND_ABANDONED_CLOUD_RESOURCES_TO_MINIMIZE_UNMONITORED_ATTACK_SURFACE
+@PARENT_CONTEXT: public_exposure_perimeter.protocol, audit_logging_monitoring.protocol, terraform_state_security.protocol
+
+<GLOBAL_VARS>
+# Категории теневых ресурсов
+SHADOW_CATEGORIES: {
+  "ORPHANED": "Resources managed by TF but disconnected (e.g., detached EBS, unattached EIP)",
+  "SHADOW_IT": "Resources created via Console/CLI bypassing IaC",
+  "DEPRECATED": "Old versions of snapshots, AMIs, or staging DBs left forever"
+}
+
+# Инструменты дрифта (Drift Detection)
+DRIFT_TOOLS: ["terraform plan", "driftctl", "cloudsploit", "aws-nuke (dev only)"]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[PERIMETER]      <- {from: public_exposure_perimeter.protocol, scope: "DANGEROUS_INGRESS"}
+[STATE_AUDIT]    <- {from: terraform_state_security.protocol, scope: "REMOTE_BACKEND"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты управления ресурсами
+! (Cloud_Account -> ![IaC_Managed]) : "HIGH: Unmanaged Infrastructure. Resources created outside of Terraform are not subject to security scanning and version control."
+! (Resource -> "Orphaned" && [PERIMETER.DANGEROUS_INGRESS]) : "CRITICAL: Abandoned Exposure. An orphaned resource (e.g., old EC2) is still reachable from the internet with unknown security posture."
+! (Snapshot -> "Age" > 365 days) : "MEDIUM: Stale Data Retention. Ancient snapshots may contain secrets or PII that should have been rotated or deleted."
+! (ElasticIP -> "Unattached") : "LOW: Subdomain Takeover Risk. Unattached public IPs can be reassigned to other accounts, potentially leading to DNS hijacking."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DRIFT_ANALYSIS_EXECUTION:
+   - Запустить `driftctl scan` для сравнения текущего состояния облака с Terraform State.
+   - Идентифицировать ресурсы, помеченные как `unmanaged`.
+
+2. UNATTACHED_RESOURCE_SWEEP:
+   - Проверить наличие отсоединенных (detached) EBS-томов, сетевых интерфейсов (ENI) и неиспользуемых Load Balancers.
+   - Особое внимание к неиспользуемым Security Groups, которые могут иметь слишком широкие доступы.
+
+3. MANUAL_CREATION_TRACE:
+   - Использовать логи CloudTrail (см. `audit_logging_monitoring.protocol`) для поиска событий `Create*`, инициированных пользователями (IAM Users), а не ролью CI/CD.
+
+4. TAGGING_COMPLIANCE_CHECK:
+   - Найти ресурсы без обязательных тегов (`Owner`, `Project`, `Environment`).
+   - Ресурсы без тегов чаще всего являются "теневыми" или забытыми.
+
+5. COST_ANOMALY_CORRELATION:
+   - Проверить отчеты по затратам (AWS Cost Explorer). Внезапные расходы в неиспользуемых регионах часто указывают на взлом аккаунта и запуск майнеров.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SHADOW_RESOURCE_REPORT:
+  - RESOURCE_ID | CATEGORY | CREATED_BY | ESTIMATED_RISK | ACTION_REQUIRED
+VISUALIZE: "Image of cloud drift detection process: illustrating how a tool compares the 'Desired State' defined in Terraform with the 'Actual State' in the Cloud Provider, highlighting unmanaged resources as security gaps."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

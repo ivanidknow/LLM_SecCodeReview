@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: SBOM_ARTIFACT_INTEGRITY
+@GOAL: ENSURE_FULL_VISIBILITY_INTO_SOFTWARE_COMPOSITION_AND_GUARANTEE_ARTIFIACT_ORIGIN_AUTHENTICITY
+@PARENT_CONTEXT: third_party_pinning.protocol, admission_control_provenance.protocol, base_image_provenance.protocol
+
+<GLOBAL_VARS>
+# Стандарты и инструменты
+INTEGRITY_TOOLS: {
+  "SBOM_FORMATS": ["CycloneDX", "SPDX"],
+  "GENERATORS": ["Syft", "Trivy", "cdxgen"],
+  "SIGNING": ["Cosign (Sigstore)", "Notary v2"],
+  "ATTESTATIONS": ["GitHub Attestations", "SLSA (Provenance)"]
+}
+
+# Уровни SLSA (Supply-chain Levels for Software Artifacts)
+SLSA_LEVELS: {
+  "L1": "Scripted build + SBOM",
+  "L2": "Hosted build + Signed provenance",
+  "L3": "Hardened build platform + Non-falsifiable provenance"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[THIRD_PARTY]    <- {from: third_party_pinning.protocol, scope: "EXTERNAL_COMPONENTS"}
+[ADMISSION]      <- {from: admission_control_provenance.protocol, scope: "IMAGE_SIGNING"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты целостности артефактов
+! (Build_Output -> ![SBOM]) : "HIGH: Visibility Gap. The artifact is shipped without a Bill of Materials, making it impossible to track vulnerable sub-dependencies (Transitive Dependencies)."
+! (Registry_Image -> ![Signature]) : "CRITICAL: Unsigned Artifact. There is no proof that the image in the registry is the same one that was built in the CI. Vulnerable to Registry Poisoning."
+! (Provenance -> "Identity: User") : "HIGH: Non-automated Build. The artifact was built by a user instead of a trusted CI runner, breaking the chain of trust."
+! (SBOM -> [VULNERABLE_PACKAGE]) : "CRITICAL: Known Vulnerability in SBOM. The manifest reveals a high-risk CVE in a deep-level dependency that SAST/DAST might have missed."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SBOM_GENERATION_AUDIT:
+   - Внедрить шаг генерации SBOM (например, `syft . -o cyclonedx-json`) сразу после сборки артефакта.
+   - Убедиться, что SBOM включает не только системные пакеты, но и зависимости языков программирования (npm, maven, pip).
+
+2. ARTIFACT_SIGNING_ENFORCEMENT:
+   - Использовать `cosign sign` для подписи контейнерных образов в реестре.
+   - Настроить хранение публичных ключей или использовать Keyless-подпись (Fulcio/Rekor).
+
+3. PROVENANCE_ATTESTATION_CHECK:
+   - Проверить наличие SLSA-аттестаций. Аттестация должна содержать: билд-систему, входные параметры и digest исходного кода.
+
+4. VULNERABILITY_RECONCILIATION:
+   - Настроить автоматический анализ SBOM на наличие новых CVE (VEX - Vulnerability Exploitability eXchange).
+   - Даже если образ не менялся, его SBOM должен пересканироваться ежедневно.
+
+5. ADMISSION_CONTROLLER_SYNC:
+   - Убедиться, что [ADMISSION.IMAGE_SIGNING] в Kubernetes настроен на проверку подписей и аттестаций, сгенерированных в этом пайплайне.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_INTEGRITY_REPORT:
+  - ARTIFACT_NAME | SBOM_STATUS | SIGNATURE_VALIDITY | SLSA_LEVEL | RISK_SCORE
+VISUALIZE: "Image of Software Supply Chain with SBOM and Attestations: illustrating how an artifact moves from Source to Build, gets signed, receives an SBOM, and is finally verified by an Admission Controller before deployment."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

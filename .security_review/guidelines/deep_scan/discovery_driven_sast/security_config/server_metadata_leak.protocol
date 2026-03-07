@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: SERVER_METADATA_INFORMATION_LEAKAGE
+@GOAL: MINIMIZE_SERVER_FINGERPRINTING_BY_REMOVING_VERSION_STRINGS_AND_INTERNAL_METADATA
+@PARENT_CONTEXT: error_verbosity.protocol, network_infra.protocol, feature_flag_governance.protocol
+
+<GLOBAL_VARS>
+# Заголовки, раскрывающие информацию о стеке
+FINGERPRINTING_HEADERS: {
+  "SERVER": "Server",                # Например: "nginx/1.18.0 (Ubuntu)"
+  "POWERED_BY": "X-Powered-By",      # Например: "Express", "PHP/7.4"
+  "ASPNET_VERSION": "X-AspNet-Version",
+  "DEBUG_INFO": "X-Debug-Token|X-Runtime"
+}
+
+# Пути к метаданным облачных провайдеров (SSRF-targets)
+CLOUD_METADATA_ENDPOINTS: {
+  "AWS_GCP": "http://169.254.169.254/latest/meta-data/",
+  "AZURE": "http://169.254.169.254/metadata/instance",
+  "K8S": "/var/run/secrets/kubernetes.io/serviceaccount/token"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ERROR_VERBOSITY] <- {from: error_verbosity.protocol, scope: "CLIENT_ERROR_STRATEGY"}
+[INFRA_CONFIG]    <- {from: network_infra.protocol, scope: "PROXY_SERVER_TOKENS"}
+[FEATURE_FLAGS]   <- {from: feature_flag_governance.protocol, scope: "EXPOSED_FLAGS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты утечки данных
+! ([HTTP_RESPONSE] -> [FINGERPRINTING_HEADERS] ~ ".*[0-9]+\.[0-9]+.*") : "HIGH: Version Disclosure. Server response headers contain specific software versions, enabling targeted attacks."
+! ([HTTP_RESPONSE] -> "X-Powered-By") : "MEDIUM: Technology Fingerprinting. Header reveals the underlying framework/language (e.g., Express, PHP)."
+! ([ERROR_VERBOSITY] -> "Internal_Server_IP|Internal_Path") : "CRITICAL: Infrastructure Leak. Error messages reveal internal network topology or absolute file system paths."
+? ([FEATURE_FLAGS] -> "Admin_Only_Flags") : "MEDIUM: Logic Leak. Client-side metadata reveals hidden features or administrative endpoints."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. HEADER_SUPPRESSION_AUDIT:
+   - Проверить конфигурацию веб-сервера (Nginx `server_tokens off`, Apache `ServerTokens Prod`).
+   - Идентифицировать в коде отключение заголовка `X-Powered-By` (например, `app.disable('x-powered-by')` в Express).
+
+2. COMMENT_AND_METADATA_SCRUBBING:
+   - Просканировать клиентские артефакты (HTML/JS) на наличие комментариев с именами авторов, внутренними URL или TODO-заметками.
+   - Проверить наличие `.git`, `.env.bak` или `phpinfo()` в публичной директории.
+
+3. ERROR_CONTEXT_VERIFICATION:
+   - Анализ [ERROR_VERBOSITY]. Убедиться, что при 500-х ошибках не возвращаются сырые дампы окружения (Environment Dumps).
+
+4. CLOUD_INIT_LEAK_CHECK:
+   - Проверить, не пробрасываются ли метаданные инстанса (Instance Metadata) в API-ответы для отладки.
+   - Анализ SSRF-уязвимых Sink-ов, которые могут дотянуться до [CLOUD_METADATA_ENDPOINTS].
+
+5. SOURCE_MAP_EXPOSURE_AUDIT:
+   - Проверить доступность `.map` файлов в Production. Если они доступны — атакующий может восстановить исходный код.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_METADATA_LEAK_REPORT:
+  - LEAK_SOURCE | DATA_TYPE | SEVERITY | MITIGATION_STEP
+VISUALIZE: "Image of a web reconnaissance process: showing how an attacker uses 'Server' and 'X-Powered-By' headers to find matching CVEs in an exploit database."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

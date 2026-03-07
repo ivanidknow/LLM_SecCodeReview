@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: ADMINISTRATIVE_INTERFACE_ENDPOINT_EXPOSURE
+@GOAL: IDENTIFY_UNPROTECTED_ADMIN_PANELS_AND_INTERNAL_ENDPOINTS_EXPOSED_TO_EXTERNAL_ACTORS
+@PARENT_CONTEXT: network_infra.protocol, identity_model.protocol, third_party_surface.protocol
+
+<GLOBAL_VARS>
+# Шаблоны административных путей
+ADMIN_PATH_PATTERNS: {
+  "UI_PANELS": "/(admin|dashboard|management|control|console|setup|config)",
+  "DEBUG_TOOLS": "/(debug|swagger|graphiql|phpinfo|env|health|metrics)",
+  "DB_CLIENTS": "/(phpmyadmin|pgadmin|adminer|mongodb)"
+}
+
+# Сигнатуры ограничений доступа
+ACCESS_RESTRICTIONS: {
+  "NETWORK_LEVEL": "(allow_ip|deny_all|internal_only)",
+  "AUTH_LEVEL": "(@IsAdmin|Role.ADMIN|HasPermission('manage'))",
+  "HEADER_LEVEL": "(X-Internal-Secret|Authorization)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[INFRA_PROXY]    <- {from: network_infra.protocol, scope: "PROXY_ACL_RULES"}
+[USER_ROLES]     <- {from: identity_model.protocol, scope: "ROLE_PERMISSIONS"}
+[EXTERNAL_SCAN]  <- {from: third_party_surface.protocol, scope: "ATTACK_SURFACE"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты защиты админок
+! ([ADMIN_PATH_PATTERNS] -> ![ACCESS_RESTRICTIONS]) : "BLOCKER: Exposed Administrative Interface. Critical management endpoint is accessible without any network or auth restrictions."
+! ([DEBUG_TOOLS] -> [EXTERNAL_SCAN]) : "CRITICAL: Debug Information Leakage. Development/Debug tools are exposed to the public internet. Risk: RCE / Info Leak."
+! ([ADMIN_PATH] -> [AUTH_LEVEL] && ![INFRA_PROXY.INTERNAL_ONLY]) : "HIGH: Single-Factor Admin Access. Admin panel relies solely on application auth; missing network-level restriction (IP whitelist/VPN)."
+? ([ADMIN_PATH] -> "Predictable_URL") : "MEDIUM: Security by Obscurity. Admin panel is 'hidden' at a random path but lacks proper [ACCESS_RESTRICTIONS]."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ENDPOINT_INVENTORY_COLLATING:
+   - Извлечь все зарегистрированные маршруты из кода (например, через `express-list-endpoints` или аналоги).
+   - Сопоставить список с [ADMIN_PATH_PATTERNS].
+
+2. AUTH_DECORATOR_AUDIT:
+   - Для каждого административного маршрута проверить наличие Guard/Middleware.
+   - Убедиться, что декораторы (например, `@UseGuards(AdminGuard)`) действительно требуют повышенных привилегий.
+
+3. INFRASTRUCTURE_GATE_VERIFICATION:
+   - Проверить файлы конфигурации Nginx/Apache/K8s Ingress.
+   - Выявить наличие правил, блокирующих доступ к `/admin` для внешних IP.
+
+4. HIDDEN_FEATURE_DISCOVERY:
+   - Искать скрытые флаги в коде (например, `if (req.query.admin === 'true')`), которые активируют административные функции.
+
+5. METADATA_LEAK_CORRELATION:
+   - Проверить файлы `robots.txt`, `sitemap.xml` и JS-бандлы на предмет упоминания путей из [ADMIN_PATH_PATTERNS].
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ADMIN_EXPOSURE_REPORT:
+  - ENDPOINT_URL | COMPONENT | ACCESS_CONTROL_FOUND | EXPOSURE_LEVEL | RISK_IMPACT
+VISUALIZE: "Image of a network security diagram: showing how a public-facing load balancer should block access to an internal admin subnet while allowing traffic only from a management VPN."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

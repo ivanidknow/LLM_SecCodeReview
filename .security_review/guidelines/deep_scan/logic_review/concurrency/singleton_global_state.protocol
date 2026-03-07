@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: SINGLETON_GLOBAL_STATE_THREAD_SAFETY
+@GOAL: IDENTIFY_RACE_CONDITIONS_IN_SHARED_OBJECTS_AND_GLOBAL_VARIABLES_PREVENTING_CROSS_SESSION_DATA_LEAKS
+@PARENT_CONTEXT: identity_model.protocol, distributed_lock_race.protocol, atomic_transaction_integrity.protocol
+
+<GLOBAL_VARS>
+# Опасные конструкции состояния
+STATE_CONSTRUCTS: {
+  "SINGLETONS": "(static Instance|@Singleton|sync.Once)",
+  "GLOBAL_CACHES": "(static Map|GlobalCache|Runtime.Storage)",
+  "STATIC_CONTEXT": "(ThreadLocal|HttpContext.Current|AsyncLocal)"
+}
+
+# Паттерны уязвимостей (Concurrency Smells)
+CONCURRENCY_SMELLS: {
+  "DIRTY_SINGLETON": "Singleton storing user-specific data in its fields",
+  "UNSAFE_MAP": "Using a standard Map/Dictionary for concurrent writes without locks",
+  "DOUBLE_CHECK_LOCKING": "Improperly implemented lazy initialization in older language versions",
+  "CONTEXT_LEAK": "AsyncLocal/ThreadLocal variables not cleared after request completion"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[IDENTITY]       <- {from: identity_model.protocol, scope: "SESSION_CONTEXT"}
+[ATOMIC_OPS]     <- {from: atomic_transaction_integrity.protocol, scope: "ATOMIC_INCREMENTS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты потокобезопасности
+! ([SINGLETON] -> [USER_SPECIFIC_FIELD]) : "BLOCKER: Cross-Session Data Leak. A singleton object stores user-specific data (e.g., currentUser) in a class field, causing one user's data to be visible to another."
+! ([GLOBAL_MAP] -> ![CONCURRENT_PROTECTION]) : "CRITICAL: Concurrent Write Corruption. Multiple threads write to a non-thread-safe collection, leading to application crashes or data loss."
+! ([INIT_LOGIC] -> ![THREAD_SAFE_INITIALIZATION]) : "HIGH: Singleton Race. Multiple instances of a singleton are created during simultaneous first-access requests, potentially leading to inconsistent application state."
+! ([CONTEXT_STORAGE] -> ![CLEANUP_FINALLY]) : "HIGH: Context Pollution. Security context or user identity remains in the thread pool after the request, infecting the next user's request on the same thread."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SHARED_OBJECT_INVENTORY:
+   - Идентифицировать все классы/объекты с временем жизни `Static` или `Singleton`.
+   - Проверить наличие полей, значения которых меняются во время обработки запроса.
+
+2. COLLECTION_THREAD_SAFETY_AUDIT:
+   - Найти использование глобальных коллекций (Maps, Lists, Sets).
+   - Убедиться, что используются потокобезопасные версии (например, `ConcurrentHashMap` в Java или `sync.Map` в Go) или операции обернуты в `Mutex`/`lock`.
+
+3. INITIALIZATION_PATTERN_CHECK:
+   - Проверить реализацию паттерна Singleton. Рекомендуется использовать статические инициализаторы (Eager) или `sync.Once`.
+   - Для ленивой инициализации (Lazy) проверить корректность использования `volatile` или `Memory Barriers`.
+
+4. ASYNC_CONTEXT_LEAK_PROBE:
+   - Анализ использования `AsyncLocal` (C#), `ThreadLocal` (Java) или аналогичных механизмов.
+   - Убедиться, что очистка данных происходит в блоке `finally` или через Middleware, чтобы избежать "наследования" личности предыдущего пользователя.
+
+5. ATOMIC_STATE_TRANSITION_VERIFICATION:
+   - Проверить, что изменение сложного глобального состояния происходит атомарно.
+   - Если состояние зависит от нескольких переменных, их обновление должно быть защищено одним примитивом синхронизации.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_THREAD_SAFETY_REPORT:
+  - SHARED_OBJECT | VARIABLE_SCOPE | PROTECTION_MECHANISM | RISK_SCENARIO | SEVERITY
+VISUALIZE: "Image of a Singleton thread safety violation: showing Thread A and Thread B accessing a shared singleton simultaneously, where Thread A sets a user ID and Thread B reads it before Thread A clears it, leading to a data leak."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

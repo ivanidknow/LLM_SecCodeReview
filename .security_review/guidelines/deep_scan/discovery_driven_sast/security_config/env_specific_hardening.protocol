@@ -1,0 +1,64 @@
+<DFD_MODELING_V3>
+@ID: ENVIRONMENT_SPECIFIC_HARDENING
+@GOAL: VERIFY_STRICT_ISOLATION_AND_REMOVAL_OF_DEBUG_CONFIGURATIONS_IN_PRODUCTION_ENVIRONMENTS
+@PARENT_CONTEXT: error_verbosity.protocol, iac_audit.protocol, secrets_management.protocol
+
+<GLOBAL_VARS>
+# Маркеры сред
+ENV_TYPES: "(production|staging|development|test)"
+
+# Опасные настройки для Production
+DEV_ONLY_FEATURES: {
+  "DEBUG_MODES": "(DEBUG=True|development_mode: true|verbose: 5)",
+  "STACK_TRACES": "(display_errors|show_exception_details)",
+  "BYPASS_GATES": "(skip_auth|disable_cors_check|allow_insecure_tls)"
+}
+
+# Ожидаемые отличия в конфигурации
+HARDENING_CHECKLIST: {
+  "LOG_LEVEL": "PROD: ERROR/WARN | DEV: DEBUG/INFO",
+  "SSL_STRICTNESS": "PROD: REJECT_UNAUTHORIZED | DEV: ALLOW_SELFSIGNED",
+  "API_MOCKING": "PROD: LIVE_INTEGRATION | DEV: MOCK_DRIVEN"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ERROR_VERBOSITY] <- {from: error_verbosity.protocol, scope: "VERBOSITY_LEVELS"}
+[INFRA_PROFILES]  <- {from: iac_audit.protocol, scope: "ENVIRONMENT_VARIABLES|TERRAFORM_WORKSPACES"}
+[SECRET_CONTEXT]  <- {from: secrets_management.protocol, scope: "CONTEXTUAL_SECRETS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты разделения сред
+! ([ENV_TYPE] == "production" && [DEV_ONLY_FEATURES]) : "BLOCKER: Debug Leak. Development-only security overrides are active in Production. Risk: Information disclosure or auth bypass."
+! ([ENV_TYPE] == "production" && [SSL_STRICTNESS] == "ALLOW_INSECURE") : "CRITICAL: Insecure TLS in Prod. System allows invalid/self-signed certificates in the production environment."
+! ([PROD_ENV] -> [TEST_KEYS]) : "HIGH: Test Credential Usage. Production environment uses secrets from [SECRET_CONTEXT] marked as 'test' or 'dev'."
+? ([ENV_TYPE] == "development" && ![HARDENING_CHECKLIST]) : "INFO: Environment Parity Gap. Dev environment is too different from Prod, potentially hiding environment-specific bugs."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. RUNTIME_ENV_IDENTIFICATION:
+   - Определить текущую среду через переменные окружения (`NODE_ENV`, `APP_ENV`) или параметры запуска.
+   - Сопоставить выявленную среду с профилями из [INFRA_PROFILES].
+
+2. DEBUG_SINK_AUDIT:
+   - Выполнить поиск всех вхождений [DEV_ONLY_FEATURES] в исходном коде и конфигах.
+   - Проверить, обернуты ли они в условные операторы `if (env !== 'production')`.
+
+3. ERROR_POLICY_MATCHING:
+   - Проверить [ERROR_VERBOSITY] на соответствие среде. Убедиться, что в Prod не выводятся системные пути и SQL-запросы.
+
+4. CROSS_ENVIRONMENT_SECRET_VALIDATION:
+   - Убедиться, что ключи доступа к БД и API из [SECRET_CONTEXT] для разных сред не пересекаются.
+   - Использовать `psea_logic.protocol` для поиска признаков тестовых ключей в боевом коде.
+
+5. DYNAMIC_CONFIGURATION_PROBE:
+   - Проверить механизмы "Feature Flags". Убедиться, что флаги, отключающие безопасность (например, `bypass_captcha`), принудительно выключены для Prod.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ENVIRONMENT_HARDENING_REPORT:
+  - ENVIRONMENT | FLAG_NAME | VALUE | SECURITY_IMPACT | COMPLIANCE_STATUS
+VISUALIZE: "Image of a configuration management flow: showing how settings branch between Development (Debug-enabled) and Production (Hardened/Locked-down)."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

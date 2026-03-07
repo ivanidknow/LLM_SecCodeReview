@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: CUSTOM_VALIDATION_LOGIC_ANALYSIS
+@GOAL: AUDIT_USER_DEFINED_VALIDATION_FUNCTIONS_FOR_LOGIC_FLAWS_AND_BYPASS_OPPORTUNITIES
+@PARENT_CONTEXT: validation_chokepoints.protocol, string_manipulation_transformation.protocol, behavioral_inconsistency.protocol
+
+<GLOBAL_VARS>
+# Паттерны кастомной валидации
+CUSTOM_VAL_MARKERS: {
+  "REGEX_CHECKS": "(\.test\(|\.match\(|re\.match|preg_match)",
+  "STRING_SEARCH": "(\.indexOf\(|\.includes\(|strpos)",
+  "BLOCKLISTS": "(forbidden|blacklisted|restricted_words)",
+  "LENGTH_CHECKS": "(\.length\s*[<>]=?|len\(.*\))"
+}
+
+# Признаки хрупкой валидации (Fragile Validation Smells)
+FRAGILE_LOGIC_SMELLS: {
+  "BLACK_vs_WHITE": "Using blocklists instead of allowlists (Risk: Bypass)",
+  "LOOSE_REGEX": "Missing anchors (^ and $) in regular expressions",
+  "CASE_SENSITIVITY": "Validating 'admin' but missing 'Admin' or 'ADMIN'",
+  "PARTIAL_MATCH": "Validating only a part of the string (e.g., prefix check only)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[SANITIZERS]     <- {from: validation_chokepoints.protocol, scope: "CUSTOM_LOGIC_SAMPLES"}
+[TRANSFORMS]     <- {from: string_manipulation_transformation.protocol, scope: "NORMALIZATION_STEPS"}
+[PARSER_MATCH]   <- {from: behavioral_inconsistency.protocol, scope: "NORMALIZATION_LOGIC"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты кастомной валидации
+! ([REGEX] -> ![ANCHORS]) : "HIGH: Unanchored Regex Validation. Regex lacks ^ or $, allowing attackers to wrap malicious payloads around valid strings."
+! ([BLOCKLIST] -> [TAINT_CLEARANCE]) : "CRITICAL: Blocklist-Based Security. Validation relies on a list of 'bad' characters/words. Risk: Evasion via new encodings or bypasses."
+! ([VAL_LOGIC] && [TRANSFORMS] -> AFTER_VAL) : "HIGH: Post-Validation Transformation. Data is modified after being validated, potentially re-introducing malicious patterns."
+? ([REGEX] -> "Backtracking_Complexity") : "MEDIUM: Potential ReDoS. Complex regular expression may lead to Denial of Service when processing specially crafted strings."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CUSTOM_VAL_DISCOVERY:
+   - Идентифицировать функции, выполняющие проверки из [CUSTOM_VAL_MARKERS].
+   - Определить, снимает ли вызов этой функции метку "Tainted" в [ALIAS_GRAPH].
+
+2. REGEX_SECURITY_AUDIT:
+   - Проверить наличие якорей начала (`^`) и конца (`$`) строки.
+   - Проанализировать регулярное выражение на предмет избыточного вложенного квантования (поиск ReDoS).
+
+3. ALLOWLIST_ENFORCEMENT_VERIFY:
+   - Проверить, является ли логика разрешительной (Allowlist) или запретительной (Blocklist).
+   - Если используется Blocklist, пометить валидацию как "Insufficient" и оставить метку Taint.
+
+4. NORMALIZATION_ORDER_CHECK:
+   - Убедиться, что нормализация (например, `.toLowerCase()` или удаление пробелов) происходит **до** валидации, а не после. 
+
+5. CONDITIONAL_BYPASS_ANALYSIS:
+   - Анализ логических путей: проверить, существуют ли ветки `if`, позволяющие пропустить проверку (например, `if (isAdmin || validate(input))`).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_CUSTOM_VAL_REPORT:
+  - FUNCTION_NAME | VAL_STRATEGY (Allow/Block) | REGEX_ISSUES | BYPASS_SCENARIOS | RISK_LEVEL
+VISUALIZE: "Image of a regex bypass: showing how a lack of anchors allows a malicious payload to pass validation if it contains a valid substring."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

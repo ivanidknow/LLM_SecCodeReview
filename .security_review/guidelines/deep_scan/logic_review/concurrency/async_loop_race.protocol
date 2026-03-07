@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: ASYNC_EVENT_LOOP_BLOCKING_RACE
+@GOAL: IDENTIFY_EVENT_LOOP_STARVATION_AND_SHARED_STATE_CORRUPTION_IN_SINGLE_THREADED_NON_BLOCKING_ARCHITECTURES
+@PARENT_CONTEXT: toctou_analysis.protocol, inventory_resource_exhaustion.protocol, rate_limit_abuse.protocol
+
+<GLOBAL_VARS>
+# Опасные асинхронные паттерны
+ASYNC_SMELLS: {
+  "BLOCKING_SYNC": "(fs.readFileSync|JSON.parse(huge)|crypto.pbkdf2Sync)",
+  "AWAIT_IN_LOOP": "Sequential execution where parallel is expected",
+  "NON_ATOMIC_AWAIT": "Checking state -> await IO -> updating state",
+  "UNBOUNDED_PROMISES": "Promise.all() on user-controlled array size"
+}
+
+# Метрики нагрузки
+DOS_INDICATORS: {
+  "CPU_INTENSIVE": "Regex on long strings, heavy image processing on Main Loop",
+  "EVENT_LOOP_DELAY": "Heartbeat lag > 100ms"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[TOCTOU]         <- {from: toctou_analysis.protocol, scope: "WINDOW"}
+[RESOURCE_LIMITS]<- {from: inventory_resource_exhaustion.protocol, scope: "DIGITAL"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты асинхронной безопасности
+! ([MAIN_LOOP] -> [SYNC_COMPUTE] > 50ms) : "CRITICAL: Event Loop Blocking. Synchronous heavy operation freezes the entire application, enabling easy DoS."
+! ([CHECK_STATE] -> [AWAIT] -> [MUTATE_STATE]) : "BLOCKER: Async Race Condition. Context switches during 'await' allow other requests to change the state, invalidating the initial check."
+! ([PROMISE_POOL] -> ![CONCURRENCY_LIMIT]) : "HIGH: Async Resource Exhaustion. Uncapped parallel promises (e.g., mass database queries) crash the process or DB connection pool."
+! ([ERROR_HANDLING] -> ![REJECTION_CATCH]) : "MEDIUM: Unhandled Rejection. A failed async task crashes the process or leaves it in a 'Zombies' state."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SYNC_SINK_SCAN:
+   - Найти в коде использование синхронных методов ввода-вывода или тяжелых библиотек.
+   - Особое внимание на `JSON.parse` больших объектов и сложные `RegExp`.
+
+2. ASYNC_TOCTOU_TRACE:
+   - Анализ последовательностей `if (condition) { await action(); update(); }`.
+   - Проверить, не может ли `await action()` занять время, достаточное для того, чтобы другой параллельный запрос изменил `condition`.
+   
+
+3. PARALLEL_WORKER_AUDIT:
+   - Проверить наличие Worker Threads или фоновых очередей для задач из [DOS_INDICATORS.CPU_INTENSIVE].
+
+4. PROMISE_QUEUE_LIMITING:
+   - Убедиться, что использование `Promise.all` или `p-map` ограничено разумным числом параллельных операций (Concurrency Limit).
+
+5. CONTEXT_POLLUTION_CHECK:
+   - Проверить использование глобальных или синглтон-объектов внутри асинхронных функций. Убедиться, что данные запроса не «утекают» между вызовами из-за переиспользования переменных.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ASYNC_SAFETY_REPORT:
+  - FUNCTION_NAME | BLOCKING_POTENTIAL | RACE_WINDOW | MITIGATION (Mutex/Worker) | SEVERITY
+VISUALIZE: "Image of an Event Loop blocking event: showing how a single long-running task prevents the processing of pending I/O callbacks, leading to increased latency and eventual timeout for all users."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

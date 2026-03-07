@@ -1,0 +1,61 @@
+<DFD_MODELING_V3>
+@ID: POST_BUILD_SECURITY_TESTING_GATE
+@GOAL: VALIDATE_RUNNABLE_ARTIFACTS_AND_INFRA_CHANGES_IN_STAGING_BEFORE_PRODUCTION_RELEASE
+@PARENT_CONTEXT: sbom_artifact_integrity.protocol, build_environment_isolation.protocol, resource_quotas_limits.protocol
+
+<GLOBAL_VARS>
+# Типы тестирования на затворе (Gate)
+TEST_TYPES: {
+  "DYNAMIC_SCAN": "DAST/API Scanning (OWASP ZAP, Nuclei)",
+  "IMAGE_SCAN": "In-depth CVE analysis (Trivy, Grype)",
+  "COMPLIANCE": "Policy-as-Code checks (Checkov, Terrascan, InSpec)",
+  "MALWARE": "Scanning image layers for malicious binaries (ClamAV)"
+}
+
+# Пороги блокировки (Quality Gates)
+FAILURE_CONDITIONS: {
+  "CVE_CRITICAL": "Block if any Critical CVE exists",
+  "SECRETS_FOUND": "Block if secrets detected in image layers",
+  "MISCONFIG": "Block if IaC drift/misconfig severity is HIGH"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[INTEGRITY]      <- {from: sbom_artifact_integrity.protocol, scope: "SIGNING"}
+[RESOURCES]      <- {from: resource_quotas_limits.protocol, scope: "LIMITS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты шлюза безопасности
+! (Job -> "Deploy" && ![Security_Gate_Passed]) : "BLOCKER: Bypassing Security Gate. Deployment initiated without successful completion of post-build security tests."
+! (Image_Scan -> "CVE_Severity: Critical" && "Fix_Available: true") : "CRITICAL: Unpatched Critical Vulnerability. Artifact contains exploitable vulnerabilities with available patches."
+! (Infra_Plan -> "Destructive_Changes: true" && ![Manual_Approval]) : "HIGH: Unprotected Infrastructure Mutation. Critical resources (DBs, IAM) are being modified/deleted without explicit security sign-off."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. DYNAMIC_IMAGE_VULNERABILITY_SCAN:
+   - Выполнить финальный скан образа после сборки.
+   - Сравнить результаты с SBOM из [INTEGRITY]. Если найдены новые уязвимости — остановить пайплайн.
+
+2. EPHEMERAL_STAGING_DEPLOY:
+   - Запустить артефакт в изолированном эфемерном неймспейсе (см. `build_environment_isolation.protocol`).
+   - Проверить статус запуска (Liveness/Readiness). Если контейнер падает из-за [RESOURCES.LIMITS], это считается отказом безопасности (DoS risk).
+
+3. AUTOMATED_DAST_EXECUTION:
+   - Запустить быстрый DAST-сканер (например, Nuclei или ZAP Baseline) против поднятого сервиса.
+   - Искать типичные ошибки: отсутствие заголовков безопасности, открытые эндпоинты отладки, дефолтные пароли.
+
+4. COMPLIANCE_AS_CODE_VALIDATION:
+   - Проверить результирующий манифест (Helm template / Kustomize build) на соответствие корпоративным политикам (например, отсутствие `privileged: true`).
+
+5. GATE_DECISION_LOGGING:
+   - Сформировать JSON-отчёт с результатами всех тестов.
+   - Подписать отчёт и прикрепить его к аттестации артефакта (см. `sbom_artifact_integrity.protocol`).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_POST_BUILD_GATE_REPORT:
+  - COMPONENT | TEST_TYPE | STATUS (PASS/FAIL) | CRITICAL_FINDINGS_COUNT | GATE_KEEPER_ID
+VISUALIZE: "Image of a CI/CD Security Gate workflow: illustrating a decision point between Build and Deploy stages where various security checks (DAST, CVE, Policy) act as a binary 'Go/No-Go' switch for the pipeline."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: MESSAGE_QUEUE_EVENT_STREAM_SOURCING
+@GOAL: IDENTIFY_ASYNC_TAINT_SOURCES_FROM_BROKERS_AND_STREAMS_TO_PREVENT_LATENT_EXPLOITATION
+@PARENT_CONTEXT: async_event_driven.protocol, inter_process_communication.protocol, data_inventory.protocol
+
+<GLOBAL_VARS>
+# Драйверы и библиотеки очередей (Consumer Sinks)
+QUEUE_CONSUMERS: {
+  "RABBITMQ": "(amqplib\.consume|pika\.basic_consume|@RabbitListener)",
+  "KAFKA": "(kafkajs\.consumer|kafka-python\.KafkaConsumer|@KafkaListener)",
+  "REDIS_PUB_SUB": "(redis\.subscribe|redis\.psubscribe)",
+  "BULL_MQ": "(Worker\(.*, async\s*job\s*=>)"
+}
+
+# Поля метаданных сообщений
+MESSAGE_METADATA: {
+  "ROUTING": "(routingKey|topic|channel|subject)",
+  "HEADERS": "(properties\.headers|message_attributes)",
+  "REPLY_TO": "(replyTo|correlationId)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[IPC_CHANNELS]   <- {from: ipc_identification.protocol, scope: "BROKER_ENDPOINTS"}
+[ASYNC_FLOWS]    <- {from: async_event_driven.protocol, scope: "CONSUMER_HANDLERS"}
+[DATA_SCHEMAS]   <- {from: data_inventory.protocol, scope: "MESSAGE_FORMATS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты асинхронных данных
+! ([QUEUE_CONSUMERS] -> "Raw_Payload_Parsing" && ![DATA_SCHEMAS]) : "CRITICAL: Schema-less Async Consumption. Message body is parsed without structural validation. Risk: Prototype Pollution / Insecure Deserialization."
+! ([MESSAGE_METADATA.REPLY_TO] -> [OUTBOUND_SINK]) : "HIGH: Async SSRF / Response Hijacking. 'Reply-To' address from a message is used for outbound requests without whitelisting."
+! ([QUEUE_DATA] -> "Database_Update" && ![AUTH_CONTEXT]) : "BLOCKER: Missing Async Auth. Action performed based on a message without verifying the original producer's identity or permissions."
+? ([ROUTING] -> "Dynamic_Handler_Loading") : "MEDIUM: Topic Injection. Untrusted routing keys are used to determine which internal logic to execute."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. CONSUMER_ENDPOINT_DISCOVERY:
+   - Идентифицировать все функции-обработчики (Handlers), подписанные на очереди из [QUEUE_CONSUMERS].
+   - Сопоставить их с каналами связи, определенными в [IPC_CHANNELS].
+
+2. MESSAGE_UNPACKING_AUDIT:
+   - Проанализировать процесс десериализации (JSON, Protobuf, Avro).
+   - Проверить наличие `validation_chokepoints.protocol` на этапе получения сообщения.
+
+3. TAINT_SEED_EXTRACTION:
+   - Пометить всё тело сообщения (`payload`) и его метаданные [MESSAGE_METADATA] как "Taint Seeds".
+   - Особое внимание уделить полям, которые могут содержать команды или пути к файлам.
+
+4. ASYNC_CONTEXT_PROPAGATION:
+   - Проверить, передаются ли атрибуты безопасности (User ID, Trace ID) внутри сообщения.
+   - Если обработка сообщения инициирует действия от имени пользователя — проверить цепочку доверия.
+
+5. CROSS_SERVICE_TAINT_MAPPING:
+   - Используя [ASYNC_FLOWS], проследить путь данных от момента выхода из одного сервиса до входа в текущий потребитель (Consumer).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_QUEUE_SOURCE_REPORT:
+  - BROKER_TYPE | TOPIC_CHANNEL | HANDLER_FUNCTION | PAYLOAD_FORMAT | RISK_LEVEL
+VISUALIZE: "Image of an asynchronous message flow architecture: showing a producer sending a tainted message through a broker to a vulnerable consumer."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: FRAMEWORK_SECURITY_FEATURES_ENFORCEMENT
+@GOAL: VERIFY_MAXIMAL_UTILIZATION_OF_BUILTIN_FRAMEWORK_PROTECTIONS_AND_DETECTION_OF_UNSAFE_OVERRIDES
+@PARENT_CONTEXT: validation_chokepoints.protocol, authentication_strategy.protocol, design_patterns.protocol
+
+<GLOBAL_VARS>
+# Нативные механизмы защиты по фреймворкам
+FRAMEWORK_PROTECTIONS: {
+  "NESTJS_EXPRESS": "(ValidationPipe|UseGuards|ThrottlerModule|Helmet)",
+  "DJANGO": "(CsrfViewMiddleware|XFrameOptionsMiddleware|SECURE_CONTENT_TYPE_NOSNIFF)",
+  "FASTAPI": "(OAuth2PasswordBearer|SecurityScopes|HTTPException)",
+  "SPRING_BOOT": "(WebSecurityConfigurerAdapter|@PreAuthorize|HttpSecurity.csrf())"
+}
+
+# Признаки отключения встроенной защиты
+SECURITY_OFF_FLAGS: {
+  "CSRF_DISABLE": "(csrf().disable()|@csrf_exempt|enable_csrf: false)",
+  "XSS_BYPASS": "(\.unsafe_render|dangerouslySetInnerHTML|Markup())",
+  "VALIDATION_SKIP": "(skip_validation: true|validate_on_parse: false)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[APP_STACK]      <- {from: third_party_surface.protocol, scope: "CORE_FRAMEWORKS|WEB_ENGINES"}
+[VALIDATION]     <- {from: validation_chokepoints.protocol, scope: "DTO_SCHEMAS"}
+[AUTH_MODEL]     <- {from: authentication_strategy.protocol, scope: "GUARDS_INTERCEPTORS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты использования фреймворка
+! ([APP_STACK] -> ![FRAMEWORK_PROTECTIONS]) : "HIGH: Underutilized Framework Security. Core security modules of the identified framework are not detected in the configuration."
+! ([SECURITY_OFF_FLAGS]) : "CRITICAL: Intentional Security Bypass. Built-in protection (e.g., CSRF or Validation) has been explicitly disabled in code."
+! ([VALIDATION] && ![FRAMEWORK_VALIDATOR]) : "MEDIUM: Custom Validation Debt. App uses custom logic instead of framework-native pipes/schemas, increasing the risk of edge-case bypasses."
+? ([AUTH_MODEL] -> "Custom_Auth_Middleware") : "INFO: Non-standard Auth Implementation. Application bypasses native auth guards in favor of custom middleware."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. FRAMEWORK_STAPLE_IDENTIFICATION:
+   - Определить основной стек [APP_STACK] через анализ зависимостей (например, `package.json` или `requirements.txt`).
+   - Сопоставить стек с реестром [FRAMEWORK_PROTECTIONS].
+
+2. CONFIGURATION_MAPPING:
+   - Проанализировать файлы инициализации (например, `main.ts`, `settings.py`, `application.yaml`).
+   - Идентифицировать подключенные модули защиты (CORS, Rate Limiting, CSRF).
+
+3. BYPASS_SEARCH:
+   - Выполнить поиск всех вхождений [SECURITY_OFF_FLAGS].
+   - Для каждого найденного отключения проверить наличие обоснования (комментарии в коде) или компенсирующего контроля из `security_controls.protocol`.
+
+4. DTO_PIPE_AUDIT:
+   - Проверить, проходят ли входные данные через нативные пайпы валидации (например, `ValidationPipe` в NestJS).
+   - Убедиться, что включен режим `whitelist: true` (отсечение неизвестных полей в DTO).
+
+5. DEPRECATED_FEATURE_CHECK:
+   - Проверка использования устаревших функций безопасности фреймворка, которые имеют известные уязвимости или слабые дефолты.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_FRAMEWORK_ENFORCEMENT_REPORT:
+  - FRAMEWORK | FEATURE_NAME | STATUS (ENABLED/DISABLED/BYPASSED) | RISK_IMPACT
+VISUALIZE: "Image of a framework security middleware stack: showing how requests pass through multiple native layers (Auth, Guard, Pipe, Interceptor) before reaching the controller."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -192,3 +192,152 @@
 
 # Deep Scan
 
+### Discovery-Driven Static Analysis
+
+%% Проведение контекстного статического анализа кода с использованием данных инвентаризации для выявления жестко заданных секретов (Secrets) и небезопасного использования функций в критических узлах системы. %%
+
+##### Context-Aware Secret Scanning
+* Provider-Specific Entropy Analysis (provider_entropy_analysis.protocol)
+* Identity-Linked Variable Correlation (identity_variable_correlation.protocol)
+* Config-to-Source Leak Detection (config_to_source_leak.protocol)
+* Semantic Log & Exception Leak Analysis (semantic_log_exception_leak.protocol)
+* Post-Exploitation Secret Discovery (post_exploitation_secrets.protocol)
+##### Sensitive Sink Mapping
+* Command & Code Execution Sinks (command_code_execution_sinks.protocol)
+* Database & Query Sinks (database_query_sinks.protocol)
+* Data Rendering & Output Sinks (data_rendering_output_sinks.protocol)
+* File System & Stream Sinks (file_system_stream_sinks.protocol)
+* Integrity & Validation Bypass Sinks (integrity_validation_bypass_sinks.protocol)
+##### Dependency Vulnerability Contextualization
+* Function-Level Reachability Analysis (function_reachability.protocol)
+* Transitive Dependency Risk Mapping (transitive_dependency_risk.protocol)
+* Environmental & Runtime Vulnerability Match (environmental_runtime_match.protocol)
+* Automated Exploit Maturity Check (exploit_maturity_check.protocol)
+* Mitigation-Specific Patch Analysis (mitigation_patch_analysis.protocol)
+##### Security Header & Config Validation
+* HTTP Security Headers Audit (http_headers_audit.protocol)
+* Session & Cookie Security Hardening (session_cookie_security.protocol)
+* Environment-Specific Hardening (env_specific_hardening.protocol)
+* Framework Security Features Enforcement (framework_security_enforcement.protocol)
+* Server Metadata & Information Leakage (server_metadata_leak.protocol)
+
+
+---
+
+### Taint Analysis & Data Flow Tracking
+
+%% Анализ путей прохождения данных от точек входа (Sources) до чувствительных функций исполнения (Sinks) с целью проверки корректности их фильтрации и преобразования. %%
+
+##### Untrusted Source Identification
+* HTTP Request Surface Mapping (http_request_surface_mapping.protocol)
+* External API & Webhook Ingestion (external_api_webhook_ingestion.protocol)
+* Message Queue & Event Stream Sourcing (message_queue_stream_sourcing.protocol)
+* File & Upload Stream Analysis (file_upload_stream_analysis.protocol)
+* Persistence-to-Memory Tainting (persistence_to_memory_tainting.protocol)
+##### Propagation Path Tracing
+* Direct Assignment & Variable Aliasing (direct_assignment_aliasing.protocol)
+* String Manipulation & Transformation (string_manipulation_transformation.protocol)
+* Inter-Procedural Data Flow (inter_procedural_data_flow.protocol)
+* Asynchronous & Callback Propagation (asynchronous_callback_propagation.protocol)
+* Object & Property Tainting (object_property_tainting.protocol)
+##### Sanitization & Validation Verification
+* Schema-Based Validation Audit (schema_based_validation_audit.protocol)
+* Context-Specific Sanitizer Matching (context_specific_sanitizer_matching.protocol)
+* Custom Validation Logic Analysis (custom_validation_logic_analysis.protocol)
+* Canonicalization & Encoding Integrity (canonicalization_encoding_integrity.protocol)
+* Validation Bypass & Conditional Logic (validation_bypass_conditional_logic.protocol)
+##### Sink-to-Source Correlation (The Exploit Path)
+* Full Path Verification (full_path_verification.protocol)
+* Reachability & Execution Context Analysis (reachability_execution_context.protocol)
+* Exploit Payload Feasibility (exploit_payload_feasibility.protocol)
+* Impact Surface Mapping (impact_surface_mapping.protocol)
+* Evidence Generation (evidence_generation.protocol)
+##### Contextual Escape Analysis
+* Output Context Identification (output_context_identification.protocol)
+* Multi-Stage Encoding Validation (multi_stage_encoding_validation.protocol)
+* Encoding Bypass & Double-Decoding Probe (encoding_bypass_double_decoding.protocol)
+* Template Engine Auto-Escaping Audit (template_engine_auto_escaping.protocol)
+* Behavioral Inconsistency Detection (parser_mismatch_detection.protocol)
+
+
+---
+
+### Manual Logic Review
+
+%% Исследование программной логики на предмет архитектурных и функциональных дефектов, которые невозможно выявить автоматическими средствами, включая обход этапов бизнес-процессов и нарушения модели разграничения доступа. %%
+
+##### AuthN/AuthZ Logic Audit
+* Insecure Direct Object Reference (IDOR) Detection (idor_detection.protocol)
+* Administrative Interface & Endpoint Exposure (admin_endpoint_exposure.protocol)
+* Authentication Mechanism Hardening (auth_mechanism_hardening.protocol)
+* Broken Level Access Control (broken_access_control.protocol)
+* Session Management & Termination Logic (session_management_termination.protocol)
+* Default/Guest Account & Backdoor Check (backdoor_check.protocol)
+##### Workflow & State Machine Integrity
+* Step Skipping & Out-of-Order Execution (step_skipping_logic.protocol)
+* Unauthorized State Transitions (unauthorized_state_transitions.protocol)
+* Parameter Pollution in Multi-Step Flows (parameter_pollution_multistep.protocol)
+* Post-Action Replay & Lifecycle Re-entry (post_action_replay.protocol)
+* Forced Browsing & Hidden Flow Discovery (forced_browsing_hidden_flow.protocol)
+##### Financial & Numeric Logic Probe
+* Negative & Zero Value Injection (negative_zero_injection.protocol)
+* Precision & Rounding Attacks (precision_rounding_attacks.protocol)
+* Integer Overflow & Underflow (integer_overflow_underflow.protocol)
+* Currency & Unit Mismatch (currency_unit_mismatch.protocol)
+* Inventory & Resource Exhaustion (inventory_resource_exhaustion.protocol)
+##### Incentive System & Rate Limit Abuse  
+* Referral & Sign-up Bonus Farming (referral_bonus_farming.protocol)
+* Coupon & Promo Code Brute-forcing (coupon_brute_forcing.protocol)
+* Rate Limit Bypass via Header Manipulation (rate_limit_bypass_headers.protocol)
+* Competitive Resource Exhaustion (competitive_resource_exhaustion.protocol)
+* Cumulative Discount & Stackable Offers Logic (cumulative_discount_stacking.protocol)
+##### Race Condition & Concurrency Analysis
+* TOCTOU (Time-of-Check to Time-of-Use) Analysis (toctou_analysis.protocol)
+* Atomic Operation & Transaction Integrity (atomic_transaction_integrity.protocol)
+* Distributed Lock & Race Condition in Microservices (distributed_lock_race.protocol)
+* Singleton & Global State Thread Safety (singleton_global_state.protocol)
+* Async Event Loop Blocking & Race (async_loop_race.protocol)
+
+
+---
+
+### Infrastructure-as-Code (IaC) Audit
+
+%% Аудит конфигурационных файлов инфраструктуры (Docker, Kubernetes, Terraform) для обеспечения соответствия принципам защищенного развертывания и минимизации привилегий окружения. %%
+
+##### Container Image & Dockerfile Hardening
+* Least Privilege User Enforcement (least_privilege_user.protocol)
+* Base Image Provenance & Vulnerability Scanning (base_image_provenance.protocol)
+* Attack Surface Reduction (attack_surface_reduction.protocol)
+* Multi-Stage Build Optimization (multi_stage_optimization.protocol)
+* Sensitive Data & Secret Leakage in Layers (sensitive_data_leakage.protocol)
+* Filesystem & Execution Security (filesystem_execution_security.protocol)
+##### Orchestration & Kubernetes Manifest Security
+* Pod Security Context & Privilege Escalation (pod_security_context.protocol)
+* Network Policy & Microsegmentation (network_policy_segmentation.protocol)
+* RBAC (Role-Based Access Control) Principle of Least Privilege (rbac_least_privilege.protocol)
+* Resource Quotas & Limits (resource_quotas_limits.protocol)
+* Secrets & ConfigMap Management (secrets_configmap_management.protocol)
+* Admission Control & Image Provenance (admission_control_provenance.protocol)
+##### Cloud Infrastructure & Terraform Audit
+* Public Exposure & Network Perimeter Control (public_exposure_perimeter.protocol)
+* IAM Least Privilege & Resource Access (iam_least_privilege.protocol)
+* Encryption at Rest & In-Transit (encryption_rest_transit.protocol)
+* Audit Logging & Monitoring Configuration (audit_logging_monitoring.protocol)
+* Terraform State & Backend Security (terraform_state_security.protocol)
+* Orphaned & Shadow Resources Detection (orphaned_shadow_resources.protocol)
+##### Secret Management & Vault Integration
+* Secret Injection Method Audit (secret_injection_audit.protocol)
+* Vault Access Policy (vault_access_policy.protocol)
+* Dynamic Secrets Implementation (dynamic_secrets_implementation.protocol)
+* Authentication Method Security (auth_method_security.protocol)
+* Secret Sprawl & Plaintext Detection (secret_sprawl_detection.protocol)
+* Transit Encryption & Data Unsealing (transit_unsealing.protocol)
+##### CI/CD Pipeline Security (Supply Chain)
+* Pipeline Definition & Workflow Integrity (pipeline_definition_integrity.protocol)
+* Secret & Token Management in CI (ci_secret_token_management.protocol)
+* Third-Party Action & Plugin Pinning (third_party_pinning.protocol)
+* Build Environment Isolation (build_environment_isolation.protocol)
+* Software Bill of Materials (SBOM) & Artifact Integrity (sbom_artifact_integrity.protocol)
+* Post-Build Security Testing Gate (post_build_testing_gate.protocol)
+

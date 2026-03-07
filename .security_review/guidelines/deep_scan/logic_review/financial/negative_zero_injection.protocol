@@ -1,0 +1,60 @@
+<DFD_MODELING_V3>
+@ID: NEGATIVE_ZERO_VALUE_INJECTION
+@GOAL: DETECT_LOGIC_ERRORS_ALLOWING_NEGATIVE_OR_ZERO_INPUT_IN_FINANCIAL_AND_RESOURCE_TRANSACTIONS
+@PARENT_CONTEXT: custom_validation_logic_analysis.protocol, parameter_pollution_multistep.protocol, inventory_resource_exhaustion.protocol
+
+<GLOBAL_VARS>
+# Критические числовые поля
+NUMERIC_TARGETS: {
+  "FINANCIAL": "(amount|price|discount|balance|quantity|total)",
+  "TIMING": "(duration|wait_time|retry_after|expiry)",
+  "RESOURCE": "(limit|quota|points|credits)"
+}
+
+# Векторы инъекций
+INJECTION_VECTORS: {
+  "NEGATIVE": "-1, -999999, -0.00001",
+  "ZERO": "0, 0.0, -0",
+  "BOUNDARY": "Number.MIN_SAFE_INTEGER, -Infinity"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[VALIDATION]     <- {from: custom_validation_logic_analysis.protocol, scope: "LENGTH_CHECKS|REGEX"}
+[WORKFLOW]       <- {from: parameter_pollution_multistep.protocol, scope: "STATE_CARRIERS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты числовых операций
+! ([ACTION] == "DEBIT" && [INPUT] < 0) : "BLOCKER: Negative Debit Attack. Using a negative amount in a withdrawal/payment results in an unintended credit to the user's account."
+! ([ACTION] == "TRANSFER" && [INPUT] == 0) : "HIGH: Zero-Value Transaction. Allowing zero-value transfers may trigger expensive background processes (e.g., SMS, emails) for free, leading to DoS."
+! ([ACTION] == "SET_LIMIT" && [INPUT] <= 0) : "CRITICAL: Limit Bypass. Setting a quota or limit to 0 or -1 might be interpreted as 'unlimited' by the downstream logic."
+! ([MULTIPLIER] -> [NEGATIVE_VALUE]) : "HIGH: Math Logic Reversal. A negative multiplier (e.g., quantity) can reverse the final total calculation (Total = Price * -1)."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. NUMERIC_SINK_IDENTIFICATION:
+   - Найти все API-методы, принимающие поля из [NUMERIC_TARGETS].
+   - Определить тип данных на уровне БД (unsigned vs signed).
+
+2. SIGN_VALIDATION_AUDIT:
+   - Проверить наличие проверок `val > 0` или `@Min(1)`.
+   - Особое внимание уделить самописным проверкам: `if (!amount) return;` (пропускает 0 и отрицательные числа в некоторых языках).
+
+3. MATH_FLOW_TRACE:
+   - Проследить путь числа от ввода до финальной формулы расчета.
+   - Проверить, не происходит ли инверсия знака при промежуточных вычислениях (например, `total = abs(input)`).
+
+4. OVERFLOW_PREVENTION_CHECK:
+   - Попытаться отправить экстремально большие отрицательные значения. Проверить, как система обрабатывает их (возможен ли переход в положительную область).
+
+5. TRANSACTION_ROLLBACK_VERIFY:
+   - Убедиться, что при ошибке валидации числового значения (например, отрицательный баланс после операции) вся транзакция откатывается (Rollback).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_NUMERIC_INJECTION_REPORT:
+  - FIELD_NAME | INPUT_VALUE | BUSINESS_EFFECT | VALIDATION_MISSING (Yes/No) | RISK_LEVEL
+VISUALIZE: "Image of a negative value injection in a shopping cart: showing how a quantity of -1 for an expensive item reduces the total order price, potentially to a negative value or zero."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

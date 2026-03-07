@@ -1,0 +1,55 @@
+<DFD_MODELING_V3>
+@ID: RBAC_LEAST_PRIVILEGE_AUDIT
+@GOAL: PREVENT_PRIVILEGE_ESCALATION_BY_RESTRICTING_KUBERNETES_API_ACCESS_TO_MINIMUM_REQUIRED_VERBS_AND_RESOURCES
+@PARENT_CONTEXT: pod_security_context.protocol, cloud_iam_least_privilege.protocol
+
+<GLOBAL_VARS>
+# Опасные глаголы (Dangerous Verbs)
+DANGEROUS_VERBS: ["*", "create", "update", "patch", "delete", "deletecollection", "impersonate", "escalate", "bind"]
+
+# Критические ресурсы
+CRITICAL_RESOURCES: ["nodes", "secrets", "pods/exec", "pods/attach", "roles", "rolebindings", "clusterroles", "clusterrolebindings", "persistentvolumes"]
+
+# Типы субъектов
+SUBJECT_TYPES: ["User", "Group", "ServiceAccount"]
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[POD_SECURITY]   <- {from: pod_security_context.protocol, scope: "SECURITY_CONTEXT"}
+[IAM_LEAST_PRIV] <- {from: cloud_iam_least_privilege.protocol, scope: "RESOURCE_ACCESS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Инварианты безопасности RBAC
+! (RoleBinding -> "cluster-admin") : "BLOCKER: Cluster-Admin Overuse. Assigning cluster-admin role to regular users or service accounts creates a single point of failure for the entire cluster."
+! (ServiceAccount -> "automountServiceAccountToken: true" && ![API_ACCESS_NEEDED]) : "HIGH: Unnecessary Token Injection. Pods that don't need to talk to the K8s API still have a privileged token mounted at /var/run/secrets/kubernetes.io/serviceaccount/token."
+! (Role -> "resources: ['*']" || "verbs: ['*']") : "CRITICAL: Wildcard Permissions. Using wildcards allows access to all resources/actions, violating the principle of least privilege."
+! (Role -> "verbs: ['get', 'list', 'watch']" && "resources: ['secrets']") : "HIGH: Secret Enumeration. Allowing 'list' or 'watch' on secrets enables an attacker to dump all sensitive data in the namespace."
+! (ClusterRole -> "verbs: ['impersonate']") : "BLOCKER: Privilege Escalation via Impersonation. The ability to impersonate other users allows an attacker to act as a Cluster-Admin."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PRIVILEGED_SUBJECT_DISCOVERY:
+   - Использовать `rbac-lookup` или `kubectl-who-can` для определения того, кто имеет права администратора.
+   - Составить список всех ClusterRoleBindings, указывающих на не-системные группы.
+
+2. SERVICE_ACCOUNT_TOKEN_AUDIT:
+   - Проверить все манифесты Pod/Deployment. Если приложение не обращается к API Kubernetes, установить `automountServiceAccountToken: false`.
+
+3. VERB_RESOURCE_MATRIX_ANALYSIS:
+   - Проверить каждую Role на наличие [DANGEROUS_VERBS] применительно к [CRITICAL_RESOURCES].
+   - Особое внимание правам на `create pods`: это может позволить запустить привилегированный под и смонтировать хостовую ФС.
+
+4. SCOPE_VERIFICATION:
+   - Предпочитать `RoleBinding` (ограничено Namespace) вместо `ClusterRoleBinding` везде, где это возможно.
+
+5. INACTIVE_ACCOUNT_PURGE:
+   - Идентифицировать и удалить неиспользуемые ServiceAccounts и RoleBindings.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_RBAC_REPORT:
+  - SUBJECT | ROLE_TYPE | DANGEROUS_PERMISSIONS | NAMESPACE_SCOPE | RISK_LEVEL
+VISUALIZE: "Image of Kubernetes RBAC structure: illustrating the relationship between Subjects (Users/SAs), RoleBindings, and Roles/ClusterRoles, highlighting how overly permissive bindings can lead to cluster-wide compromise."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

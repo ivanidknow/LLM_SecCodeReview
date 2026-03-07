@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: COMPETITIVE_RESOURCE_EXHAUSTION
+@GOAL: PREVENT_MONOPOLIZATION_OF_LIMITED_RESOURCES_BY_MALICIOUS_ACTORS_DURING_HIGH_DEMAND_EVENTS
+@PARENT_CONTEXT: inventory_resource_exhaustion.protocol, race_condition_concurrency.protocol, rate_limit_abuse.protocol
+
+<GLOBAL_VARS>
+# Объекты конкурентной борьбы
+COMPETITIVE_ASSETS: {
+  "LIMITED_EDITION": "Items with fixed stock (Drop/Flash sale)",
+  "PRIORITY_SLOTS": "Booking windows or queue positions",
+  "FAIR_SHARE_QUOTA": "Daily/Hourly global limits for a service"
+}
+
+# Стратегии монополизации
+EXHAUSTION_STRATEGIES: {
+  "RACE_TO_ZERO": "Exploiting concurrency to grab multiple items at the very start",
+  "QUEUE_JUMPING": "Bypassing wait-room logic via direct API calls",
+  "DDoS_AS_COMPETITION": "Slowing down the site for others while the attacker's bot has low-level access",
+  "LOCK_OUT": "Reserving resources but delaying payment to prevent others from buying (Denial of Inventory)"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[INVENTORY]      <- {from: inventory_resource_exhaustion.protocol, scope: "LOCK_LIFECYCLE"}
+[CONCURRENCY]    <- {from: race_condition_concurrency.protocol, scope: "ATOMIC_OPERATIONS"}
+[RATE_LIMITS]    <- {from: rate_limit_abuse.protocol, scope: "THROTTLING"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты честного распределения
+! ([ACTION] == "RESERVE" && ![THROTTLING.STRICT_GLOBAL_LIMIT]) : "CRITICAL: Global Resource Exhaustion. One user can exhaust the entire system's pool of limited items because limits are only per-user, not global or tiered."
+! ([RESERVATION_TIME] < [MIN_HUMAN_INTERACTION_TIME]) : "HIGH: Bot Dominance. The workflow allows finalizing a complex resource claim faster than any human can, giving an absolute advantage to automated scripts."
+! ([QUEUE_LOGIC] -> [UNPROTECTED_SINK]) : "BLOCKER: Queue Bypass. The application uses a 'Waiting Room' UI, but the underlying API allows direct resource allocation without a valid queue token."
+? ([RESERVATION_ID] -> "Predictable") : "MEDIUM: Timing Attack. Attackers can predict when a resource becomes available and pre-calculate requests to hit the server at the exact millisecond."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. FAIR_SHARE_ALGORITHM_AUDIT:
+   - Проанализировать код распределения ресурсов. Есть ли механизм «Global Lock» или «Bucket» для ограничения скорости общего потребления?
+   - Проверить, как система обрабатывает 10 000 запросов на 10 доступных товаров.
+
+2. QUEUE_INTEGRITY_VERIFICATION:
+   - Если используется Waiting Room (например, Cloudflare Waiting Room или кастомный): проверить, требует ли основной эндпоинт (`/buy`) подписанный токен из очереди.
+   - Попытаться совершить покупку, минуя шаг ожидания.
+
+3. CONCURRENCY_STRESS_PROBE:
+   - Использовать `race_condition_concurrency.protocol` для теста «последнего товара».
+   - Убедиться, что при одновременном обращении товар получает только один пользователь, а не все «выигрывают» гонку из-за задержки обновления в БД.
+
+4. TRANSACTION_LATENCY_EXPLOITATION:
+   - Проверить, можно ли заблокировать ресурс на длительное время (например, выбрав «Оплата банковским переводом» или «Наложенный платеж»), фактически выводя его из оборота без затрат.
+
+5. BOT_DETECTION_EVALUATION:
+   - Проверить наличие поведенческого анализа (WAF/Bot Management).
+   - Оценить, насколько легко имитировать легитимный путь пользователя для захвата ресурса.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_COMPETITIVE_REPORT:
+  - RESOURCE_NAME | DISTRIBUTION_LOGIC | BYPASS_VECTOR | BOT_ADVANTAGE_LEVEL | SEVERITY
+VISUALIZE: "Image of a competitive resource exhaustion attack: illustrating how a bot farm bypasses a virtual waiting room to exhaust a limited inventory of concert tickets within seconds."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

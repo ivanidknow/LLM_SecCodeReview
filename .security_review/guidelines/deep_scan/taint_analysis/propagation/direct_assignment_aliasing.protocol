@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: DIRECT_ASSIGNMENT_VARIABLE_ALIASING
+@GOAL: TRACK_TAINT_PROPAGATION_THROUGH_POINTERS_REFERENCES_AND_REASSIGNMENTS
+@PARENT_CONTEXT: untrusted_source_identification.protocol, sensitive_sink_mapping.protocol
+
+<GLOBAL_VARS>
+# Типы операций распространения (Propagation Types)
+PROPAGATION_MODES: {
+  "SIMPLE_ASSIGN": "var a = tainted_source;",
+  "ALIASING": "const b = a; // Both 'a' and 'b' are now tainted",
+  "DESTRUCTURING": "const { field } = tainted_object;",
+  "RE-ASSIGNMENT": "tainted_var = clean_var; // Taint removal logic"
+}
+
+# Правила очистки метки (Taint Termination)
+CLEANSE_OPERATORS: {
+  "NULLIFICATION": "x = null; x = undefined;",
+  "OVERWRITE": "x = [CONSTANT_VALUE]"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[TAINT_SEEDS]   <- {from: untrusted_source_identification.protocol, scope: "INITIAL_SOURCES"}
+[SINK_TARGETS]  <- {from: sensitive_sink_mapping.protocol, scope: "DANGEROUS_FUNCTIONS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты распространения
+! ([VAR_A] == [TAINTED] && [VAR_B] = [VAR_A]) : "INFO: Taint Propagation. Variable alias created; both variables must now be tracked as untrusted."
+! ([TAINTED_OBJ] -> [DESTRUCTURING]) : "HIGH: Spread Taint. Property extraction from a tainted object infects all resulting local variables."
+! ([TAINTED_VAR] -> [SINK_TARGETS]) : "CRITICAL: Direct Leak. A variable containing untrusted data from [TAINT_SEEDS] reaches a sensitive sink through simple aliasing."
+? ([TAINTED_VAR] == [CLEANSE_OPERATORS]) : "INFO: Taint Terminated. Source data overwritten by trusted constant; variable is no longer a threat."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ALIAS_GRAPH_CONSTRUCTION:
+   - Идентифицировать все операции присваивания (`VariableDeclaration`, `AssignmentExpression`).
+   - Построить граф связей (Alias Graph), где узлы — переменные, а ребра — перенос данных.
+
+2. TAINT_FLOW_INHERITANCE:
+   - Если переменная-источник имеет метку из [TAINT_SEEDS], передать метку всем зависимым узлам в графе.
+   - Учитывать "глубокое копирование" (Deep Copy) и поверхностное копирование (Shallow Copy).
+
+3. DESTRUCTURING_TRACE:
+   - Для языков типа JS/TS: проследить извлечение свойств (например, `const { token } = req.body`).
+   - Пометить извлеченную переменную `token` как загрязненную, если родительский объект `req.body` является источником.
+
+4. SCOPE_PERSISTENCE_CHECK:
+   - Проверить область видимости переменных (Block, Function, Global).
+   - Убедиться, что метка сохраняется при передаче переменной в замыкания (Closures).
+
+5. OVERWRITE_VERIFICATION:
+   - Идентифицировать точки, где загрязненная переменная перезаписывается константным или проверенным значением из [CLEANSE_OPERATORS].
+   - Снять метку "Untrusted" только при полной перезаписи значения.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_ALIAS_TRACE_REPORT:
+  - ORIGINAL_SOURCE | ALIAS_CHAIN | CURRENT_HOLDER | REACHED_SINK | CONFIDENCE
+VISUALIZE: "Image of a variable dependency graph: showing how a single 'tainted' input branches into multiple aliases and reaches a sensitive sink."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

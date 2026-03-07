@@ -1,0 +1,65 @@
+<DFD_MODELING_V3>
+@ID: HTTP_REQUEST_SURFACE_MAPPING
+@GOAL: IDENTIFY_ALL_UNTRUSTED_ENTRY_POINTS_FROM_HTTP_REQUESTS_FOR_TAINT_TRACKING
+@PARENT_CONTEXT: entry_points.protocol, external_internal.protocol, payload_analysis.protocol
+
+<GLOBAL_VARS>
+# Основные источники загрязнения (Taint Sources) в HTTP
+HTTP_TAINT_SOURCES: {
+  "URL_PARAMS": "(req\.query|req\.params|\.getQueryString\(\))",
+  "BODY": "(req\.body|json_data|request\.get_json\(\))",
+  "HEADERS": "(req\.headers|get_header\(\)|HTTP_X_FORWARDED_FOR)",
+  "COOKIES": "(req\.cookies|get_cookie\(\))",
+  "FORM_DATA": "(req\.form|request\.POST)"
+}
+
+# Специфические векторы (Hidden Surface)
+HIDDEN_VECTORS: {
+  "METHOD_OVERRIDE": "X-HTTP-Method-Override",
+  "FORCED_IP": "X-Real-IP|CF-Connecting-IP",
+  "PROXY_HEADERS": "X-Forwarded-Host|X-Forwarded-Proto"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ENTRY_POINTS]   <- {from: entry_points.protocol, scope: "CONTROLLERS|HANDLERS"}
+[TRANSITIONS]    <- {from: external_internal.protocol, scope: "BOUNDARY_GATEWAYS"}
+[PAYLOAD_TYPES]  <- {from: payload_analysis.protocol, scope: "DATA_FORMATS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты источников данных
+! ([HTTP_TAINT_SOURCES] -> [INTERNAL_SINK] && ![VALIDATION]) : "BLOCKER: Direct Taint Propagation. Untrusted HTTP input reaches a sensitive sink without any validation layer."
+! ([HEADERS] -> "Internal_Logic_Branching") : "HIGH: Header-Driven Logic Manipulation. Critical application behavior is controlled by untrusted HTTP headers."
+! ([URL_PARAMS] -> "Database_Query") : "CRITICAL: Primary Injection Vector. Data from URL parameters is used directly in a query. Risk: SQLi/NoSQLi."
+? ([COOKIES] -> "User_Identity_Context") : "MEDIUM: Session/Identity Taint. Trusting data from cookies for identity-related logic without server-side verification."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ROUTE_AND_HANDLER_DISCOVERY:
+   - Сопоставить [ENTRY_POINTS] с кодом контроллеров.
+   - Выявить все методы (GET, POST, PUT, DELETE, PATCH), доступные внешним субъектам.
+
+2. INPUT_OBJECT_IDENTIFICATION:
+   - Определить объекты запроса, используемые во фреймворке (например, `Request` в Express или `HttpRequest` в Django).
+   - Пометить все обращения к свойствам из [HTTP_TAINT_SOURCES] как "Initial Taint Seeds".
+
+3. METADATA_SURFACE_SCAN:
+   - Проверить обработку системных заголовков из [HIDDEN_VECTORS]. 
+   - Выявить, используются ли они для логики маршрутизации, логирования или кэширования.
+
+4. MULTIPART_AND_STREAM_DETECTION:
+   - Идентифицировать обработчики загрузки файлов и потоковых данных (Streaming).
+   - Пометить контент и метаданные файлов (filename, mimetype) как потенциально опасные источники.
+
+5. TAINT_SEED_CATALOGING:
+   - Сформировать реестр переменных, которые инициализируются напрямую из HTTP-запроса. 
+   - Передать этот список на этап `propagation_path_tracing.protocol`.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_HTTP_SURFACE_REPORT:
+  - ENTRY_POINT | METHOD | TAINT_SOURCE_TYPE | VARIABLE_NAME | INITIAL_EXPOSURE_LEVEL
+VISUALIZE: "Image of an HTTP request structure highlighting all areas where untrusted data can enter an application (Body, Headers, Query, Cookies)."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

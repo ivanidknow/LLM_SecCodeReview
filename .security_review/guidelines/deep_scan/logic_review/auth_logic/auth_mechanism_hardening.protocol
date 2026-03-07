@@ -1,0 +1,64 @@
+<DFD_MODELING_V3>
+@ID: AUTHENTICATION_MECHANISM_HARDENING
+@GOAL: AUDIT_STRENGTH_OF_LOGIN_RECOVERY_AND_MULTI_FACTOR_FLOWS_AGAINST_BRUTE_FORCE_AND_LOGIC_BYPASS
+@PARENT_CONTEXT: identity_model.protocol, rate_limit_abuse.protocol, session_management.protocol
+
+<GLOBAL_VARS>
+# Критические компоненты аутентификации
+AUTH_COMPONENTS: {
+  "PASSWORD_POLICY": "(min_length|complexity|history|expiration)",
+  "MFA_IMPLEMENTATION": "(TOTP|WebAuthn|SMS_OTP|Backup_Codes)",
+  "RECOVERY_FLOW": "(Password_Reset_Token|Security_Questions|Magic_Links)",
+  "BRUTE_FORCE_PROTECTION": "(Account_Lockout|Throttling|CAPTCHA)"
+}
+
+# Слабые сигналы (Vulnerability Signals)
+AUTH_WEAKNESSES: {
+  "ENUMERATION": "Different responses for 'user not found' vs 'wrong password'",
+  "PREDICTABLE_TOKENS": "Static or time-based short tokens for resets",
+  "INSECURE_STORAGE": "Use of MD5/SHA1 for passwords instead of Argon2/BCrypt",
+  "MFA_BYPASS": "Ability to skip MFA by calling downstream APIs directly"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[IDENTITY]       <- {from: identity_model.protocol, scope: "AUTH_METHODS"}
+[RATE_LIMITS]    <- {from: rate_limit_abuse.protocol, scope: "LOGIN_THRESHOLDS"}
+[SESSIONS]       <- {from: session_management.protocol, scope: "TOKEN_GENERATION"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты усиленной аутентификации
+! ([RECOVERY_FLOW] -> [SHORT_TOKEN] && ![EXPIRATION]) : "CRITICAL: Persistent Recovery Token. Password reset tokens do not expire or are too short, allowing brute-force/reuse."
+! ([LOGIN_ENDPOINT] -> ![RATE_LIMITS]) : "HIGH: Brute-Force Vulnerability. Login or MFA-verify endpoints lack throttling, enabling automated credential stuffing."
+! ([MFA_FLOW] -> "Optional_by_Default") : "MEDIUM: Weak MFA Adoption. MFA is available but not enforced for sensitive roles, or can be disabled without re-authentication."
+! ([ERROR_RESPONSE] -> [ENUMERATION]) : "LOW: Username Enumeration. Application reveals if an account exists based on error messages or response timing."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. PASSWORD_STORAGE_AUDIT:
+   - Проверить алгоритм хеширования в коде (искать Argon2, BCrypt, Scrypt).
+   - Убедиться, что используется соль (Salt) и достаточный фактор сложности (Cost factor).
+
+2. RATE_LIMITING_VERIFICATION:
+   - Проверить наличие Middleware для ограничения попыток входа (например, `express-rate-limit`).
+   - Проверить защиту на уровнях: IP, User-Agent, Username.
+
+3. RESET_TOKEN_INTEGRITY_CHECK:
+   - Анализ генерации токенов сброса пароля: должны использоваться криптографически стойкие ГПСЧ (например, `crypto.randomBytes`).
+   - Проверить, что токен аннулируется сразу после использования или смены пароля.
+
+4. MFA_LOGIC_ANALYSIS:
+   - Проверить «состояние» сессии между вводом пароля и вводом MFA. Убедиться, что права доступа не предоставляются до полной верификации всех факторов.
+   - Искать возможность обхода MFA через социальный инжиниринг (например, слабые секретные вопросы).
+
+5. ACCOUNT_LOCKOUT_POLICY_REVIEW:
+   - Проверить логику блокировки: предотвращает ли она брутфорс, не создавая при этом условий для массового DoS (блокировки всех легитимных пользователей).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_AUTH_HARDENING_REPORT:
+  - MECHANISM | SECURITY_CONTROL | STATUS (Strong/Weak) | BYPASS_VECTOR | RECOMMENDATION
+VISUALIZE: "Image of a secure password reset flow: showing the generation of a high-entropy token, email delivery, secure validation, and immediate token invalidation."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

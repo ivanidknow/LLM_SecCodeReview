@@ -1,0 +1,65 @@
+<DFD_MODELING_V3>
+@ID: SESSION_COOKIE_SECURITY_HARDENING
+@GOAL: PROTECT_SESSION_INTEGRITY_AND_PREVENT_UNAUTHORIZED_ACCESS_VIA_COOKIE_MANIPULATION
+@PARENT_CONTEXT: authentication_strategy.protocol, lifecycle_revocation.protocol, identity_model.protocol
+
+<GLOBAL_VARS>
+# Обязательные атрибуты безопасности для Cookies
+SECURE_COOKIE_ATTRIBUTES: {
+  "HTTP_ONLY": "HttpOnly=true",      # Защита от кражи через JS (XSS)
+  "SECURE": "Secure=true",          # Передача только по HTTPS
+  "SAME_SITE": "SameSite=Strict|Lax", # Защита от CSRF
+  "DOMAIN": "Domain scope restriction",
+  "PATH": "Path=/ (Least privilege path)"
+}
+
+# Параметры жизненного цикла сессии
+SESSION_POLICIES: {
+  "IDLE_TIMEOUT": "Inactivity expiration",
+  "ABSOLUTE_TIMEOUT": "Maximum session duration",
+  "ROTATION_ON_LOGIN": "Regenerate ID after Auth"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[AUTH_STRATEGY] <- {from: authentication_strategy.protocol, scope: "JWT_VS_SESSIONS"}
+[REVOCATION]    <- {from: lifecycle_revocation.protocol, scope: "LOGOUT_LOGIC|BLACKLISTING"}
+[IDENTITY]      <- {from: identity_model.protocol, scope: "USER_SESSIONS"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты безопасности сессий
+! ([COOKIE_SET] -> !SECURE_COOKIE_ATTRIBUTES.HTTP_ONLY) : "CRITICAL: JS-Accessible Session ID. Cookie is missing HttpOnly flag, allowing XSS-based session theft."
+! ([COOKIE_SET] -> !SECURE_COOKIE_ATTRIBUTES.SECURE) : "HIGH: Insecure Cookie Transmission. Cookie can be sent over unencrypted HTTP. Risk: MitM / Session Hijacking."
+! ([LOGIN_SUCCESS] && ![SESSION_ID_REGENERATED]) : "HIGH: Session Fixation. The session ID is not changed after login, allowing an attacker to pre-set a valid ID."
+! ([SESSION_TOKEN] -> !SAME_SITE) : "MEDIUM: CSRF Vulnerability. Cookie lacks SameSite attribute, making it susceptible to cross-site request forgery."
+? ([JWT_TOKEN] && ![ABSOLUTE_TIMEOUT]) : "MEDIUM: Forever Session. Token lacks an expiration claim, leading to permanent access if compromised."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. COOKIE_DEFINITION_AUDIT:
+   - Идентифицировать все места установки куки (например, `res.cookie()`, `Set-Cookie` header).
+   - Проверить глобальные настройки сессий в используемом фреймворке (Express-session, Flask-session и т.д.).
+
+2. ATTRIBUTE_COMPLIANCE_CHECK:
+   - Проверить наличие и значения флагов `HttpOnly`, `Secure` и `SameSite`.
+   - Особое внимание уделить проверке на `production` среде (часто флаг `Secure` отключают для локальной разработки и забывают включить).
+
+3. SESSION_LIFECYCLE_TRACE:
+   - Анализ [REVOCATION]. Проверить, удаляется ли сессия на сервере при логауте, или просто стирается кука у клиента.
+   - Проверить наличие механизмов ротации `Session ID` при каждом успешном входе.
+
+4. JWT_PAYLOAD_SECURITY_SCAN:
+   - Если используется [AUTH_STRATEGY] на базе JWT: проверить наличие `exp` (expiration) и `iat` (issued at) клеймов.
+   - Убедиться, что чувствительные данные (пароли, роли) не хранятся в Payload без шифрования (JWE).
+
+5. STATELESS_STORAGE_INTEGRITY:
+   - Если сессия хранится в куке (Stateless Session), проверить наличие подписи (HMAC) и алгоритм её проверки для защиты от подделки.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SESSION_SECURITY_REPORT:
+  - COOKIE_NAME | FLAG_STATUS (HTTP_ONLY/SECURE/SAME_SITE) | LIFECYCLE_POLICY | RISK_SUMMARY
+VISUALIZE: "Image of a session security lifecycle: highlighting the moment of Session ID regeneration and the protection layers of a Secure Cookie."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

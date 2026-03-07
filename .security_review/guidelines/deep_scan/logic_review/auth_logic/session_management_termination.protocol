@@ -1,0 +1,62 @@
+<DFD_MODELING_V3>
+@ID: SESSION_MANAGEMENT_TERMINATION_LOGIC
+@GOAL: AUDIT_THE_LIFECYCLE_OF_USER_SESSIONS_AND_TOKENS_FOR_INSECURE_REVOCATION_OR_EXCESSIVE_LONGEVITY
+@PARENT_CONTEXT: identity_model.protocol, authentication_mechanism_hardening.protocol, security_header_config.protocol
+
+<GLOBAL_VARS>
+# Характеристики сессий и токенов
+SESSION_ATTRIBUTES: {
+  "TYPE": "(Stateful_Cookie|Stateless_JWT|Refresh_Token_Flow)",
+  "EXPIRATION": "(Short_Lived_Access|Long_Lived_Refresh)",
+  "REVOCATION_SUPPORT": "(Blacklisting|Database_Lookup|Version_Counter)"
+}
+
+# Критические события завершения
+TERMINATION_EVENTS: {
+  "LOGOUT": "User explicitly calls /logout",
+  "PASSWORD_CHANGE": "Does it invalidate all active sessions?",
+  "INACTIVITY": "Automatic timeout implementation",
+  "CONCURRENT_LIMIT": "Restriction on the number of simultaneous sessions"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ID_MODEL]       <- {from: identity_model.protocol, scope: "SESSION_HANDLING"}
+[COOKIE_CONFIG]  <- {from: security_header_config.protocol, scope: "HTTP_ONLY|SECURE_FLAGS"}
+[AUTH_HARDENING] <- {from: authentication_mechanism_hardening.protocol, scope: "RECOVERY_FLOW"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты управления сессиями
+! ([LOGOUT_CALL] -> ![SERVER_SIDE_INVALIDATION]) : "CRITICAL: Client-Side Only Logout. Session remains valid on the server after the user logs out. Risk: Session Hijacking."
+! ([JWT_STATELESS] && ![EXPIRATION_CHECK]) : "BLOCKER: Immortal Token. JWT tokens lack an 'exp' claim or have an excessively long life with no revocation mechanism."
+! ([PASSWORD_CHANGE] -> [OLD_SESSIONS_STAY_ACTIVE]) : "HIGH: Incomplete Session Invalidation. Changing a password does not terminate existing sessions, allowing an attacker to remain logged in."
+! ([SENSITIVE_ACTION] -> ![SESSION_FRESHNESS_CHECK]) : "MEDIUM: Missing Re-authentication. Critical actions (e.g., changing email) do not require a fresh session or password confirmation."
+? ([SESSION_ID] -> "URL_EXPOSURE") : "HIGH: Session in URL. Sensitive session identifiers are passed in GET parameters, leaking via Referrer or logs."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. SESSION_STORAGE_AUDIT:
+   - Определить, где хранятся данные сессии: в памяти (Redis/DB) или в токене на клиенте (JWT).
+   - Для Cookies проверить флаги `HttpOnly`, `Secure`, `SameSite` через [COOKIE_CONFIG].
+
+2. LOGOUT_PROCESS_DISSECTION:
+   - Проверить код функции `logout`. Убедиться, что она удаляет сессию из хранилища (если Stateful) или добавляет JWT в Blacklist (если Stateless).
+   - Проверить, не ограничивается ли выход только удалением куки на стороне браузера.
+
+3. PASSWORD_UPDATE_INTEGRITY:
+   - Проследить логику смены пароля. Проверить, инкрементируется ли `session_version` или `token_salt` пользователя, что должно приводить к инвалидации всех старых токенов.
+
+4. CONCURRENT_SESSION_CHECK:
+   - Анализ возможности одновременных сессий. Если бизнес-логика требует ограничения (например, один аккаунт — одно устройство), проверить наличие проверки `active_sessions.count`.
+
+5. TOKEN_RENEWAL_AUDIT:
+   - Проверить реализацию Refresh Tokens. Убедиться, что старый Refresh Token аннулируется при выдаче нового (Token Rotation).
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_SESSION_LOGIC_REPORT:
+  - SESSION_TYPE | EXPIRATION_POLICY | LOGOUT_EFFECTIVENESS | PASSWORD_CHANGE_BEHAVIOR | SEVERITY
+VISUALIZE: "Image of a session lifecycle diagram: showing secure login, token issuance, use in requests, and final invalidation on the server during logout or password change."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

@@ -1,0 +1,63 @@
+<DFD_MODELING_V3>
+@ID: FORCED_BROWSING_HIDDEN_FLOW_DISCOVERY
+@GOAL: IDENTIFY_UNREFERENCED_RESOURCES_AND_NON_UI_SUPPORTED_WORKFLOWS_THAT_REMAIN_EXPOSED
+@PARENT_CONTEXT: administrative_interface_exposure.protocol, broken_access_control.protocol, business_logic_mapping.protocol
+
+<GLOBAL_VARS>
+# Признаки скрытых ресурсов
+HIDDEN_INDICATORS: {
+  "NAMING_CONVENTIONS": "(test_.*|v[0-9]_old|deprecated|backup|internal_only)",
+  "HTTP_METHODS": "Exposed DELETE/PUT/PATCH methods on read-only UI resources",
+  "HIDDEN_PARAMETERS": "(debug=1|internal=true|show_all=true)",
+  "FILE_EXTENSIONS": "(.bak|.old|.swp|.zip|.sql|.env)"
+}
+
+# Методы обнаружения
+DISCOVERY_VECTORS: {
+  "CODE_ENUMERATION": "Scanning route definitions for paths not found in template/frontend files",
+  "BRUTE_FORCE_LOOKUP": "Using wordlists (dirb/ffuf) against the application root",
+  "JS_SOURCE_MINING": "Extracting hidden API routes from minified frontend bundles"
+}
+</GLOBAL_VARS>
+
+<CONTEXT_MAP>
+[ADMIN_EXPOSURE] <- {from: administrative_interface_exposure.protocol, scope: "MANAGEMENT_ENDPOINTS"}
+[ACCESS_CONTROL] <- {from: broken_access_control.protocol, scope: "UNPROTECTED_METHODS"}
+[BUSINESS_MAP]   <- {from: business_logic_mapping.protocol, scope: "UI_FLOW_INVENTORY"}
+</CONTEXT_MAP>
+
+<ASSERTIONS>
+# Логические инварианты видимости и доступа
+! ([ENDPOINT_FOUND] -> ![BUSINESS_MAP.REFERENCED_IN_UI]) : "INFO: Hidden Endpoint. A functional API route exists but is not used or linked in the frontend UI."
+! ([HIDDEN_ENDPOINT] -> ![ACCESS_CONTROL.VERIFICATION]) : "BLOCKER: Unprotected Hidden Functionality. A resource discovered via forced browsing lacks any authorization checks."
+! ([FILE_SYSTEM] -> [HIDDEN_INDICATORS.FILE_EXTENSIONS]) : "CRITICAL: Sensitive File Exposure. Backup or configuration files are accessible via direct URL."
+? ([API_VERSION] == "OLD" && [ACTIVE_STATUS] == "TRUE") : "HIGH: Legacy Flow Vulnerability. An older version of the API (v1) remains active and potentially lacks new security patches."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. ROUTE_TO_UI_CORRELATION:
+   - Составить полный список эндпоинтов из кода бэкенда.
+   - Сопоставить его с навигационной картой фронтенда. Пометить неиспользуемые пути как "Shadow Routes".
+
+2. SENSITIVE_FILE_PROBING:
+   - Проверить наличие системных и временных файлов в корневом каталоге и `/public` (например, `.git`, `.env`, `web.config.bak`).
+   - Убедиться, что сервер возвращает 403/404 для всех [HIDDEN_INDICATORS.FILE_EXTENSIONS].
+
+3. FRONTEND_BUNDLE_ANALYSIS:
+   - Проанализировать JS-бандлы (Webpack/Vite) на наличие закомментированных или отладочных путей API.
+   - Искать строки, напоминающие пути к внутренним микросервисам.
+
+4. METHOD_FUZZING:
+   - Для эндпоинтов, которые в UI только «читают» (GET), попытаться отправить POST, PUT, DELETE.
+   - Проверить, не срабатывает ли скрытая логика изменения данных.
+
+5. LEGACY_API_AUDIT:
+   - Проверить доступность предыдущих версий API. Часто `/api/v2/user` защищен, а `/api/v1/user` — нет.
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_FORCED_BROWSING_REPORT:
+  - DISCOVERED_PATH | METHOD | STATUS | UI_REFERENCE_FOUND (Yes/No) | RISK_LEVEL
+VISUALIZE: "Image of a forced browsing discovery map: showing a tree of public-facing pages vs a larger hidden tree of unprotected administrative and legacy endpoints discovered via enumeration."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>
