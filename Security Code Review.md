@@ -353,7 +353,7 @@
 * Агрегация и приоритизация (finding_aggregation.protocol)
 * Стратегия устранения (remediation_roadmap.protocol)
 * Финальный синтез (executive_synthesis.protocol)
-Foundations & Standards
+##### Foundations & Standards
 * Security Postulates (security_postulates.protocol)
 * Vulnerability Schema (vulnerability_definition.protocol)
 * Taxonomy & Definitions (glossary_taxonomy.protocol)

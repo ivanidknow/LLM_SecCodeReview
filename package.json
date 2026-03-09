@@ -1,0 +1,21 @@
+{
+  "name": "security-review",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "install-all": "npm install --prefix frontend && pip install -r backend/requirements.txt",
+    "dev": "npx concurrently --kill-others \"cd backend && py -m uvicorn app.main:app --reload --port 8000\" \"cd frontend && npm run dev\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ivanidknow/LLM_SecCodeReview.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ivanidknow/LLM_SecCodeReview/issues"
+  },
+  "homepage": "https://github.com/ivanidknow/LLM_SecCodeReview#readme",
+  "description": ""
+}
