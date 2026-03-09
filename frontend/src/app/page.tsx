@@ -222,13 +222,43 @@ function Dashboard() {
   const pickFolder = async () => {
     try {
       const h = await (window as any).showDirectoryPicker();
+      // Resolve full path via the handle
+      const entries: string[] = [];
+      for await (const [name] of h.entries()) { entries.push(name); break; }
+      // showDirectoryPicker only gives the folder name, not the absolute path.
+      // User must verify or type the full absolute path.
       setProjectPath(h.name);
-      setLogs(p => [...p, `[INFO] Project: ${h.name}`]);
+      setLogs(p => [...p, `[INFO] Folder selected: ${h.name}`, '[INFO] If sync fails, type the full absolute path (e.g., C:\\\\Users\\\\...\\\\project).']);
     } catch {
       const inp = document.createElement('input');
       inp.type = 'file'; (inp as any).webkitdirectory = true;
-      inp.onchange = () => { const f = inp.files?.[0]; if (f) { const d = (f as any).webkitRelativePath?.split('/')[0] || f.name; setProjectPath(d); setLogs(p => [...p, `[INFO] Project: ${d}`]); } };
+      inp.onchange = () => {
+        const f = inp.files?.[0];
+        if (f) {
+          const rel = (f as any).webkitRelativePath || '';
+          // Try to extract folder name from the relative path
+          const folder = rel.split('/')[0] || f.name;
+          setProjectPath(folder);
+          setLogs(p => [...p, `[INFO] Folder: ${folder}`, '[INFO] If sync fails, type the full absolute path.']);
+        }
+      };
       inp.click();
+    }
+  };
+
+  const verifyPath = async (path: string): Promise<boolean> => {
+    try {
+      // Quick sync dry-run: send minimal request to check if path is valid
+      await axios.post(API_SYNC, { project_path: path, selected_ids: ['architecture'] });
+      return true;
+    } catch (e: any) {
+      const detail = e.response?.data?.detail || e.message;
+      if (detail.includes('Directory not found')) {
+        setLogs(p => [...p, `[FAIL] Path not reachable: ${detail}`, '[INFO] Please type the full absolute path to your project.']);
+        return false;
+      }
+      // Other errors (e.g., missing protocols) mean path is valid
+      return true;
     }
   };
 
@@ -259,6 +289,12 @@ function Dashboard() {
   /* ---- Sync ---- */
   const syncToBackend = async (ids: string[], label: string) => {
     if (!projectPath) { setLogs(p => [...p, '[ERROR] Set a project path first.']); return; }
+
+    // Verify path is reachable before full sync
+    setLogs(p => [...p, `[INFO] Verifying path: ${projectPath}`]);
+    const valid = await verifyPath(projectPath);
+    if (!valid) { return; }
+
     setIsSyncing(true);
     const payload = buildSelectedIds(ids);
     setLogs(p => [...p, `[SYNC] ${label} → ${projectPath} (${payload.length} IDs)`]);

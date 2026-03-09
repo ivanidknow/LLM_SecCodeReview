@@ -137,7 +137,8 @@ async def sync_cursor(req: SyncRequest):
     """Sync selected protocols + project context → .cursorrules"""
     warnings: list[str] = []
 
-    expanded_path = os.path.expanduser(req.project_path)
+    expanded_path = os.path.abspath(os.path.expanduser(req.project_path))
+    logger.info(f"Checking absolute path: {expanded_path}")
     if not os.path.isdir(expanded_path):
         raise HTTPException(400, detail=f"Directory not found: {expanded_path}")
 
