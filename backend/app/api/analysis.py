@@ -141,3 +141,27 @@ async def ollama_status():
 async def list_models():
     models = await ollama.get_local_models()
     return {"models": models}
+
+
+# ─── Report Push/Pull ─────────────────────────────────────────
+
+_report_buffer: list[str] = []
+
+
+class ReportPush(BaseModel):
+    lines: list[str]
+
+
+@router.post("/report")
+async def push_report(req: ReportPush):
+    """Accept formatted report lines from generate_test_report.py."""
+    global _report_buffer
+    _report_buffer = req.lines
+    return {"status": "ok", "lines": len(req.lines)}
+
+
+@router.get("/report")
+async def get_report():
+    """Return buffered report lines for the frontend terminal."""
+    return {"lines": _report_buffer}
+

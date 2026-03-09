@@ -1,0 +1,36 @@
+# VULN: [IAC/CICD] Misconfigured CI/CD Pipeline
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # VULN: Triggered on pull_request from forks (can leak secrets)
+  pull_request:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # VULN: No environment protection
+    steps:
+      - uses: actions/checkout@v2  # VULN: Unpinned action version
+
+      - name: Install dependencies
+        # VULN: No lockfile verification, no integrity check
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        # VULN: Secrets in plain text in workflow
+        env:
+          SECRET_KEY: super-secret-key-12345-do-not-share
+          AWS_ACCESS_KEY: AKIAIOSFODNN7EXAMPLE
+          DATABASE_URL: sqlite:///./production.db
+        run: python -m pytest
+
+      - name: Deploy to production
+        # VULN: Deploying directly from CI without approval gate
+        # VULN: Using password auth instead of OIDC
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > deploy_key
+          chmod 600 deploy_key
+          ssh -o StrictHostKeyChecking=no -i deploy_key root@prod.corp.com "cd /app && git pull && systemctl restart api"
+        # VULN: SSH as root, StrictHostKeyChecking disabled, git pull in prod

@@ -50,6 +50,7 @@ const API_CHAT     = 'http://localhost:8000/api/analysis/chat';
 const API_STATUS   = 'http://localhost:8000/api/analysis/status';
 const API_MODELS   = 'http://localhost:8000/api/analysis/models';
 const API_OPTIMIZE = 'http://localhost:8000/api/analysis/optimize';
+const API_REPORT  = 'http://localhost:8000/api/analysis/report';
 
 /* ---- Metadata options ---- */
 const PROJECT_TYPES = [
@@ -84,6 +85,7 @@ const COMMANDS = [
   { cmd: '/scan full',      desc: 'Full Scan (all modules)' },
   { cmd: '/sync',           desc: 'Sync to .cursorrules' },
   { cmd: '/optimize',       desc: 'Apply AI optimization' },
+  { cmd: '/report',         desc: 'Show Gold Standard report' },
   { cmd: '/status',         desc: 'Show context + status' },
   { cmd: '/clear',          desc: 'Clear terminal' },
   { cmd: '/help',           desc: 'List commands' },
@@ -175,6 +177,7 @@ function Dashboard() {
           return setLogs(p => [...p, '[ERROR] Usage: /scan discovery | /scan full']);
         case '/sync': return runSync();
         case '/optimize': return applyPendingOpt();
+        case '/report': return fetchReport();
         case '/status':
           return setLogs(p => [...p,
             `[CTX] Project: ${projectPath || '(not set)'}`,
@@ -189,6 +192,30 @@ function Dashboard() {
       }
     }
     await chatWithSentinel(input);
+  };
+
+  /* ---- Fetch Report ---- */
+  const fetchReport = async () => {
+    setLogs(p => [...p, '[CMD] Fetching Gold Standard report...']);
+    try {
+      const res = await axios.get(API_REPORT);
+      const lines: string[] = res.data.lines || [];
+      if (!lines.length) {
+        setLogs(p => [...p, '[WARN] No report available. Run: python generate_test_report.py --api-push']);
+        return;
+      }
+      setLogs(p => [...p, ...lines.map((l: string) => {
+        if (l.startsWith('[ALERT]')) return `[SENTINEL REPORT] 🚨 ${l.slice(8)}`;
+        if (l.startsWith('[SECTION]')) return `[SENTINEL REPORT] ═══ ${l.slice(10)} ═══`;
+        if (l.startsWith('[SUBSEC]')) return `[SENTINEL REPORT] ── ${l.slice(9)} ──`;
+        if (l.startsWith('[FIX]')) return `[SENTINEL REPORT] 🔧 ${l.slice(6)}`;
+        if (l.startsWith('[EVIDENCE]')) return `[SENTINEL REPORT] 📋 Evidence:`;
+        if (l.startsWith('[SENTINEL')) return l;
+        return `[SENTINEL REPORT] ${l}`;
+      })]);
+    } catch (e: any) {
+      setLogs(p => [...p, `[FAIL] ${e.message}`]);
+    }
   };
 
   /* ---- Folder ---- */
@@ -371,6 +398,7 @@ function Dashboard() {
     if (l.startsWith('[WARN]')) return '#fb923c';
     if (l.startsWith('[OPTIMIZE]')) return '#c084fc';
     if (l.startsWith('[SYSTEM]')) return '#a78bfa';
+    if (l.startsWith('[SENTINEL REPORT]')) return '#fbbf24';
     if (l.startsWith('[SENTINEL]')) return '#4af626';
     if (l.startsWith('[YOU]')) return '#e879f9';
     if (l.startsWith('[CMD]')) return '#38bdf8';
