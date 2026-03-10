@@ -86,9 +86,11 @@ def _expand_categories(selected_ids: list[str], tree: dict) -> tuple[list[str], 
         if sid_n in _KNOWN_CATEGORIES:
             target = _KNOWN_CATEGORIES[sid_n]
             expanded_categories.append(sid)
+            # Match any tree_key that STARTS WITH the target directory
             for tree_key, protocols in tree.items():
-                first_seg = tree_key.replace("/", "\\").split("\\")[0].lower()
-                if first_seg == target:
+                normalized_key = tree_key.replace("\\", "/").lower()
+                # Check if this node is exactly the target or a child of the target
+                if normalized_key == target or normalized_key.startswith(f"{target}/"):
                     for proto in protocols:
                         pid = proto.get("id", "")
                         if pid and pid not in expanded_proto_ids:
@@ -129,6 +131,53 @@ def _check_git_tracked(path: str) -> str | None:
     return None
 
 
+# ─── Path Resolution ──────────────────────────────────────────
+
+# Project root = one level above the backend/ directory
+_PROJECT_ROOT = os.path.abspath(os.path.join(_BACKEND_DIR, ".."))
+
+
+def _resolve_project_path(raw_path: str) -> str | None:
+    """
+    Aggressively resolve the project path with multiple fallback strategies.
+
+    Order:
+      1. Absolute / expanded path as-is
+      2. Relative to the project root (security review/)
+      3. Relative to Desktop
+      4. Relative to CWD
+    """
+    candidates: list[tuple[str, str]] = []
+
+    # 1. Direct (absolute or expanduser)
+    direct = os.path.abspath(os.path.expanduser(raw_path))
+    candidates.append(("direct", direct))
+
+    # 2. Relative to project root (e.g., "testbed" → "C:\...\security review\testbed")
+    from_root = os.path.abspath(os.path.join(_PROJECT_ROOT, raw_path))
+    candidates.append(("project_root", from_root))
+
+    # 3. Relative to Desktop (common user location on Windows)
+    desktop = os.path.join(os.path.expanduser("~"), "Desktop", raw_path)
+    candidates.append(("desktop", os.path.abspath(desktop)))
+
+    # 4. Relative to CWD
+    from_cwd = os.path.abspath(raw_path)
+    candidates.append(("cwd", from_cwd))
+
+    seen = set()
+    for label, path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        logger.info(f"  [{label}] Trying: {path}")
+        if os.path.isdir(path):
+            logger.info(f"  ✓ Resolved via [{label}]: {path}")
+            return path
+
+    return None
+
+
 # ─── Endpoint ─────────────────────────────────────────────────
 
 
@@ -137,10 +186,24 @@ async def sync_cursor(req: SyncRequest):
     """Sync selected protocols + project context → .cursorrules"""
     warnings: list[str] = []
 
-    expanded_path = os.path.abspath(os.path.expanduser(req.project_path))
-    logger.info(f"Checking absolute path: {expanded_path}")
-    if not os.path.isdir(expanded_path):
-        raise HTTPException(400, detail=f"Directory not found: {expanded_path}")
+    logger.info(f"sync-cursor: raw project_path = '{req.project_path}'")
+    expanded_path = _resolve_project_path(req.project_path)
+
+    if expanded_path is None:
+        # Build a useful error showing every path we tried
+        direct = os.path.abspath(os.path.expanduser(req.project_path))
+        from_root = os.path.abspath(os.path.join(_PROJECT_ROOT, req.project_path))
+        raise HTTPException(
+            400,
+            detail=(
+                f"Directory not found. Tried:\n"
+                f"  1. {direct}\n"
+                f"  2. {from_root}\n"
+                f"Tip: Use the full absolute path (e.g., C:\\Users\\user\\Desktop\\project)"
+            ),
+        )
+
+    logger.info(f"sync-cursor: resolved_path = '{expanded_path}'")
 
     git_warn = _check_git_tracked(expanded_path)
     if git_warn:
@@ -182,3 +245,4 @@ async def sync_cursor(req: SyncRequest):
         categories_expanded=expanded_cats,
         warnings=warnings,
     )
+

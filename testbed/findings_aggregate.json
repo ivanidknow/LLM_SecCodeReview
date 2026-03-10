@@ -1,0 +1,18 @@
+[
+  {
+    "protocol_id": "DISCOVERY",
+    "file": "app.py",
+    "line": "27",
+    "code": "SECRET_KEY = \"super-secret-key-12345-do-not-share\"",
+    "phase": "3 (Business Logic & Fraud)",
+    "description": "Hardcoded credentials are a significant security risk as they can be easily accessed and used by unauthorized individuals. To mitigate this, use environment variables or a secrets management service to securely store and manage sensitive information.\n---\nThe same applies to AWS access keys. Hardcoding these in your source code exposes them to anyone who can access the file, making them vulnerable to theft. Use AWS IAM roles or environment variables to securely manage these keys.\n---\nSimilarly, hardcoding AWS secret keys is highly insecure. Implement a secure method to manage and access these keys, such as AWS IAM roles or environment variables.\n---\nThe JWT secret should also be securely managed and not hardcoded in your source code. Use environment variables or a secrets management service to securely store and manage this secret.\n---\nHardcoding Stripe keys is a risk, as they can be used for unauthorized transactions. Use environment variables or a secrets management service to securely manage these keys.\n---\nEnabling debug mode in a production environment exposes detailed error messages and can be a security risk. It is recommended to disable debug mode in production environments.\n---\nThe SQLite database connection is hardcoded to a specific file path and does not use a secure method for authentication or encryption. Consider using a more secure database connection method, such as connecting to a database server with authentication and encryption enabled.\n---\nThe SQL table creation script includes a column for `password`, which is a clear text password field. This is highly insecure and should be replaced with a hashed password storage method.\n---\nThe SQL query uses string interpolation without proper sanitization, which makes it vulnerable to SQL injection attacks. Use parameterized queries or an ORM to prevent SQL injection.\n---\nThe query to fetch a user by ID does not include any authorization checks, making it vulnerable to unauthorized access. Implement proper authorization checks to ensure that only authorized users can access user information.\n---\nThe role update query does not include any authorization checks, allowing any user to update the role of other users. Implement proper authorization checks to prevent unauthorized role updates.\n---\nThe query to delete a user does not include any authorization checks, allowing any user to delete user accounts. Implement proper authorization checks to prevent unauthorized user deletions.\n---\nThe user profile page includes user input in a script tag, which is a classic example of reflected XSS. Always sanitize and escape user input to prevent XSS attacks.\n---\nThe query to fetch a post by ID does not include any sanitization or escaping, which makes it vulnerable to XSS attacks when the post content is rendered. Always sanitize and escape user input to prevent XSS attacks.\n---\nThe `pickle.loads` function is used on untrusted user input, which can lead to remote code execution (RCE) attacks. Always validate and sanitize input before deserializing it."
+  },
+  {
+    "protocol_id": "MODELING",
+    "file": "app.py",
+    "line": "182",
+    "code": "@app.post(\"/api/webhook\")",
+    "phase": "3 (Business Logic & Fraud)",
+    "description": "The webhook endpoint does not include any security measures, such as authentication or encryption, which can lead to unauthorized access and data泄露. Implement proper security measures to protect the webhook endpoint."
+  }
+]

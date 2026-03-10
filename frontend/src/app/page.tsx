@@ -5,6 +5,7 @@ import {
   ConfigProvider, theme, Layout, Card, Checkbox, Button, Input,
   Typography, Tag, Flex, Select, Modal, Popover
 } from 'antd';
+import { useRouter } from 'next/navigation';
 import {
   FolderOpenOutlined, ThunderboltOutlined, CodeOutlined,
   SearchOutlined, RocketOutlined, ExperimentOutlined,
@@ -13,7 +14,7 @@ import {
 } from '@ant-design/icons';
 import axios from 'axios';
 
-const { Text } = Typography;
+const { Text, Title } = Typography;
 const { Header, Content } = Layout;
 
 /* ============================================================
@@ -49,8 +50,31 @@ const API_SYNC     = 'http://localhost:8000/api/projects/sync-cursor';
 const API_CHAT     = 'http://localhost:8000/api/analysis/chat';
 const API_STATUS   = 'http://localhost:8000/api/analysis/status';
 const API_MODELS   = 'http://localhost:8000/api/analysis/models';
-const API_OPTIMIZE = 'http://localhost:8000/api/analysis/optimize';
-const API_REPORT  = 'http://localhost:8000/api/analysis/report';
+const API_OPTIMIZE  = 'http://localhost:8000/api/analysis/optimize';
+const API_REPORT    = 'http://localhost:8000/api/analysis/report';
+const API_DISCOVERY = 'http://localhost:8000/api/analysis/discovery';
+const API_MODELING  = 'http://localhost:8000/api/analysis/modeling';
+const API_DEEP_SCAN = 'http://localhost:8000/api/analysis/deep_scan';
+const API_FINAL_REPORT = 'http://localhost:8000/api/analysis/final_report';
+const API_SESSION   = 'http://localhost:8000/api/analysis/session';
+const API_SESSION_LOAD = 'http://localhost:8000/api/analysis/session/load';
+
+/* ---- Workflow Steps ---- */
+type Phase = 'discovery' | 'modeling' | 'deep_scan' | 'report';
+const WORKFLOW_ORDER: Phase[] = ['discovery', 'modeling', 'deep_scan', 'report'];
+const WORKFLOW_LABELS: Record<string, string> = { discovery: 'Discovery', modeling: 'Modeling', deep_scan: 'Deep Scan', report: 'Final Report' };
+const STEP_MODULES: Record<string, string[]> = {
+  modeling: ['modeling', 'dfd', 'threat_modeling'],
+  deep_scan: ['deep_scan', 'static_analysis', 'taint_analysis', 'manual_logic_review', 'iac_audit'],
+  report: ['validating_and_reporting'],
+};
+
+const NEXT_STEP_MAP: Record<Phase, { label: string; next: Phase }> = {
+  discovery: { label: "START MODELING", next: "modeling" },
+  modeling: { label: "PROCEED TO DEEP SCAN", next: "deep_scan" },
+  deep_scan: { label: "GENERATE FINAL REPORT", next: "report" },
+  report: { label: "START NEW AUDIT", next: "discovery" }
+};
 
 /* ---- Metadata options ---- */
 const PROJECT_TYPES = [
@@ -85,6 +109,7 @@ const COMMANDS = [
   { cmd: '/scan full',      desc: 'Full Scan (all modules)' },
   { cmd: '/sync',           desc: 'Sync to .cursorrules' },
   { cmd: '/optimize',       desc: 'Apply AI optimization' },
+  { cmd: '/proceed',        desc: 'Advance to next workflow step' },
   { cmd: '/report',         desc: 'Show Gold Standard report' },
   { cmd: '/status',         desc: 'Show context + status' },
   { cmd: '/clear',          desc: 'Clear terminal' },
@@ -107,10 +132,14 @@ interface OptWarn { show: boolean; message: string; technologies: string[]; arch
 const EMPTY_OPT: OptWarn = { show: false, message: '', technologies: [], archType: '', recommended: [], redundant: [] };
 
 function Dashboard() {
+  const router = useRouter();
+
   /* ---- State ---- */
   const [projectPath, setProjectPath] = useState('');
+  const [projectName, setProjectName] = useState('Security Sentinel');
   const [selected, setSelected] = useState<string[]>(() => [...MANDATORY_IDS]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [loadedProtocolsCount, setLoadedProtocolsCount] = useState<number>(0);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [discoveryDone, setDiscoveryDone] = useState(false);
 
@@ -141,11 +170,93 @@ function Dashboard() {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [pendingOpt, setPendingOpt] = useState<any>(null);
 
+  /* Workflow */
+  const [currentPhase, setCurrentPhase] = useState<Phase>('discovery');
+  const [completedSteps, setCompletedSteps] = useState<Set<Phase>>(new Set());
+  const [showProceedBtn, setShowProceedBtn] = useState(false);
+
   /* Init */
   useEffect(() => {
+    const localProj = localStorage.getItem('activeProject');
+    if (!localProj) {
+      router.push('/projects');
+      return;
+    }
+    let p: any;
+    try {
+      p = JSON.parse(localProj);
+      setProjectPath(p.absolute_path || '');
+      setProjectName(p.name || 'Security Sentinel');
+    } catch(e) { return; }
+
+    const storedStep_m = localStorage.getItem('activeStep');
+    if (storedStep_m && WORKFLOW_ORDER.includes(storedStep_m as Phase)) {
+        setCurrentPhase(storedStep_m as Phase);
+    }
+
+    if (p.absolute_path) {
+      axios.get(`http://localhost:8000/api/history/projects/by-path?path=${encodeURIComponent(p.absolute_path)}`)
+        .then(res => {
+          const project = res.data.project;
+          const stage = project.current_stage;
+          if (stage && WORKFLOW_ORDER.includes(stage as Phase)) {
+            setCurrentPhase(stage as Phase);
+            localStorage.setItem('activeStep', stage);
+            const c_idx = WORKFLOW_ORDER.indexOf(stage as Phase);
+            if (c_idx > 0) {
+              setDiscoveryDone(true);
+              const newSet = new Set<Phase>();
+              for(let i=0; i<c_idx; i++) newSet.add(WORKFLOW_ORDER[i]);
+              setCompletedSteps(newSet);
+            }
+          }
+          return axios.get(`http://localhost:8000/api/history/projects/${project.id}/last-session`);
+        })
+        .then(res => {
+          const sessionLogs = res.data.logs;
+          if (sessionLogs && sessionLogs.length > 0) {
+            const rawText = sessionLogs.map((l: any) => l.message).join('');
+            const lines = rawText.split('\n');
+            const strLogs: string[] = [];
+            for (const line of lines) {
+              if (!line.trim()) { strLogs.push(''); continue; }
+              if (line.startsWith('[DEEP_SCAN]') || line.startsWith('[MODELING]') || line.startsWith('[DISCOVERY]') || line.startsWith('[REPORT]') || line.startsWith('---') || line.startsWith('[INFO]') || line.startsWith('[ERROR]') || line.startsWith('[FAIL]') || line.startsWith('[WARN]') || line.startsWith('[TIMEOUT]')) {
+                strLogs.push(line);
+              } else if (line.startsWith('[TRUST]') || line.startsWith('[DATAFLOW]')) {
+                strLogs.push(`[AI] 🛡 ${line}`);
+              } else if (line.startsWith('[THREAT]') || line.startsWith('[AUTH]') || line.startsWith('[AUTHZ]')) {
+                strLogs.push(`[AI] ⚠ ${line}`);
+              } else if (line.startsWith('[RECOMMEND]')) {
+                strLogs.push(`[OPTIMIZE] ${line}`);
+              } else if (line.startsWith('[SUMMARY]')) {
+                strLogs.push(`[AI] ═══ ${line} ═══`);
+              } else if (line.startsWith('[VULN]')) {
+                strLogs.push(`[AI] 🚨 ${line}`);
+              } else if (line.startsWith('[FIX]')) {
+                strLogs.push(`[AI] 🔧 ${line}`);
+              } else if (line.startsWith('[SYSTEM]') || line.startsWith('[SENTINEL REPORT]')) {
+                strLogs.push(line);
+              } else if (line.startsWith('#') || line.startsWith('*') || line.startsWith('```')) {
+                strLogs.push(`[SENTINEL REPORT] ${line}`);
+              } else {
+                strLogs.push(`[AI] ${line}`);
+              }
+            }
+            
+            // Filter empty lines specifically created from rapid chunking 
+            const finalLogs = strLogs.filter((l, i) => l !== '' || (i > 0 && strLogs[i-1] !== ''));
+            setLogs(prev => [...prev.filter((l: string) => l.includes('v3.0') || l.includes('/help') || l.includes('[INFO] Ollama')), ...finalLogs]);
+            if (finalLogs.some((l: string) => l.includes('COMPLETE') || l.includes('[SENTINEL REPORT]'))) {
+              setShowProceedBtn(true);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
     axios.get(API_STATUS).then(r => { setOllamaStatus(r.data.ollama); setLogs(p => [...p, `[INFO] Ollama: ${r.data.ollama}`]); }).catch(() => setOllamaStatus('offline'));
     axios.get(API_MODELS).then(r => { const l = r.data.models || []; setModels(l); if (l.length) { const pref = l.find((m: string) => m.startsWith('llama3')) || l[0]; setSelectedModel(pref); } }).catch(() => {});
-  }, []);
+  }, [router]);
 
   /* ---- Build project_context for API ---- */
   const buildContext = () => {
@@ -172,26 +283,46 @@ function Dashboard() {
       setLogs(p => [...p, `[CMD] > ${input}`]);
       switch (parts[0]) {
         case '/scan':
-          if (parts[1] === 'discovery') return runDiscovery();
-          if (parts[1] === 'full') return runFullScan();
+          if (parts[1] === 'discovery') { setLogs(p => [...p, `[CTX] Resolved path: ${projectPath || '(not set)'}`]); return runDiscovery(); }
+          if (parts[1] === 'full') { setLogs(p => [...p, `[CTX] Resolved path: ${projectPath || '(not set)'}`]); return runFullScan(); }
           return setLogs(p => [...p, '[ERROR] Usage: /scan discovery | /scan full']);
-        case '/sync': return runSync();
+        case '/sync': setLogs(p => [...p, `[CTX] Resolved path: ${projectPath || '(not set)'}`]); return runSync();
         case '/optimize': return applyPendingOpt();
+        case '/proceed': return proceedToNextStep();
         case '/report': return fetchReport();
         case '/status':
           return setLogs(p => [...p,
-            `[CTX] Project: ${projectPath || '(not set)'}`,
+            `[CTX] Project path: ${projectPath || '(not set)'}`,
+            `[CTX] Resolved to: ${projectPath ? `(backend resolves to absolute path)` : 'N/A'}`,
             `[CTX] Type: ${projectType || 'auto'}  Stack: ${techStack || 'auto'}  Risk: ${riskLevel}`,
             `[CTX] Selected: ${selected.length} modules  Discovery: ${discoveryDone ? 'DONE' : 'NOT RUN'}`,
             `[CTX] Ollama: ${ollamaStatus} (${selectedModel})`,
           ]);
-        case '/clear': return setLogs(['[SYSTEM] Cleared.']);
+        case '/clear': return handleResetSession();
         case '/help':
           return setLogs(p => [...p, '[HELP] ─── Commands ───', ...COMMANDS.map(c => `[HELP]   ${c.cmd.padEnd(20)} ${c.desc}`), '[HELP] ─── Or type a question for the Sentinel ───']);
         default: return setLogs(p => [...p, `[ERROR] Unknown: ${parts[0]}. Type /help`]);
       }
     }
     await chatWithSentinel(input);
+  };
+
+  /* ---- Session Reset ---- */
+  const handleResetSession = async () => {
+    try {
+      if (projectPath) {
+          const pUrl = `http://localhost:8000/api/history/projects/by-path?path=${encodeURIComponent(projectPath)}`;
+          const res = await axios.get(pUrl);
+          const pid = res.data.project.id;
+          await axios.delete(`http://localhost:8000/api/history/projects/${pid}/logs`);
+      }
+    } catch (e) {}
+    setLogs(['[SYSTEM] Session and logs cleared.']);
+    setCurrentPhase('discovery');
+    setCompletedSteps(new Set());
+    setDiscoveryDone(false);
+    setShowProceedBtn(false);
+    localStorage.removeItem('activeStep');
   };
 
   /* ---- Fetch Report ---- */
@@ -222,13 +353,12 @@ function Dashboard() {
   const pickFolder = async () => {
     try {
       const h = await (window as any).showDirectoryPicker();
-      // Resolve full path via the handle
-      const entries: string[] = [];
-      for await (const [name] of h.entries()) { entries.push(name); break; }
-      // showDirectoryPicker only gives the folder name, not the absolute path.
-      // User must verify or type the full absolute path.
       setProjectPath(h.name);
-      setLogs(p => [...p, `[INFO] Folder selected: ${h.name}`, '[INFO] If sync fails, type the full absolute path (e.g., C:\\\\Users\\\\...\\\\project).']);
+      setLogs(p => [...p,
+        `[INFO] Folder selected: ${h.name}`,
+        '[INFO] Tip: Backend auto-resolves relative paths (project root, Desktop, CWD).',
+        '[INFO] For full control, type the absolute path (e.g., C:\\Users\\...\\project).',
+      ]);
     } catch {
       const inp = document.createElement('input');
       inp.type = 'file'; (inp as any).webkitdirectory = true;
@@ -236,29 +366,15 @@ function Dashboard() {
         const f = inp.files?.[0];
         if (f) {
           const rel = (f as any).webkitRelativePath || '';
-          // Try to extract folder name from the relative path
           const folder = rel.split('/')[0] || f.name;
           setProjectPath(folder);
-          setLogs(p => [...p, `[INFO] Folder: ${folder}`, '[INFO] If sync fails, type the full absolute path.']);
+          setLogs(p => [...p,
+            `[INFO] Folder: ${folder}`,
+            '[INFO] Backend will resolve this to an absolute path automatically.',
+          ]);
         }
       };
       inp.click();
-    }
-  };
-
-  const verifyPath = async (path: string): Promise<boolean> => {
-    try {
-      // Quick sync dry-run: send minimal request to check if path is valid
-      await axios.post(API_SYNC, { project_path: path, selected_ids: ['architecture'] });
-      return true;
-    } catch (e: any) {
-      const detail = e.response?.data?.detail || e.message;
-      if (detail.includes('Directory not found')) {
-        setLogs(p => [...p, `[FAIL] Path not reachable: ${detail}`, '[INFO] Please type the full absolute path to your project.']);
-        return false;
-      }
-      // Other errors (e.g., missing protocols) mean path is valid
-      return true;
     }
   };
 
@@ -288,23 +404,26 @@ function Dashboard() {
 
   /* ---- Sync ---- */
   const syncToBackend = async (ids: string[], label: string) => {
-    if (!projectPath) { setLogs(p => [...p, '[ERROR] Set a project path first.']); return; }
-
-    // Verify path is reachable before full sync
-    setLogs(p => [...p, `[INFO] Verifying path: ${projectPath}`]);
-    const valid = await verifyPath(projectPath);
-    if (!valid) { return; }
-
+    if (!projectPath) { setLogs(p => [...p, '[ERROR] Set a project path first. Click 📁 or type a path.']); return; }
     setIsSyncing(true);
     const payload = buildSelectedIds(ids);
     setLogs(p => [...p, `[SYNC] ${label} → ${projectPath} (${payload.length} IDs)`]);
     try {
       const res = await axios.post(API_SYNC, { project_path: projectPath, selected_ids: payload, project_context: buildContext() });
       const { synced_count, synced_ids, target, categories_expanded, warnings } = res.data;
-      setLogs(p => [...p, `[OK] Synced ${synced_count} → ${target}`]);
+      setLoadedProtocolsCount(synced_count);
+      setLogs(p => [...p, `[OK] Loaded Protocols: ${synced_count} (${target})`]);
+      setLogs(p => [...p, `[OK] Active Rules: ${synced_ids.join(', ')}`]);
       if (categories_expanded?.length) setLogs(p => [...p, `[INFO] Expanded: ${categories_expanded.join(', ')}`]);
       if (warnings?.length) for (const w of warnings) setLogs(p => [...p, `[WARN] ${w}`]);
-    } catch (e: any) { setLogs(p => [...p, `[FAIL] ${e.response?.data?.detail || e.message}`]); }
+    } catch (e: any) {
+      const detail = e.response?.data?.detail || e.message;
+      setLogs(p => [...p, `[FAIL] ${detail}`]);
+      // If it's a path error, print the tip
+      if (detail.includes('Directory not found') || detail.includes('Tried:')) {
+        setLogs(p => [...p, '[INFO] Tip: Type the full absolute path or use a folder name relative to the project root.']);
+      }
+    }
     finally { setIsSyncing(false); }
   };
 
@@ -323,19 +442,110 @@ function Dashboard() {
     });
   };
 
-  /* ---- Discovery ---- */
+  /* ---- Discovery (AI Analysis — does NOT write .cursorrules) ---- */
   const runDiscovery = async () => {
-    if (!projectPath) { setLogs(p => [...p, '[ERROR] Set a project path first.']); return; }
+    if (!projectPath) { setLogs(p => [...p, '[ERROR] Set a project path first. Click 📁 or type a path.']); return; }
+    if (ollamaStatus !== 'online') { setLogs(p => [...p, '[ERROR] Ollama is offline. Start it with: ollama serve']); return; }
     setIsSyncing(true);
-    setLogs(p => [...p, '[CMD] Executing DISCOVERY scan...']);
+    setLogs(p => [...p, '[DISCOVERY] ═══ Starting AI-powered project analysis... ═══', `[DISCOVERY] Target: ${projectPath}`, `[DISCOVERY] Model: ${selectedModel}`]);
     try {
-      const res = await axios.post(API_SYNC, { project_path: projectPath, selected_ids: ['discovery', 'validating_and_reporting'], project_context: buildContext() });
-      const { synced_count, target } = res.data;
+      const resp = await fetch(API_DISCOVERY, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_path: projectPath, model: selectedModel }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        setLogs(p => [...p, `[FAIL] ${err.detail || 'Discovery failed'}`]);
+        return;
+      }
+      const reader = resp.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const discoveryLines: string[] = [];
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          // Process complete lines
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            discoveryLines.push(line);
+            // Color-code by prefix
+            if (line.startsWith('[DISCOVERY]') || line.startsWith('---')) {
+              setLogs(p => [...p, line]);
+            } else if (line.startsWith('[STACK]') || line.startsWith('[ENTRY]') || line.startsWith('[ARCH]') || line.startsWith('[INFRA]') || line.startsWith('[DEPS]')) {
+              setLogs(p => [...p, `[AI] ${line}`]);
+            } else if (line.startsWith('[WARN]') || line.startsWith('[SECRET]') || line.startsWith('[VULN]')) {
+              setLogs(p => [...p, `[AI] ⚠ ${line}`]);
+            } else if (line.startsWith('[SUMMARY]')) {
+              setLogs(p => [...p, `[AI] ═══ ${line} ═══`]);
+            } else {
+              setLogs(p => [...p, `[AI] ${line}`]);
+            }
+          }
+        }
+        // Flush remaining buffer
+        if (buffer.trim()) {
+          discoveryLines.push(buffer);
+          setLogs(p => [...p, `[AI] ${buffer}`]);
+        }
+      }
+
       setDiscoveryDone(true);
-      setLogs(p => [...p, `[OK] Discovery: ${synced_count} protocols → ${target}`, '[INFO] Discovery COMPLETE.']);
+      setLogs(p => [...p, '[DISCOVERY] ═══ Analysis COMPLETE ═══']);
+
+      // Auto-detect tech stack and project type from AI output
+      const fullLog = discoveryLines.join('\n');
+      const stackMatch = fullLog.match(/\[STACK\].*?:\s*(.+)/i);
+      if (stackMatch && !techStack) {
+        const detected = stackMatch[1].toLowerCase();
+        const stackMap: Record<string, string> = { python: 'python', fastapi: 'python', django: 'python', flask: 'python', node: 'node', express: 'node', react: 'react', next: 'react', go: 'go', rust: 'rust', java: 'java', '.net': 'dotnet', ruby: 'ruby' };
+        for (const [key, val] of Object.entries(stackMap)) {
+          if (detected.includes(key)) { setTechStack(val); setLogs(p => [...p, `[CTX] Auto-set Tech Stack: ${val}`]); break; }
+        }
+      }
+      const archMatch = fullLog.match(/\[ARCH\].*?:\s*(.+)/i);
+      if (archMatch && !projectType) {
+        const arch = archMatch[1].toLowerCase();
+        if (arch.includes('api') || arch.includes('rest')) setProjectType('api');
+        else if (arch.includes('web') || arch.includes('frontend')) setProjectType('web');
+        else if (arch.includes('cli')) setProjectType('cli');
+        else if (arch.includes('micro')) setProjectType('microservice');
+      }
+
+      // Trigger optimization with discovery findings
       if (ollamaStatus === 'online') await triggerOptimization(false);
-    } catch (e: any) { setLogs(p => [...p, `[FAIL] ${e.response?.data?.detail || e.message}`]); }
-    finally { setIsSyncing(false); }
+
+      // Save session to backend
+      const techs = discoveryLines.filter(l => l.match(/\[STACK\]/)).map(l => l.replace(/.*:\s*/, '').trim());
+      const entries = discoveryLines.filter(l => l.match(/\[ENTRY\]/)).map(l => l.replace(/.*:\s*/, '').trim());
+      const warns = discoveryLines.filter(l => l.match(/\[WARN\]|\[SECRET\]|\[VULN\]/)).map(l => l.replace(/.*:\s*/, '').trim());
+      const detectedArch = archMatch ? archMatch[1] : '';
+      const detectedStack = stackMatch ? stackMatch[1] : '';
+
+      axios.post(API_SESSION, {
+        project_path: projectPath,
+        discovery_data: { tech_stack: detectedStack, project_type: projectType, architecture: detectedArch, technologies: techs, entry_points: entries, warnings: warns, raw_log: fullLog },
+        workflow_step: 'modeling',
+      }).catch(() => {});
+
+      // Update workflow state
+      setCompletedSteps(prev => new Set([...prev, 'discovery']));
+      setShowProceedBtn(true);
+      setLogs(p => [...p,
+        `[SYSTEM] Next logical step: Threat Modeling based on discovered ${detectedArch || techStack || 'project'} architecture.`,
+        `[SYSTEM] Click 'PROCEED' or type /proceed to begin Modeling & Deep Scan.`
+      ]);
+    } catch (e: any) {
+      setLogs(p => [...p, `[FAIL] ${e.message}`]);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   /* ---- Optimization ---- */
@@ -398,6 +608,388 @@ function Dashboard() {
     setLogs(p => [...p, `[OPTIMIZE] Applied: +${toAdd.length} -${toRm.size}`]);
     setPendingOpt(null);
     setOptWarn(EMPTY_OPT);
+    setShowProceedBtn(true);
+  };
+
+  /* ---- Workflow PROCEED ---- */
+  const proceedToNextStep = async () => {
+    const nextPhase = NEXT_STEP_MAP[currentPhase].next;
+    const modules = STEP_MODULES[nextPhase] || [];
+    setShowProceedBtn(false);
+
+    // If restarting audit
+    if (nextPhase === 'discovery') {
+       setCurrentPhase('discovery');
+       setCompletedSteps(new Set());
+       setLogs(p => [...p, '[SYSTEM] ═══ STARTING NEW AUDIT ═══']);
+       return;
+    }
+
+    // === MODELING: Stream AI analysis instead of just syncing ===
+    if (nextPhase === 'modeling') {
+      const prevPhase = currentPhase;
+      setCurrentPhase('modeling');
+      setSelected(prev => [...new Set([...prev, ...modules])]);
+      setLogs(p => [...p, `[SYSTEM] ═══ PROCEEDING TO: MODELING ═══`]);
+      axios.post(API_SESSION, { project_path: projectPath, workflow_step: 'modeling' }).catch(() => {});
+      const success = await runModeling();
+      if (!success) {
+        setCurrentPhase(prevPhase); // Revert phase on failure
+      }
+      return;
+    }
+
+    // === DEEP SCAN: Stream AI analysis ===
+    if (nextPhase === 'deep_scan') {
+      const prevPhase = currentPhase;
+      setCurrentPhase('deep_scan');
+      const newSelected = [...new Set([...selected, ...modules])];
+      setSelected(newSelected);
+      setLogs(p => [...p, `[SYSTEM] ═══ PROCEEDING TO: DEEP SCAN ═══`]);
+      axios.post(API_SESSION, { project_path: projectPath, workflow_step: 'deep_scan' }).catch(() => {});
+      
+      // SYNC BEFORE SCAN to validate loaded rules and active targets logging
+      await syncToBackend(newSelected, 'DEEP SCAN SYNC');
+
+      const success = await runDeepScan();
+      if (!success) {
+        setCurrentPhase(prevPhase);
+      }
+      return;
+    }
+
+    // === REPORT: Stream Final AI Report ===
+    if (nextPhase === 'report') {
+      const prevPhase = currentPhase;
+      setCurrentPhase('report');
+      setSelected(prev => [...new Set([...prev, ...modules])]);
+      setLogs(p => [...p, `[SYSTEM] ═══ PROCEEDING TO: FINAL REPORT ═══`]);
+      axios.post(API_SESSION, { project_path: projectPath, workflow_step: 'report' }).catch(() => {});
+      const success = await runFinalReport();
+      if (!success) {
+        setCurrentPhase(prevPhase);
+      }
+      return;
+    }
+
+    // === Other phases: auto-select + sync ===
+    if (!modules.length) {
+      setLogs(p => [...p, `[WARN] No modules mapped for ${nextPhase}.`]);
+      return;
+    }
+    setSelected(prev => [...new Set([...prev, ...modules])]);
+    setCurrentPhase(nextPhase);
+    setLogs(p => [...p,
+      `[SYSTEM] ═══ PROCEEDING TO: ${WORKFLOW_LABELS[nextPhase]?.toUpperCase()} ═══`,
+      `[SYNC] Auto-selecting ${modules.length} modules: ${modules.join(', ')}`,
+    ]);
+    
+    // Send phase change ping to backend to update session context
+    axios.post(API_SESSION, { project_path: projectPath, workflow_step: nextPhase }).catch(() => {});
+    
+    await syncToBackend([...selected, ...modules], `WORKFLOW → ${WORKFLOW_LABELS[nextPhase]}`);
+
+    setCompletedSteps(prev => {
+      const next = new Set(prev);
+      if (currentPhase !== 'report') next.add(currentPhase);
+      return next;
+    });
+
+    if (nextPhase === 'report') {
+      setCompletedSteps(prev => new Set([...prev, 'report']));
+      setLogs(p => [...p, '[SYSTEM] ═══ WORKFLOW COMPLETE ═══', '[INFO] All protocols synced. Use the AI Sentinel for analysis or type /report.']);
+      setShowProceedBtn(true);
+    } else {
+      setShowProceedBtn(true);
+      // @ts-ignore
+      setLogs(p => [...p, `[SYSTEM] Next step: ${WORKFLOW_LABELS[NEXT_STEP_MAP[nextPhase].next]}. Click 'PROCEED' when ready.`]);
+    }
+  };
+
+  /* ---- Modeling (AI Streaming) ---- */
+  const runModeling = async () => {
+    if (!projectPath) { setLogs(p => [...p, '[ERROR] Set a project path first.']); return; }
+    if (ollamaStatus !== 'online') { setLogs(p => [...p, '[ERROR] Ollama is offline. Start with: ollama serve']); return; }
+    setIsSyncing(true);
+    setLogs(p => [...p, '[MODELING] ═══ Starting Threat Modeling analysis... ═══', `[MODELING] Model: ${selectedModel}`]);
+    try {
+      const discoveryLog = logs.filter(l => l.startsWith('[AI]') || l.startsWith('[DISCOVERY]')).join('\n');
+      const resp = await fetch(API_MODELING, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_path: projectPath, discovery_log: discoveryLog, model: selectedModel }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        setLogs(p => [...p, `[FAIL] ${err.detail || 'Modeling failed'}`]);
+        return;
+      }
+      const reader = resp.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const modelingLines: string[] = [];
+      let threatCount = 0;
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            modelingLines.push(line);
+            if (line.startsWith('[THREAT]')) threatCount++;
+            if (line.startsWith('[MODELING]') || line.startsWith('---')) {
+              setLogs(p => [...p, line]);
+            } else if (line.startsWith('[TRUST]') || line.startsWith('[DATAFLOW]')) {
+              setLogs(p => [...p, `[AI] 🛡 ${line}`]);
+            } else if (line.startsWith('[THREAT]') || line.startsWith('[AUTH]') || line.startsWith('[AUTHZ]')) {
+              setLogs(p => [...p, `[AI] ⚠ ${line}`]);
+            } else if (line.startsWith('[RECOMMEND]')) {
+              setLogs(p => [...p, `[OPTIMIZE] ${line}`]);
+            } else if (line.startsWith('[SUMMARY]')) {
+              setLogs(p => [...p, `[AI] ═══ ${line} ═══`]);
+            } else {
+              setLogs(p => [...p, `[AI] ${line}`]);
+            }
+          }
+        }
+        if (buffer.trim()) {
+          modelingLines.push(buffer);
+          setLogs(p => [...p, `[AI] ${buffer}`]);
+        }
+      }
+      
+      const isTimeout = modelingLines.some(l => l.includes('[TIMEOUT]'));
+      if (isTimeout) {
+        setLogs(p => [...p, `[ERROR] AI Timeout. Please 'Retry' or change the model.`]);
+        setShowProceedBtn(true);
+        return false;
+      }
+
+      // Sync modeling protocols to .cursorrules
+      const modelingModules = STEP_MODULES['modeling'] || [];
+      await syncToBackend([...selected, ...modelingModules], 'MODELING SYNC');
+
+      setCompletedSteps(prev => new Set([...prev, 'modeling']));
+      
+      // Send phase change ping for Deep Scan (it will become the active phase after modeling logic finishes)
+      // wait, proceedToNextStep triggers the next phase. Here we just unlock the button for Deep Scan.
+      // So currentPhase REMAINS 'modeling', but modeling is done. The user clicks "PROCEED" to enter deep_scan.
+
+      // Extract [RECOMMEND] lines for Deep Scan suggestion
+      const recommendations = modelingLines.filter(l => l.startsWith('[RECOMMEND]')).map(l => l.replace('[RECOMMEND]', '').trim());
+      setLogs(p => [...p,
+        `[MODELING] Logic analysis complete. ${threatCount} architectural threat${threatCount !== 1 ? 's' : ''} found.`,
+      ]);
+      if (recommendations.length > 0) {
+        setLogs(p => [...p,
+          `[OPTIMIZE] Based on Modeling, I recommend adding for Deep Scan:`,
+          ...recommendations.map(r => `[OPTIMIZE]   → ${r}`),
+        ]);
+      }
+      setShowProceedBtn(true);
+      setLogs(p => [...p, `[SYSTEM] Click 'PROCEED TO DEEP SCAN' to continue.`]);
+      return true;
+    } catch (e: any) {
+      setLogs(p => [...p, `[FAIL] ${e.message}`]);
+      setShowProceedBtn(true);
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  /* ---- Deep Scan (AI Streaming) ---- */
+  const runDeepScan = async () => {
+    if (!projectPath) { setLogs(p => [...p, '[ERROR] Set a project path first.']); return false; }
+    if (ollamaStatus !== 'online') { setLogs(p => [...p, '[ERROR] Ollama is offline. Start with: ollama serve']); return false; }
+    setIsSyncing(true);
+    setLogs(p => [...p, '[DEEP_SCAN] ═══ Starting Deep Scan analysis... ═══', `[DEEP_SCAN] Model: ${selectedModel}`]);
+    try {
+      const modelingLog = logs.filter(l => l.startsWith('[AI] 🛡') || l.startsWith('[AI] ⚠') || l.startsWith('[MODELING]')).join('\n');
+      const resp = await fetch(API_DEEP_SCAN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_path: projectPath, modeling_log: modelingLog, model: selectedModel }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        setLogs(p => [...p, `[FAIL] ${err.detail || 'Deep Scan failed'}`]);
+        return false;
+      }
+      const reader = resp.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const scanLines: string[] = [];
+      let vulnCount = 0;
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            scanLines.push(line);
+            
+            // Handle specific structured tags
+            if (line.startsWith('[DEEP_SCAN]') || line.startsWith('---')) {
+              setLogs(p => [...p, line]);
+            } else if (line.startsWith('[SENTINEL_REFUSAL]')) {
+              setLogs(p => [...p, `[SENTINEL_REFUSAL] AI model is being cautious. Retrying with aggressive mode...`]);
+            } else if (line.startsWith('[VALIDATION FAILED]')) {
+              setLogs(p => [...p, `[ERROR] 🔥 ${line}`]);
+            } else if (line.startsWith('[VULN]')) {
+              vulnCount++;
+              setLogs(p => [...p, `[AI] 🚨 ${line}`]);
+            } else if (line.startsWith('[SUMMARY]')) {
+              setLogs(p => [...p, `[AI] ═══ ${line} ═══`]);
+            } else if (line.startsWith('[FIX]')) {
+              setLogs(p => [...p, `[AI] 🔧 ${line}`]);
+            } else if (line.startsWith('[AI] Testing')) {
+              setLogs(p => [...p, line]);
+            } else {
+              // Pass pure Markdown directly
+              setLogs(p => [...p, `[AI] ${line}`]);
+            }
+          }
+        }
+        if (buffer.trim()) {
+          scanLines.push(buffer);
+          setLogs(p => [...p, `[AI] ${buffer}`]);
+        }
+      }
+
+      const isTimeout = scanLines.some(l => l.includes('[TIMEOUT]'));
+      if (isTimeout) {
+        setLogs(p => [...p, `[ERROR] AI Timeout during Deep Scan. Please 'Retry' or change the model.`]);
+        setShowProceedBtn(true);
+        return false;
+      }
+
+      setCompletedSteps(prev => new Set([...prev, 'deep_scan']));
+
+      setLogs(p => [...p,
+        `[DEEP_SCAN] Scan complete. ${vulnCount} vulnerabilit${vulnCount !== 1 ? 'ies' : 'y'} documented.`,
+      ]);
+      setShowProceedBtn(true);
+      setLogs(p => [...p, `[SYSTEM] Click 'PROCEED TO FINAL REPORT' to generate the Gold Standard Markdown report.`]);
+      return true;
+    } catch (e: any) {
+      setLogs(p => [...p, `[FAIL] ${e.message}`]);
+      setShowProceedBtn(true);
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  /* ---- Final Report (AI Streaming) ---- */
+  const runFinalReport = async () => {
+    if (!projectPath) { setLogs(p => [...p, '[ERROR] Set a project path first.']); return false; }
+    if (ollamaStatus !== 'online') { setLogs(p => [...p, '[ERROR] Ollama is offline. Start with: ollama serve']); return false; }
+    setIsSyncing(true);
+    setLogs(p => [...p, '[REPORT] ═══ Generating Final Report... ═══', `[REPORT] Model: ${selectedModel}`]);
+    try {
+      const allLogs = logs.join('\n');
+      const resp = await fetch(API_FINAL_REPORT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_path: projectPath, all_logs: allLogs, model: selectedModel }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        setLogs(p => [...p, `[FAIL] ${err.detail || 'Final Report generation failed'}`]);
+        return false;
+      }
+      const reader = resp.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const reportLines: string[] = [];
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            reportLines.push(line);
+            if (line.startsWith('[REPORT]') || line.startsWith('---')) {
+              setLogs(p => [...p, line]);
+            } else if (line.startsWith('#') || line.startsWith('-') || line.trim() !== '') {
+              // Standard markdown streamed line
+              setLogs(p => [...p, `[SENTINEL REPORT] ${line}`]);
+            }
+          }
+        }
+        if (buffer.trim()) {
+          reportLines.push(buffer);
+          setLogs(p => [...p, `[SENTINEL REPORT] ${buffer}`]);
+        }
+      }
+
+      const isTimeout = reportLines.some(l => l.includes('[TIMEOUT]'));
+      if (isTimeout) {
+        setLogs(p => [...p, `[ERROR] AI Timeout during Final Report.`]);
+        setShowProceedBtn(true);
+        return false;
+      }
+
+      // Sync final reporting protocols
+      const rModules = STEP_MODULES['report'] || [];
+      await syncToBackend([...selected, ...rModules], 'FINAL REPORT SYNC');
+
+      setCompletedSteps(prev => new Set([...prev, 'report']));
+      setLogs(p => [...p, '[SYSTEM] ═══ WORKFLOW COMPLETE ═══', '[INFO] Final Report Generated natively.']);
+      setShowProceedBtn(true);
+
+      // Auto-save audit to history
+      try {
+        const reportText = reportLines.join('\n');
+        
+        const metrics = {
+          architecture: (reportText.match(/architecture|iam_roles|identity|auth/gi) || []).length,
+          iam: (reportText.match(/privilege|rbac|token|oauth|session/gi) || []).length,
+          data_flow: (reportText.match(/injection|xss|sqli|csrf|taint|ssrf/gi) || []).length,
+          business_logic: (reportText.match(/tampering|bypass|race condition|toctou/gi) || []).length,
+          iac: (reportText.match(/docker|kubernetes|terraform|pipeline|secret/gi) || []).length,
+          compliance: (reportText.match(/license|sbom|cve|outdated/gi) || []).length,
+        };
+        
+        await axios.post('http://localhost:8000/api/history/save', {
+          project_path: projectPath,
+          status: 'completed',
+          findings_stats: {
+            total: (reportText.match(/\[SEC-/g) || []).length,
+            critical: (reportText.match(/Критичность:\s*(CRITICAL|КРИТИЧНАЯ)/gi) || []).length,
+            high: (reportText.match(/Критичность:\s*(HIGH|ВЫСОКАЯ)/gi) || []).length,
+            medium: (reportText.match(/Критичность:\s*(MEDIUM|СРЕДНЯЯ)/gi) || []).length,
+            low: (reportText.match(/Критичность:\s*(LOW|НИЗКАЯ)/gi) || []).length,
+          },
+          metrics
+        });
+        setLogs(p => [...p, '[SYSTEM] Audit saved to History successfully.']);
+      } catch (err) {
+        setLogs(p => [...p, '[WARN] Failed to auto-save audit to history.']);
+        console.error(err);
+      }
+
+      return true;
+    } catch (e: any) {
+      setLogs(p => [...p, `[FAIL] ${e.message}`]);
+      setShowProceedBtn(true);
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   /* ---- Chat ---- */
@@ -440,6 +1032,12 @@ function Dashboard() {
     if (l.startsWith('[CMD]')) return '#38bdf8';
     if (l.startsWith('[CTX]')) return '#2dd4bf';
     if (l.startsWith('[HELP]')) return '#94a3b8';
+    if (l.startsWith('[AI]')) return '#34d399';
+    if (l.startsWith('[DISCOVERY]')) return '#a855f7';
+    if (l.startsWith('[MODELING]')) return '#f472b6';
+    if (l.startsWith('[TRUST]') || l.startsWith('[DATAFLOW]')) return '#67e8f9';
+    if (l.startsWith('[THREAT]')) return '#fb923c';
+    if (l.startsWith('[RECOMMEND]')) return '#c084fc';
     return '#22d3ee';
   };
 
@@ -484,6 +1082,15 @@ function Dashboard() {
 
       {/* ===== HEADER ===== */}
       <Header style={{ height: 60, lineHeight: '60px', background: '#080808', borderBottom: '1px solid #1f1f1f', padding: '0 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Title level={4} style={{ margin: 0, color: '#fff', letterSpacing: '1px', whiteSpace: 'nowrap', marginRight: 16, marginTop: 14 }}>
+          HEXSTRIKE <span style={{ color: '#888', fontWeight: 400 }}>| {projectName}</span>
+        </Title>
+        <Button type="text" onClick={() => router.push('/projects')} style={{ color: '#aaa', fontWeight: 500 }}>Projects</Button>
+        <Button type="text" onClick={() => router.push('/history')} style={{ color: '#aaa', fontWeight: 500 }}>History</Button>
+        <Button type="text" onClick={handleResetSession} style={{ color: '#ef4444', fontWeight: 500 }}>Reset Session</Button>
+        
+        <div style={{ width: 1, height: 24, background: '#333', margin: '0 12px' }} />
+
         <Button type="text" icon={<FolderOpenOutlined />} onClick={pickFolder} style={{ color: '#888' }} />
         <Input value={projectPath} onChange={e => setProjectPath(e.target.value)} placeholder="Path to repository..." variant="borderless" prefix={<SearchOutlined style={{ color: '#444' }} />} style={{ flex: 1, fontFamily: 'monospace', fontSize: 14 }} />
 
@@ -491,7 +1098,7 @@ function Dashboard() {
         {projectType && <Tag color="cyan" style={{ margin: 0, fontSize: 9 }}>{projectType}</Tag>}
         {techStack && <Tag color="geekblue" style={{ margin: 0, fontSize: 9 }}>{techStack}</Tag>}
         <Tag color={riskLevel === 'high' ? 'red' : riskLevel === 'low' ? 'green' : 'gold'} style={{ margin: 0, fontSize: 9 }}>{riskLevel}</Tag>
-        <Tag color="blue" style={{ margin: 0, fontFamily: 'monospace', fontSize: 10, fontWeight: 700 }}>{selected.length}</Tag>
+        <Tag color="blue" style={{ margin: 0, fontFamily: 'monospace', fontSize: 10, fontWeight: 700 }}>{loadedProtocolsCount > 0 ? loadedProtocolsCount : selected.length}</Tag>
         <Tag color={ollamaStatus === 'online' ? 'green' : 'red'} style={{ margin: 0, fontSize: 9, fontWeight: 700 }}>LLM</Tag>
         {discoveryDone && <Tag color="purple" style={{ margin: 0, fontSize: 9 }}>DISCOVERED</Tag>}
 
@@ -512,19 +1119,45 @@ function Dashboard() {
           {METHODOLOGY.map(sec => {
             const { checked, indeterminate } = sectionState(sec);
             const isOpen = expanded[sec.id] !== false;
-            return (<div key={sec.id}><Card size="small" styles={{ header: { borderBottom: '1px solid #1a1a1a', padding: '12px 16px' }, body: { padding: (isOpen && sec.modules.length) ? '8px 12px' : 0 } }} style={{ background: '#0a0a0a', borderColor: '#1a1a1a' }}
+            
+            /* Phase-lock: unlock behavior */
+            const phaseMap: Record<string, Phase> = { discovery: 'discovery', modeling: 'modeling', deep_scan: 'deep_scan', validating_and_reporting: 'report' };
+            const cardPhase = phaseMap[sec.id] || 'discovery';
+            
+            // A card is active (editable) if it's the current running phase, 
+            // OR if the current phase is done (showProceedBtn) and this is the NEXT phase to be started.
+            const isCurrentProcessing = cardPhase === currentPhase && !showProceedBtn;
+            const isNextReady = showProceedBtn && cardPhase === NEXT_STEP_MAP[currentPhase].next;
+            const isActivePhase = isCurrentProcessing || isNextReady;
+            const isLocked = !isActivePhase;
+            
+            let lockMsg = 'LOCKED';
+            if (completedSteps.has(cardPhase)) lockMsg = '✓ COMPLETED';
+            else if (sec.id === 'modeling') lockMsg = 'COMPLETE DISCOVERY FIRST';
+            else if (sec.id === 'deep_scan') lockMsg = 'COMPLETE MODELING FIRST';
+            else if (sec.id === 'validating_and_reporting') lockMsg = 'COMPLETE DEEP SCAN FIRST';
+
+            const borderColor = isActivePhase ? '#3b82f6' : isLocked ? '#111' : '#1a1a1a';
+            return (<div key={sec.id} style={{ filter: isLocked ? 'grayscale(1)' : 'none', opacity: isLocked ? 0.35 : 1, transition: 'all 0.3s', pointerEvents: isLocked ? 'none' : 'auto', position: 'relative' }}>
+              {isLocked && <div style={{ position: 'absolute', inset: 0, zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)', borderRadius: 8, pointerEvents: 'none' }}>
+                <Tag color="default" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', background: completedSteps.has(cardPhase) ? '#16653420' : '#111', borderColor: completedSteps.has(cardPhase) ? '#16653450' : '#333', color: completedSteps.has(cardPhase) ? '#4ade80' : '#888' }}>
+                  {lockMsg}
+                </Tag>
+              </div>}
+              <Card size="small" styles={{ header: { borderBottom: '1px solid #1a1a1a', padding: '12px 16px' }, body: { padding: (isOpen && sec.modules.length) ? '8px 12px' : 0 } }} style={{ background: isActivePhase ? '#0a0f1a' : '#0a0a0a', borderColor, borderWidth: isActivePhase ? 2 : 1, boxShadow: isActivePhase ? '0 0 16px #3b82f620' : 'none', transition: 'all 0.3s' }}
               title={<Flex align="center" gap={10}>
-                <Checkbox checked={checked || sec.mandatory} indeterminate={indeterminate} disabled={sec.mandatory} onChange={() => toggleSection(sec)} />
-                <span onClick={() => sec.modules.length > 0 && setExpanded(p => ({ ...p, [sec.id]: !isOpen }))} style={{ cursor: sec.modules.length ? 'pointer' : 'default', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: sec.mandatory ? '#3b82f6' : '#999', flex: 1 }}>
+                <Checkbox checked={checked || sec.mandatory} indeterminate={indeterminate} disabled={sec.mandatory || isLocked} onChange={() => toggleSection(sec)} />
+                <span onClick={() => sec.modules.length > 0 && setExpanded(p => ({ ...p, [sec.id]: !isOpen }))} style={{ cursor: sec.modules.length ? 'pointer' : 'default', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: isActivePhase ? '#60a5fa' : sec.mandatory ? '#3b82f6' : '#999', flex: 1 }}>
                   {sec.label}{sec.mandatory && <Tag color="blue" style={{ marginLeft: 8, fontSize: 9 }}>REQ</Tag>}
+                  {isActivePhase && <Tag color="blue" style={{ marginLeft: 8, fontSize: 9 }}>ACTIVE</Tag>}
                 </span>
                 {sec.modules.length > 0 && <Text type="secondary" style={{ fontSize: 10, fontFamily: 'monospace' }}>{sec.modules.length}</Text>}
               </Flex>}
             >
               {isOpen && sec.modules.map(mod => {
                 const isOn = selected.includes(mod.id);
-                return (<Flex key={mod.id} align="center" gap={8} onClick={() => toggleModule(mod.id)} style={{ padding: '8px 10px', borderRadius: 6, cursor: mod.mandatory ? 'default' : 'pointer', marginBottom: 2, background: isOn ? 'rgba(59,130,246,0.08)' : 'transparent' }}>
-                  <Checkbox checked={isOn || mod.mandatory} disabled={mod.mandatory} style={{ pointerEvents: 'none' }} />
+                return (<Flex key={mod.id} align="center" gap={8} onClick={() => toggleModule(mod.id)} style={{ padding: '8px 10px', borderRadius: 6, cursor: (mod.mandatory || isLocked) ? 'default' : 'pointer', marginBottom: 2, background: isOn ? 'rgba(59,130,246,0.08)' : 'transparent' }}>
+                  <Checkbox checked={isOn || mod.mandatory} disabled={mod.mandatory || isLocked} style={{ pointerEvents: 'none' }} />
                   <Text style={{ fontSize: 13, fontFamily: 'monospace', color: isOn ? '#93c5fd' : '#888' }}>{mod.label}</Text>
                   {mod.mandatory && <Tag color="green" style={{ marginLeft: 'auto', fontSize: 9 }}>REQ</Tag>}
                 </Flex>);
@@ -532,6 +1165,82 @@ function Dashboard() {
             </Card></div>);
           })}
         </div>
+
+        {/* ===== WORKFLOW PROGRESS BAR ===== */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0, padding: '8px 0' }}>
+          {WORKFLOW_ORDER.map((step, i) => {
+            const isDone = completedSteps.has(step);
+            const isActive = currentPhase === step;
+            const canClick = false; // Progress bar clicking disabled per strict phase jumping
+            const color = isDone ? '#4ade80' : isActive ? '#3b82f6' : '#333';
+            const textColor = isDone ? '#4ade80' : isActive ? '#93c5fd' : '#555';
+
+            return (
+              <React.Fragment key={step}>
+                {i > 0 && <div style={{ width: 40, height: 2, background: isDone || isActive ? '#3b82f6' : '#222', transition: 'background 0.3s' }} />}
+                <div
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'default', opacity: !isActive && !isDone ? 0.4 : 1,
+                    transition: 'opacity 0.3s',
+                  }}
+                >
+                  <div style={{
+                    width: 28, height: 28, borderRadius: '50%', border: `2px solid ${color}`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: isDone ? '#4ade8020' : isActive ? '#3b82f620' : 'transparent',
+                    boxShadow: isActive ? '0 0 12px #3b82f640' : 'none', transition: 'all 0.3s',
+                  }}>
+                    {isDone ? <span style={{ color: '#4ade80', fontSize: 14, fontWeight: 700 }}>✓</span>
+                     : <span style={{ color: textColor, fontSize: 11, fontWeight: 700 }}>{i + 1}</span>}
+                  </div>
+                  <Text style={{ fontSize: 9, fontFamily: 'monospace', color: textColor, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: isActive ? 700 : 400, textAlign: 'center', lineHeight: 1.2 }}>
+                    {WORKFLOW_LABELS[step]}
+                  </Text>
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+
+        {/* ===== PROCEED BUTTON ===== */}
+        {showProceedBtn && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0', gap: 16 }}>
+            {completedSteps.has('report') && (
+              <Button
+                type="default" size="large"
+                icon={<CodeOutlined />}
+                onClick={() => {
+                  const reportContent = logs.filter(l => l.startsWith('[SENTINEL REPORT] ')).map(l => l.replace('[SENTINEL REPORT] ', '')).join('\n');
+                  const file = new Blob([reportContent || logs.join('\n')], {type: 'text/markdown'});
+                  const el = document.createElement('a');
+                  el.href = URL.createObjectURL(file);
+                  el.download = 'Security_Audit_Report.md';
+                  el.click();
+                }}
+                style={{
+                  fontWeight: 700, fontSize: 14, height: 48, paddingInline: 32,
+                  borderColor: '#3b82f6', color: '#3b82f6', background: 'transparent',
+                  letterSpacing: '0.08em',
+                }}
+              >
+                DOWNLOAD MARKDOWN
+              </Button>
+            )}
+            <Button
+              type="primary" size="large"
+              icon={<RocketOutlined />}
+              onClick={proceedToNextStep}
+              loading={isSyncing}
+              disabled={isStreaming || isOptimizing}
+              style={{
+                fontWeight: 700, fontSize: 14, height: 48, paddingInline: 32,
+                background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)', border: 'none',
+                boxShadow: '0 0 20px #3b82f640', letterSpacing: '0.08em',
+              }}
+            >
+              {NEXT_STEP_MAP[currentPhase]?.label || 'PROCEED'}
+            </Button>
+          </div>
+        )}
 
         {/* ===== TERMINAL ===== */}
         <div style={{ flex: 1, minHeight: 300, background: '#050505', border: '1px solid #1a1a1a', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>

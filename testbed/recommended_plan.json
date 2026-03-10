@@ -1,0 +1,3 @@
+{
+  "modeling_output": "{\"threats\": [{\"id\": \"THR-001\", \"name\": \"Missing Authentication\", \"impact\": \"High\"}, {\"id\": \"THR-002\", \"name\": \"Injection Vulnerabilities\", \"impact\": \"Medium\"}, {\"id\": \"THR-003\", \"name\": \"Insecure Data Storage\", \"impact\": \"Medium\"}]}"
+}
