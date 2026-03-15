@@ -1,17 +1,14 @@
-<DFD_MODELING_V3>
+<DEEP_SCAN_V3>
 @ID: PROVIDER_SPECIFIC_ENTROPY_ANALYSIS
 @GOAL: ELIMINATE_SECRET_SCANNING_NOISE_BY_CORRELATING_ENTROPY_WITH_DISCOVERY_DATA
 @PARENT_CONTEXT: external_interactors.protocol, third_party_surface.protocol, secrets_management.protocol
 
 <GLOBAL_VARS>
-# Математические константы для анализа случайности
 SHANNON_LIMITS: {
-  "LOW_CONFIDENCE": 3.5,    # Обычный текст, пути, идентификаторы
-  "STRICT_SECRET": 4.5,     # Высокая вероятность ключа/токена
-  "MAX_THEORETICAL": 8.0    # Идеальный шум
+  "LOW_CONFIDENCE": 3.5,
+  "STRICT_SECRET": 4.5,
+  "MAX_THEORETICAL": 8.0
 }
-
-# Сигнатуры провайдеров из Discovery (наполняется динамически)
 TARGET_SIGNATURES: {
   "AWS": "(AKIA|AGPA|AIPA|AROA|ASCA|ASIA)[A-Z0-9]{16}",
   "STRIPE": "sk_live_[0-9a-zA-Z]{24}",
@@ -19,39 +16,23 @@ TARGET_SIGNATURES: {
 }
 </GLOBAL_VARS>
 
-<CONTEXT_MAP>
-[KNOWN_PROVIDERS] <- {from: external_interactors.protocol, scope: "CLOUD|SAAS|PAYMENTS"}
-[ACTIVE_SDK]      <- {from: third_party_surface.protocol, scope: "CLIENT_LIBS"}
-[IDENTIFIED_KEYS] <- {from: secrets_management.protocol, scope: "STORAGE_POLICIES"}
-</CONTEXT_MAP>
-
-<ASSERTIONS>
-# Логика подтверждения секрета
-! ([STRING_ENTROPY] > [SHANNON_LIMITS.STRICT_SECRET] && ![KNOWN_PROVIDERS]) : "INFO: High entropy string detected without provider context. Possible unknown service or false positive."
-! ([TARGET_SIGNATURES] && [KNOWN_PROVIDERS]) : "CRITICAL: Validated Provider Leak. String matches signature of a service identified in Discovery."
-! ([STRING_ENTROPY] > [SHANNON_LIMITS.LOW_CONFIDENCE] && "file:.env") : "HIGH: Configuration Exposure. Potential secret found in environment file."
-</ASSERTIONS>
-
 <EXECUTION_PIPELINE>
-1. DISCOVERY_CONTEXT_PRELOAD:
-   - Извлечь список всех провайдеров из [KNOWN_PROVIDERS].
-   - Загрузить соответствующие регулярные выражения в активный стек поиска.
+1. DISCOVERY_CONTEXT_PRELOAD: Извлечь провайдеров из [KNOWN_PROVIDERS] (Discovery данные).
+2. ENTROPY_SCREENING: Сканирование кодовой базы на строки > 12 символов с расчетом энтропии.
+3. CONTEXTUAL_MATCHING: Сопоставление строк с [TARGET_SIGNATURES] и подтверждение через [KNOWN_PROVIDERS].
+4. SCENARIO_GENERATION: Если секрет подтвержден, сформировать сценарий атаки (например, "Использование ключа для кражи данных из S3").
 
-2. ENTROPY_SCREENING:
-   - Просканировать кодовую базу на строки длиной > 12 символов.
-   - Вычислить энтропию Шеннона: $H(X) = -\sum P(x_i) \log_2 P(x_i)$.
-
-3. CONTEXTUAL_MATCHING:
-   - Если строка соответствует [TARGET_SIGNATURES], проверить наличие этого провайдера в [KNOWN_PROVIDERS].
-   - Если провайдер активен — выставить статус "VERIFIED_SECRET".
-
-4. NOISE_REDUCTION:
-   - Исключить строки, являющиеся хэшами Git, путями к файлам или ресурсами UI, если их энтропия не коррелирует с чувствительными переменными.
+   - HYBRID_ANALYSIS: Read JSON artifacts (syft.json, grype.json, kics.json) from .security_review/artifacts/raw_tools_output/. Treat these results as 'Hard Evidence'. Perform AI Reachability Analysis to verify if the vulnerable component is reachable from the code. If confirmed, elevate the finding status to BLOCKER.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_PSEA_REPORT:
-  - LOCATION | PROVIDER_TYPE | ENTROPY_VALUE | DISCOVERY_SYNC_STATUS | RISK_SCORE
+# ФОРМАТ ДЛЯ АВТОМАТИЧЕСКОГО ПАРСИНГА БЭКЕНДОМ
+🚨 FINDING [provider_entropy_analysis]:
+FILE: [PATH]
+LINE: [NUM]
+CODE: [STRING_LITERAL]
+DESCRIPTION: [Tool_Name] found [Vulnerability_ID]. AI Analysis confirmed that the vulnerable path is active in the current code flow via [Function_Name].
+SCENARIO_OF_ATTACK: Attacker uses the discovered secret to perform unauthorized API calls to [PROVIDER] services, leading to data exfiltration or financial loss.
 VISUALIZE: "Image of Shannon entropy distribution graph: Highlight detected strings vs provider baselines."
 </OUTPUT_SPEC>
-</DFD_MODELING_V3>
+</DEEP_SCAN_V3>

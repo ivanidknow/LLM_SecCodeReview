@@ -1,0 +1,42 @@
+<DFD_MODELING_V3>
+@ID: PROCESS_DECOMPOSITION_MAPPING
+@GOAL: MAP_LOGICAL_NODES_FOR_INTENT_GRAPH_AND_IDENTIFY_TRANSFORMATION_STEPS
+@PARENT_CONTEXT: entry_points.protocol, layered_analysis.protocol
+
+<GLOBAL_VARS>
+PROCESS_ROLES: {
+  "GATEKEEPER": "(Validator|Sanitizer|Authorizer|Filter)",
+  "WORKER": "(Calculator|Processor|Transformer|Generator)",
+  "INTEGRATOR": "(Adapter|Proxy|Dispatcher|Bridge)",
+  "MAINTAINER": "(Archiver|Cleanup|GarbageCollector)"
+}
+SENSITIVITY_LEVELS: ["PUBLIC", "INTERNAL", "PII", "CRITICAL_SECRETS"]
+</GLOBAL_VARS>
+
+<INTENT_GRAPH_MAPPING>
+# Структура для автоматического парсинга бэкендом
+JSON_STRUCTURE: {
+  "nodes": [{"id": "UID", "label": "FUNC_NAME", "role": "[PROCESS_ROLES]", "sensitivity": "[SENSITIVITY_LEVELS]", "is_stateful": "BOOL"}],
+  "edges": [{"from": "UID_1", "to": "UID_2", "data_type": "STRUCT", "security_contract": "STRING"}]
+}
+</INTENT_GRAPH_MAPPING>
+
+<ASSERTIONS>
+! ([GATEKEEPER] == missing) : "CRITICAL: Missing Guard. Data flows directly to [WORKER] without validation."
+! ([WORKER] -> PERFORMS -> [AUTHZ_CHECK]) : "HIGH: Logic Pollution. Mixed business and security logic."
+! ([PROCESS] -> ACCESSES -> [DATA_STORE] & ![AUTHZ_GATE]) : "CRITICAL: Direct Access. No auth layer before DB."
+</ASSERTIONS>
+
+<EXECUTION_PIPELINE>
+1. FUNCTIONAL_UNIT_EXTRACTION: Разбить код на блоки и присвоить роли из [PROCESS_ROLES].
+2. DATA_DEPENDENCY_WALK: Построить направленный граф (DAG) вызовов.
+3. SIDE_EFFECT_IDENTIFICATION: Выделить "Stateful Nodes" (DB/Cache).
+4. INTENT_JSON_GENERATION: Сформировать JSON для сохранения в [progress_metadata].
+</EXECUTION_PIPELINE>
+
+<OUTPUT_SPEC>
+GENERATE_PROCESS_GRAPH:
+  - @INTENT_JSON: [JSON_STRUCTURE]
+VISUALIZE: "Mermaid graph: nodes with color coding by ROLE and SENSITIVITY."
+</OUTPUT_SPEC>
+</DFD_MODELING_V3>

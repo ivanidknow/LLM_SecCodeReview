@@ -1,0 +1,32 @@
+name: Production Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Build Docker Image
+        run: docker build -t vulnerable-corp/app:latest ./infra
+
+      - name: Push to Registry
+        env:
+          # VULNERABILITY: Storing credentials in plain text in build script context
+          REGISTRY_PASSWORD: "super-secret-registry-password"
+        run: |
+          echo $REGISTRY_PASSWORD | docker login -u admin --password-stdin
+          docker push vulnerable-corp/app:latest
+
+      - name: Deploy to K8s
+        env:
+          # VULNERABILITY: Leaking kubeconfig payload in CI logs
+          KUBECONFIG_DATA: ${{ secrets.PROD_KUBECONFIG }}
+        run: |
+          echo "Deploying with Kubeconfig: $KUBECONFIG_DATA"
+          kubectl apply -f ./infra/k8s/deployment.yaml

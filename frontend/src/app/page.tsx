@@ -10,7 +10,7 @@ import {
   FolderOpenOutlined, ThunderboltOutlined, CodeOutlined,
   SearchOutlined, RocketOutlined, ExperimentOutlined,
   SendOutlined, WarningOutlined, ApiOutlined,
-  SettingOutlined
+  SettingOutlined, ReloadOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 
@@ -113,6 +113,7 @@ const COMMANDS = [
   { cmd: '/report',         desc: 'Show Gold Standard report' },
   { cmd: '/status',         desc: 'Show context + status' },
   { cmd: '/clear',          desc: 'Clear terminal' },
+  { cmd: '/rescan <file>',  desc: 'Focused Deep Scan on a single file' },
   { cmd: '/help',           desc: 'List commands' },
 ];
 
@@ -149,7 +150,7 @@ function Dashboard() {
   const [riskLevel, setRiskLevel] = useState('medium');
 
   /* Terminal */
-  const [logs, setLogs] = useState<string[]>(['[SYSTEM] Hexstrike Sentinel v3.0', '[INFO] Type /help for commands.']);
+  const [logs, setLogs] = useState<string[]>(['[SYSTEM] SecCodeReview Engine v3.5', '[INFO] Type /help for commands.']);
   const logEnd = useRef<HTMLDivElement>(null);
   useEffect(() => { logEnd.current?.scrollIntoView({ behavior: 'smooth' }); }, [logs]);
 
@@ -206,7 +207,7 @@ function Dashboard() {
             if (c_idx > 0) {
               setDiscoveryDone(true);
               const newSet = new Set<Phase>();
-              for(let i=0; i<c_idx; i++) newSet.add(WORKFLOW_ORDER[i]);
+              for(let i=0; i<=c_idx; i++) newSet.add(WORKFLOW_ORDER[i]);
               setCompletedSteps(newSet);
             }
           }
@@ -287,6 +288,9 @@ function Dashboard() {
           if (parts[1] === 'full') { setLogs(p => [...p, `[CTX] Resolved path: ${projectPath || '(not set)'}`]); return runFullScan(); }
           return setLogs(p => [...p, '[ERROR] Usage: /scan discovery | /scan full']);
         case '/sync': setLogs(p => [...p, `[CTX] Resolved path: ${projectPath || '(not set)'}`]); return runSync();
+        case '/rescan':
+          if (!parts[1]) return setLogs(p => [...p, '[ERROR] Usage: /rescan <filename>']);
+          return handleRescanCommand(parts[1]);
         case '/optimize': return applyPendingOpt();
         case '/proceed': return proceedToNextStep();
         case '/report': return fetchReport();
@@ -346,6 +350,51 @@ function Dashboard() {
       })]);
     } catch (e: any) {
       setLogs(p => [...p, `[FAIL] ${e.message}`]);
+    }
+  };
+
+  /* ---- Rescan file ---- */
+  const handleRescanCommand = async (filename: string) => {
+    if (!projectPath) { setLogs(p => [...p, '[ERROR] Set a project path first.']); return; }
+    if (ollamaStatus !== 'online') { setLogs(p => [...p, '[ERROR] Ollama is offline.']); return; }
+    setIsSyncing(true);
+    setLogs(p => [...p, `[CMD] Initiating Focused Rescan on ${filename}...`]);
+    
+    try {
+      const resp = await fetch('http://localhost:8000/api/analysis/rescan_file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_path: projectPath, target_file: filename, model: selectedModel }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        setLogs(p => [...p, `[FAIL] ${err.detail || 'Rescan failed'}`]);
+        return;
+      }
+      const reader = resp.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            setLogs(p => [...p, line]);
+          }
+        }
+        if (buffer.trim()) {
+           setLogs(p => [...p, buffer]);
+        }
+      }
+    } catch (e: any) {
+      setLogs(p => [...p, `[FAIL] ${e.message}`]);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -706,8 +755,22 @@ function Dashboard() {
     }
   };
 
+  const handleRerun = (phase: Phase) => {
+    setCurrentPhase(phase);
+    if (phase === 'discovery') runDiscovery();
+    else if (phase === 'modeling') runModeling(true);
+    else if (phase === 'deep_scan') runDeepScan(true);
+    else if (phase === 'report') {
+      try {
+        // Assume runFinalReport exists and is available
+        // @ts-ignore
+        runFinalReport();
+      } catch (e) {}
+    }
+  };
+
   /* ---- Modeling (AI Streaming) ---- */
-  const runModeling = async () => {
+  const runModeling = async (rerun: boolean = false) => {
     if (!projectPath) { setLogs(p => [...p, '[ERROR] Set a project path first.']); return; }
     if (ollamaStatus !== 'online') { setLogs(p => [...p, '[ERROR] Ollama is offline. Start with: ollama serve']); return; }
     setIsSyncing(true);
@@ -717,7 +780,7 @@ function Dashboard() {
       const resp = await fetch(API_MODELING, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_path: projectPath, discovery_log: discoveryLog, model: selectedModel }),
+        body: JSON.stringify({ project_path: projectPath, discovery_log: discoveryLog, model: selectedModel, use_persistent_context: rerun }),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: resp.statusText }));
@@ -803,7 +866,7 @@ function Dashboard() {
   };
 
   /* ---- Deep Scan (AI Streaming) ---- */
-  const runDeepScan = async () => {
+  const runDeepScan = async (rerun: boolean = false) => {
     if (!projectPath) { setLogs(p => [...p, '[ERROR] Set a project path first.']); return false; }
     if (ollamaStatus !== 'online') { setLogs(p => [...p, '[ERROR] Ollama is offline. Start with: ollama serve']); return false; }
     setIsSyncing(true);
@@ -813,7 +876,7 @@ function Dashboard() {
       const resp = await fetch(API_DEEP_SCAN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_path: projectPath, modeling_log: modelingLog, model: selectedModel }),
+        body: JSON.stringify({ project_path: projectPath, modeling_log: modelingLog, model: selectedModel, use_persistent_context: rerun }),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: resp.statusText }));
@@ -897,10 +960,21 @@ function Dashboard() {
     setLogs(p => [...p, '[REPORT] ═══ Generating Final Report... ═══', `[REPORT] Model: ${selectedModel}`]);
     try {
       const allLogs = logs.join('\n');
+      const activeProjRaw = localStorage.getItem('activeProject');
+      let pid = '';
+      let pname = '';
+      if (activeProjRaw) {
+        try {
+          const p = JSON.parse(activeProjRaw);
+          pid = p.id || '';
+          pname = p.name || '';
+        } catch(e) {}
+      }
+      
       const resp = await fetch(API_FINAL_REPORT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_path: projectPath, all_logs: allLogs, model: selectedModel }),
+        body: JSON.stringify({ project_id: pid, project_name: pname, model: selectedModel }),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: resp.statusText }));
@@ -1083,7 +1157,7 @@ function Dashboard() {
       {/* ===== HEADER ===== */}
       <Header style={{ height: 60, lineHeight: '60px', background: '#080808', borderBottom: '1px solid #1f1f1f', padding: '0 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <Title level={4} style={{ margin: 0, color: '#fff', letterSpacing: '1px', whiteSpace: 'nowrap', marginRight: 16, marginTop: 14 }}>
-          HEXSTRIKE <span style={{ color: '#888', fontWeight: 400 }}>| {projectName}</span>
+          SECCODEREVIEW <span style={{ color: '#888', fontWeight: 400 }}>| {projectName}</span>
         </Title>
         <Button type="text" onClick={() => router.push('/projects')} style={{ color: '#aaa', fontWeight: 500 }}>Projects</Button>
         <Button type="text" onClick={() => router.push('/history')} style={{ color: '#aaa', fontWeight: 500 }}>History</Button>
@@ -1092,7 +1166,7 @@ function Dashboard() {
         <div style={{ width: 1, height: 24, background: '#333', margin: '0 12px' }} />
 
         <Button type="text" icon={<FolderOpenOutlined />} onClick={pickFolder} style={{ color: '#888' }} />
-        <Input value={projectPath} onChange={e => setProjectPath(e.target.value)} placeholder="Path to repository..." variant="borderless" prefix={<SearchOutlined style={{ color: '#444' }} />} style={{ flex: 1, fontFamily: 'monospace', fontSize: 14 }} />
+        <Input value={projectPath} onChange={(e: any) => setProjectPath(e.target.value)} placeholder="Path to repository..." variant="borderless" prefix={<SearchOutlined style={{ color: '#444' }} />} style={{ flex: 1, fontFamily: 'monospace', fontSize: 14 }} />
 
         {/* Context tags */}
         {projectType && <Tag color="cyan" style={{ margin: 0, fontSize: 9 }}>{projectType}</Tag>}
@@ -1151,6 +1225,7 @@ function Dashboard() {
                   {sec.label}{sec.mandatory && <Tag color="blue" style={{ marginLeft: 8, fontSize: 9 }}>REQ</Tag>}
                   {isActivePhase && <Tag color="blue" style={{ marginLeft: 8, fontSize: 9 }}>ACTIVE</Tag>}
                 </span>
+                {completedSteps.has(cardPhase) && <Button size="small" type="text" icon={<ReloadOutlined />} onClick={(e: any) => { e.stopPropagation(); handleRerun(cardPhase); }} style={{ color: '#888', fontSize: 10, padding: 0 }}>Re-run</Button>}
                 {sec.modules.length > 0 && <Text type="secondary" style={{ fontSize: 10, fontFamily: 'monospace' }}>{sec.modules.length}</Text>}
               </Flex>}
             >
@@ -1270,7 +1345,7 @@ function Dashboard() {
           {/* Input */}
           <Flex align="center" gap={8} style={{ padding: '8px 12px', borderTop: '1px solid #1a1a1a', background: '#080808', flexShrink: 0 }}>
             <ApiOutlined style={{ color: '#38bdf8', fontSize: 14 }} />
-            <Input ref={inputRef} value={cmdInput} onChange={e => setCmdInput(e.target.value)} onKeyDown={handleKeyDown}
+            <Input ref={inputRef} value={cmdInput} onChange={(e: any) => setCmdInput(e.target.value)} onKeyDown={handleKeyDown}
               placeholder="Type / for commands, or ask the Sentinel..."
               disabled={isStreaming} variant="borderless"
               style={{ flex: 1, fontFamily: 'monospace', fontSize: 13, color: cmdInput.startsWith('/') ? '#38bdf8' : '#4af626' }} />

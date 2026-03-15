@@ -45,11 +45,31 @@ BUILD_TIME_LEFTOVERS: [
 
 5. LAYER_COUNT_OPTIMIZATION:
    - Проверить объединение команд `RUN` в финальной стадии для минимизации количества слоев, хотя в Multi-stage это менее критично для безопасности, чем для размера.
+
+   - IAC_SPECIFICS: For Dockerfile verify least privilege, base image provenance, secret leakage in layers. For Kubernetes verify RBAC, Network Policies, Security Contexts. For Terraform/Cloud verify Public exposure, IAM over-privileging, encryption at rest.
+   - ENV_AWARENESS: Use data from network_infra.protocol to distinguish between Production and Development hardening levels.
+
+   - HYBRID_ANALYSIS: Read JSON artifacts (syft.json, grype.json, kics.json) from .security_review/artifacts/raw_tools_output/. Treat these results as 'Hard Evidence'. Perform AI Reachability Analysis to verify if the vulnerable component is reachable from the code. If confirmed, elevate the finding status to BLOCKER.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_MULTISTAGE_OPTIMIZATION_REPORT:
-  - STAGE_NAME | BASE_IMAGE | PURPOSE (Build/Final) | ARTIFACTS_EXTRACTED | STATUS
-VISUALIZE: "Image of a multi-stage Docker build process: showing how the build environment (Stage 1) produces an artifact, which is then copied into a fresh, minimal runtime environment (Stage 2), leaving behind all build-time tools and source code."
+To report a vulnerability, strictly use the following format:
+
+🚨 FINDING [MULTI_STAGE_BUILD_OPTIMIZATION]
+FILE: [FilePath]
+LINE: [LineNumber]
+CODE: [CodeSnippet]
+DESCRIPTION: [Tool_Name] found [Vulnerability_ID]. AI Analysis confirmed that the vulnerable path is active in the current code flow via [Function_Name].
+SCENARIO_OF_ATTACK: [Must not be empty. Describe how a misconfiguration in infrastructure impacts the application security. Example: 1. Container runs as root -> 2. Attacker exploits RCE in app -> 3. Attacker gains full host access due to lack of isolation.]
 </OUTPUT_SPEC>
+
+@ANALYTICS_DATA: {
+  "domains": {
+    "IAM": 0,
+    "DATA_SAFETY": 50,
+    "LOGIC_INTEGRITY": 0,
+    "INFRA": 90,
+    "COMPLIANCE": 10
+  }
+}
 </DFD_MODELING_V3>

@@ -1,52 +1,47 @@
 <DFD_MODELING_V3>
 @ID: EXTERNAL_INTERNAL_TRANSITION_AUDIT
-@GOAL: VERIFY_STRICT_ADMISSION_CONTROL_AT_THE_PERIMETER
+@GOAL: MAP_UNTRUSTED_SOURCES_TO_INTERNAL_SINKS_FOR_TAINT_ANALYSIS
 @PARENT_CONTEXT: entry_points.protocol, validation_chokepoints.protocol, identity_model.protocol
 
 <GLOBAL_VARS>
-# Типы внешних входов
 EXTERNAL_INGRESS: {
   "CLIENT_API": "(Public_REST|GraphQL|Mobile_Backend)",
   "WEBHOOKS": "(Stripe_Events|GitHub_Hooks|Provider_Callbacks)",
-  "FILE_UPLOADS": "(S3_Presigned_URLs|Form_Uploads|FTP_Ingest)",
-  "HUMAN_UI": "(Login_Page|Password_Reset|Registration)"
+  "FILE_UPLOADS": "(S3_Presigned_URLs|Form_Uploads)",
+  "HUMAN_UI": "(Login|Registration)"
 }
 </GLOBAL_VARS>
 
-<CONTEXT_MAP>
-[TRANSITION_POINT] <- {from: entry_points.protocol, scope: "CONTROLLERS|GATEWAYS"}
-[VALIDATION_LOGIC] <- {from: validation_chokepoints.protocol, scope: "DTO|SCHEMAS"}
-[AUTH_GATE]        <- {from: authentication_strategy.protocol, scope: "MIDDLEWARE"}
-</CONTEXT_MAP>
+<TAINT_TRACKING_PLAN>
+# Ожидаемый маршрут "грязных" данных
+MAP_SOURCE_TO_SINK: {
+  "source_node": "ENDPOINT_URL",
+  "expected_chokepoint": "VALIDATOR_ID",
+  "danger_level": "CRITICAL|HIGH",
+  "taint_type": "SQLi|XSS|RCE|LOG_INJECTION"
+}
+</TAINT_TRACKING_PLAN>
 
 <ASSERTIONS>
-# Логические инварианты перехода через границу
-! ([EXTERNAL_INGRESS] -> !AUTH_GATE) : "CRITICAL: Anonymous Ingress. External data enters the system without any identity verification. Risk: Massive Bot Spam / DoS."
-! ([EXTERNAL_INGRESS] -> !VALIDATION_LOGIC) : "BLOCKER: Raw Data Injection. External input is mapped directly to internal objects/DB queries without schema enforcement."
-! ([WEBHOOKS] -> !SIGNATURE_VERIFICATION) : "HIGH: Webhook Spoofing. Inbound events from third-parties lack cryptographic signature checks (e.g., X-Hub-Signature)."
-? ([TRANSITION_POINT] -> "Direct_DB_Query") : "CRITICAL: Boundary Collapse. External input is used in a database query within the entry point controller, bypassing service layer isolation."
+! ([EXTERNAL_INGRESS] -> !AUTH_GATE) : "CRITICAL: Anonymous Ingress. Risk: DoS/Spam."
+! ([EXTERNAL_INGRESS] -> !VALIDATION_LOGIC) : "BLOCKER: Raw Data Injection. External input hits internal logic without schema."
+! ([WEBHOOKS] -> !SIGNATURE_VERIFICATION) : "HIGH: Webhook Spoofing. Missing HMAC/Signature."
 </ASSERTIONS>
 
 <EXECUTION_PIPELINE>
-1. PERIMETER_INVENTORY:
-   - Составить список всех публичных URL и открытых портов.
-   - Идентифицировать сущность, стоящую за каждым входом (User, Bot, Partner).
-2. PROTOCOL_TERMINATION_AUDIT:
-   - Проверить, где заканчивается TLS (на балансировщике или внутри приложения). 
-   - Выявить риск передачи данных в открытом виде после перехода через границу.
-3. INGRESS_AUTHENTICITY_VERIFY:
-   - Для людей: Проверка механизмов защиты от брутфорса (CAPTCHA, Rate-Limit).
-   - Для систем: Проверка API-ключей, сертификатов или IP-вайтлистинга.
-4. "DIRTY-TO-CLEAN" TRANSFORMATION TRACE:
-   - Проследить, в какой момент объект `Request` превращается в валидированный `DTO` или `Domain Model`.
-   - Если данные используются *до* этого превращения — пометить как "Untrusted Usage".
-5. PROTOCOL_SMUGGLING_CHECK:
-   - Оценить, как парсеры (JSON/XML) на границе реагируют на аномальные заголовки или переполнения.
+1. BOUNDARY_DEFINITION:
+   - Четко пометить границы, где заканчивается HTTP/TLS и начинается Domain Logic.
+2. ADMISSION_CONTROL_AUDIT:
+   - Проверить наличие "Deny by Default" для всех неописанных путей.
+3. DIRTY_SOURCE_INVENTORY:
+   - Составить реестр всех `request.body`, `request.params` и заголовков как источников загрязнения (Taint Sources).
+4. SINK_PREDICTION:
+   - Для каждого источника предсказать потенциально опасный узел (DB, Shell, Template Engine) согласно [TAINT_TRACKING_PLAN].
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_TRANSITION_REPORT:
-  - ENTRY_POINT | SOURCE_TYPE | SECURITY_GATES (Auth/Val/Enc) | COMPLIANCE_STATUS
-VISUALIZE: "Mermaid: Draw a thick 'Brick Wall' line separating External Entities from Internal Processes."
+GENERATE_BOUNDARY_REPORT:
+  - Вывести таблицу TAINT_TRACKING_PLAN для настройки правил Deep Scan.
+VISUALIZE: "Mermaid: Use subgraphs to separate 'Untrusted Zone' and 'Secure Core'."
 </OUTPUT_SPEC>
 </DFD_MODELING_V3>

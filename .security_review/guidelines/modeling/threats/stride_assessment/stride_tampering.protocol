@@ -1,15 +1,20 @@
 <THREAT_MODELING_V3>
 @ID: STRIDE_TAMPERING_ANALYSIS
-@GOAL: DETECT_DATA_MODIFICATION_VECTORS_IN_FLIGHT_AND_AT_REST
+@GOAL: DETECT_DATA_MODIFICATION_VECTORS_LINKED_TO_DFD_FLOWS
 @PARENT_CONTEXT: data_inventory.protocol, ipc_identification.protocol, validation_chokepoints.protocol
 
 <GLOBAL_VARS>
-# Типы угроз целостности
 TAMPERING_VECTORS: {
   "PARAMETER_POLLUTION": "(HTTP_Param_Substitution|Hidden_Field_Change|Price_Manipulation)",
   "ASYNC_POISONING": "(Message_Body_Alteration|Queue_Injection|Metadata_Swap)",
   "STORAGE_TAMPERING": "(Direct_DB_Update|S3_Object_Replace|Config_File_Infection)",
   "LOGIC_TAMPERING": "(Race_Condition_Modification|State_Machine_Bypass)"
+}
+# НОВОЕ: Ожидаемые методы защиты для верификации сканером
+EXPECTED_INTEGRITY_CHECK: {
+  "DB_WRITE": "ParameterizedQuery|ORM_Save",
+  "CLIENT_STATE": "JWT_Signature_Verify|HMAC_Check",
+  "FILE_SYSTEM": "ReadOnlyPerms|Checksum_Match"
 }
 </GLOBAL_VARS>
 
@@ -20,33 +25,28 @@ TAMPERING_VECTORS: {
 </CONTEXT_MAP>
 
 <ASSERTIONS>
-# Логические инварианты защиты от Tampering
-! ([FLOW] -> [SENSITIVE_DATA] & !MESSAGE_SIGNING) : "CRITICAL: Integrity Gap. Sensitive data (e.g., payment amount) travels without HMAC or Digital Signature. High risk of manipulation."
-! ([CONFIG_STORE] -> WORLD_WRITABLE) : "BLOCKER: Configuration Tampering. Critical system settings can be modified by any local process, leading to complete system hijack."
-! ([OBJECT_STORE] -> !VERSIONING_ENABLED) : "MEDIUM: Permanent Loss Risk. Malicious replacement of a file in S3/Blob cannot be rolled back without versioning."
-? ([DATA_INPUT] -> !SCHEMA_STRICTNESS) : "HIGH: Type Confusion. Attacker can inject unexpected fields or change types (e.g., string to array) to bypass business logic."
+! ([FLOW] -> [SENSITIVE_DATA] & !MESSAGE_SIGNING) : "CRITICAL: Integrity Gap. Sensitive data travels without HMAC/Signature."
+! ([CONFIG_STORE] -> WORLD_WRITABLE) : "BLOCKER: Configuration Tampering. Critical settings are world-writable."
+? ([DATA_INPUT] -> !SCHEMA_STRICTNESS) : "HIGH: Type Confusion. Missing strict schema for incoming data."
 </ASSERTIONS>
 
 <EXECUTION_PIPELINE>
-1. IN-FLIGHT_MODIFICATION_TRACE:
-   - Анализ всех внешних вызовов (Webhooks/API). Проверка: защищены ли они TLS? Есть ли подпись тела запроса?
-   - Поиск "скрытых" параметров в формах (hidden inputs), которые влияют на цену или права доступа.
-2. ASYNC_MESSAGE_INTEGRITY_AUDIT:
-   - Как `Consumer` проверяет, что сообщение в Kafka/Rabbit не было изменено кем-то, кто имеет доступ к брокеру?
-   - Проверка наличия контрольных сумм или цифровых подписей внутри JSON-пакетов событий.
-3. DATABASE_DIRECT_ACCESS_SCAN:
-   - Проверить права доступа к БД. Может ли технический аккаунт `Reader` внезапно стать `Writer`? 
-   - Наличие триггеров или процедур, которые проверяют консистентность данных при записи.
-4. CLIENT-SIDE_STATE_TAMPERING:
-   - Если часть логики или состояния хранится в JWT или LocalStorage: проверить, зашифрованы/подписаны ли эти данные. 
-   - Риск: пользователь меняет `role: "user"` на `role: "admin"` внутри JWT (если подпись не проверяется).
-5. FILE_INTEGRITY_MONITORING (FIM):
-   - Проверка механизмов защиты бинарных файлов и скриптов. Кто может изменить `main.py` или `package.json` на сервере?
+1. FLOW_BASED_TAMPER_MAPPING:
+   - Сопоставить каждый поток из [DATA_FLOWS] с вектором из [TAMPERING_VECTORS].
+   - **НОВОЕ:** Сгенерировать JSON: {"flow_id": "ID", "attack_vector": "VECTOR", "is_bypassable": "BOOL"}.
+2. IN-FLIGHT_MODIFICATION_TRACE:
+   - Анализ внешних вызовов. Проверка на TLS и подпись тела.
+3. DATABASE_INTEGRITY_AUDIT:
+   - Проверить наличие триггеров и использование [EXPECTED_INTEGRITY_CHECK.DB_WRITE] в коде.
+4. CLIENT-SIDE_RELIANCE_CHECK:
+   - Выявить логику, зависящую от клиентских данных (JWT/LocalStorage) без проверки подписи.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
 GENERATE_TAMPERING_LOG:
   - DFD_ELEMENT | VULNERABLE_DATA | ATTACK_VECTOR | SEVERITY | DEFENSE_REC
+  # НОВОЕ: Обязательный блок для Deep Scan
+  - VERIFICATION_TASK: {"target_function": "NAME", "required_check": "[EXPECTED_INTEGRITY_CHECK]"}
 VISUALIZE: "Mermaid: Show 'Hammer' icons on links where data can be modified without detection."
 </OUTPUT_SPEC>
 </THREAT_MODELING_V3>

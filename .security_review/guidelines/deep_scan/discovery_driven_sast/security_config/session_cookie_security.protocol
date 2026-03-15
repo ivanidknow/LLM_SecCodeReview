@@ -1,65 +1,25 @@
-<DFD_MODELING_V3>
+<DEEP_SCAN_V3>
 @ID: SESSION_COOKIE_SECURITY_HARDENING
-@GOAL: PROTECT_SESSION_INTEGRITY_AND_PREVENT_UNAUTHORIZED_ACCESS_VIA_COOKIE_MANIPULATION
-@PARENT_CONTEXT: authentication_strategy.protocol, lifecycle_revocation.protocol, identity_model.protocol
-
-<GLOBAL_VARS>
-# Обязательные атрибуты безопасности для Cookies
-SECURE_COOKIE_ATTRIBUTES: {
-  "HTTP_ONLY": "HttpOnly=true",      # Защита от кражи через JS (XSS)
-  "SECURE": "Secure=true",          # Передача только по HTTPS
-  "SAME_SITE": "SameSite=Strict|Lax", # Защита от CSRF
-  "DOMAIN": "Domain scope restriction",
-  "PATH": "Path=/ (Least privilege path)"
-}
-
-# Параметры жизненного цикла сессии
-SESSION_POLICIES: {
-  "IDLE_TIMEOUT": "Inactivity expiration",
-  "ABSOLUTE_TIMEOUT": "Maximum session duration",
-  "ROTATION_ON_LOGIN": "Regenerate ID after Auth"
-}
-</GLOBAL_VARS>
-
-<CONTEXT_MAP>
-[AUTH_STRATEGY] <- {from: authentication_strategy.protocol, scope: "JWT_VS_SESSIONS"}
-[REVOCATION]    <- {from: lifecycle_revocation.protocol, scope: "LOGOUT_LOGIC|BLACKLISTING"}
-[IDENTITY]      <- {from: identity_model.protocol, scope: "USER_SESSIONS"}
-</CONTEXT_MAP>
-
-<ASSERTIONS>
-# Логические инварианты безопасности сессий
-! ([COOKIE_SET] -> !SECURE_COOKIE_ATTRIBUTES.HTTP_ONLY) : "CRITICAL: JS-Accessible Session ID. Cookie is missing HttpOnly flag, allowing XSS-based session theft."
-! ([COOKIE_SET] -> !SECURE_COOKIE_ATTRIBUTES.SECURE) : "HIGH: Insecure Cookie Transmission. Cookie can be sent over unencrypted HTTP. Risk: MitM / Session Hijacking."
-! ([LOGIN_SUCCESS] && ![SESSION_ID_REGENERATED]) : "HIGH: Session Fixation. The session ID is not changed after login, allowing an attacker to pre-set a valid ID."
-! ([SESSION_TOKEN] -> !SAME_SITE) : "MEDIUM: CSRF Vulnerability. Cookie lacks SameSite attribute, making it susceptible to cross-site request forgery."
-? ([JWT_TOKEN] && ![ABSOLUTE_TIMEOUT]) : "MEDIUM: Forever Session. Token lacks an expiration claim, leading to permanent access if compromised."
-</ASSERTIONS>
+@GOAL: PROTECT_SESSION_INTEGRITY_VIA_COOKIE_MANIPULATION_PROTECTION
+@PARENT_CONTEXT: authentication_strategy.protocol, identity_model.protocol
 
 <EXECUTION_PIPELINE>
-1. COOKIE_DEFINITION_AUDIT:
-   - Идентифицировать все места установки куки (например, `res.cookie()`, `Set-Cookie` header).
-   - Проверить глобальные настройки сессий в используемом фреймворке (Express-session, Flask-session и т.д.).
+1. ATTRIBUTE_COMPLIANCE: Проверка флагов `HttpOnly`, `Secure`, `SameSite`.
+2. SESSION_ID_REGENERATION: Поиск логики `session.regenerate()` после успешного `Auth`.
+3. STATELESS_INTEGRITY: Если JWT/Cookie-сессия — проверка HMAC подписи.
 
-2. ATTRIBUTE_COMPLIANCE_CHECK:
-   - Проверить наличие и значения флагов `HttpOnly`, `Secure` и `SameSite`.
-   - Особое внимание уделить проверке на `production` среде (часто флаг `Secure` отключают для локальной разработки и забывают включить).
-
-3. SESSION_LIFECYCLE_TRACE:
-   - Анализ [REVOCATION]. Проверить, удаляется ли сессия на сервере при логауте, или просто стирается кука у клиента.
-   - Проверить наличие механизмов ротации `Session ID` при каждом успешном входе.
-
-4. JWT_PAYLOAD_SECURITY_SCAN:
-   - Если используется [AUTH_STRATEGY] на базе JWT: проверить наличие `exp` (expiration) и `iat` (issued at) клеймов.
-   - Убедиться, что чувствительные данные (пароли, роли) не хранятся в Payload без шифрования (JWE).
-
-5. STATELESS_STORAGE_INTEGRITY:
-   - Если сессия хранится в куке (Stateless Session), проверить наличие подписи (HMAC) и алгоритм её проверки для защиты от подделки.
+   - HYBRID_ANALYSIS: Read JSON artifacts (syft.json, grype.json, kics.json) from .security_review/artifacts/raw_tools_output/. Treat these results as 'Hard Evidence'. Perform AI Reachability Analysis to verify if the vulnerable component is reachable from the code. If confirmed, elevate the finding status to BLOCKER.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_SESSION_SECURITY_REPORT:
-  - COOKIE_NAME | FLAG_STATUS (HTTP_ONLY/SECURE/SAME_SITE) | LIFECYCLE_POLICY | RISK_SUMMARY
-VISUALIZE: "Image of a session security lifecycle: highlighting the moment of Session ID regeneration and the protection layers of a Secure Cookie."
+# ФОРМАТ ДЛЯ АВТОМАТИЧЕСКОГО ПАРСИНГА БЭКЕНДОМ
+🚨 FINDING [session_cookie_security]:
+FILE: [AUTH_CONTROLLER_OR_CONFIG]
+LINE: [NUM]
+CODE: [COOKIE_SET_EXPRESSION]
+DESCRIPTION: [Tool_Name] found [Vulnerability_ID]. AI Analysis confirmed that the vulnerable path is active in the current code flow via [Function_Name].
+SCENARIO_OF_ATTACK: Without [HttpOnly/Secure], an attacker can steal the session cookie via XSS or intercept it over an unencrypted connection (MitM), gaining full access to the victim's account without credentials.
+@ANALYTICS_DATA: {"domain": "IAM", "impact": 0.9}
+VISUALIZE: "Image of a session security lifecycle."
 </OUTPUT_SPEC>
-</DFD_MODELING_V3>
+</DEEP_SCAN_V3>

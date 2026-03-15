@@ -28,10 +28,11 @@ AUDIT_DEPTH: {
 </CONTEXT_MAP>
 
 <ASSERTIONS>
-# Инварианты управления методологией
-! (Audit -> "Stage_3_Start" && ! "Stage_1_Complete") : "BLOCKER: Premature Scanning. Deep Scan cannot start without established Scoping and BIA Context."
-! (Protocol_Change -> ![Postulate_Alignment]) : "CRITICAL: Breaking Change. Any modification to a protocol must align with [POSTULATES]."
-? (Audit_Duration > "4 weeks") : "WARNING: Scope Creep. High risk of stale results; consider breaking the audit into smaller, manageable sprints."
+# Обновленная логика: Проверка завершения ИЛИ наличия артефактов
+! (Audit -> "Stage_3_Start" && ! "Stage_1_Complete" && ! "discovery_report.json_Exists") : "BLOCKER: Premature Scanning. No context found on disk or in memory."
+
+# Твое новое правило против галлюцинаций на комментариях
+! (File -> "Only_Comments") : "INFO: Skip Analysis. File contains no executable logic, skipping deep scan protocols."
 </ASSERTIONS>
 
 <EXECUTION_PIPELINE>

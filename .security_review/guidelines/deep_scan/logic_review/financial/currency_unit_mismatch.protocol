@@ -53,11 +53,29 @@ MISMATCH_SMELLS: {
 5. OVERFLOW_VIA_CONVERSION_TEST:
    - Попытаться перевести очень большую сумму в «мелкую» валюту (например, USD в WEI или SATOSHI).
    - Проверить, не вызывает ли это переполнение, описанное в `integer_overflow_underflow.protocol`.
+
+   - ANTI_HALLUCINATION_GUARD: If a function/endpoint is empty or has a TODO/Placeholder, DO NOT trigger high-impact logic vulnerabilities like Race Conditions or Discount Stacking unless there is actual code implementing that logic. If the code is missing, report it only once as 'Incomplete Implementation' under broken_access_control.protocol.
+   - ARCHITECTURE_SYNC: Use data from identity_model.protocol and authentication_strategy.protocol to verify if the found bypass contradicts the established architecture.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_UNIT_MISMATCH_REPORT:
-  - FIELD_A | FIELD_B | OPERATION | MISSING_CONVERSION (Yes/No) | CALCULATED_ERROR_MARGIN
-VISUALIZE: "Image of a currency conversion logic error: showing a sum of different currency objects where the lack of a normalization step leads to a logically incorrect total value."
+To report a vulnerability, strictly use the following format:
+
+🚨 FINDING [CURRENCY_UNIT_MISMATCH]
+FILE: [FilePath]
+LINE: [LineNumber]
+CODE: [CodeSnippet]
+DESCRIPTION: [Description of the issue]
+SCENARIO_OF_ATTACK: [Must not be empty. Describe how an attacker manipulates business states step-by-step (e.g. 1. Login as User A -> 2. Change user_id in request to User B -> 3. Access private data without AuthZ check)]
 </OUTPUT_SPEC>
+
+@ANALYTICS_DATA: {
+  "domains": {
+    "IAM": 50,
+    "DATA_SAFETY": 10,
+    "LOGIC_INTEGRITY": 40,
+    "INFRA": 0,
+    "COMPLIANCE": 0
+  }
+}
 </DFD_MODELING_V3>

@@ -1,3 +1,3 @@
 {
-  "modeling_output": "{\"threats\": [{\"id\": \"THR-001\", \"name\": \"Missing Authentication\", \"impact\": \"High\"}, {\"id\": \"THR-002\", \"name\": \"Injection Vulnerabilities\", \"impact\": \"Medium\"}, {\"id\": \"THR-003\", \"name\": \"Insecure Data Storage\", \"impact\": \"Medium\"}]}"
+  "modeling_output": "{\"threats\": [{\"id\": \"THR-001\", \"name\": \"Unauthenticated Access\", \"impact\": \"High\", \"description\": \"Allowing unauthenticated access to data entry points can lead to unauthorized data exposure.\"},{\"id\": \"THR-002\", \"name\": \"Injection Vulnerabilities\", \"impact\": \"Medium\", \"description\": \"APIs and user inputs can be vulnerable to injection attacks (e.g., SQL injection, command injection).\"},{\"id\": \"THR-003\", \"name\": \"Data Breaches\", \"impact\": \"High\", \"description\": \"Unencrypted data in transit can be intercepted and read.\"}]}"
 }

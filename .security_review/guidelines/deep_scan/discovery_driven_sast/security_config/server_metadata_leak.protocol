@@ -1,62 +1,25 @@
-<DFD_MODELING_V3>
+<DEEP_SCAN_V3>
 @ID: SERVER_METADATA_INFORMATION_LEAKAGE
-@GOAL: MINIMIZE_SERVER_FINGERPRINTING_BY_REMOVING_VERSION_STRINGS_AND_INTERNAL_METADATA
-@PARENT_CONTEXT: error_verbosity.protocol, network_infra.protocol, feature_flag_governance.protocol
-
-<GLOBAL_VARS>
-# Заголовки, раскрывающие информацию о стеке
-FINGERPRINTING_HEADERS: {
-  "SERVER": "Server",                # Например: "nginx/1.18.0 (Ubuntu)"
-  "POWERED_BY": "X-Powered-By",      # Например: "Express", "PHP/7.4"
-  "ASPNET_VERSION": "X-AspNet-Version",
-  "DEBUG_INFO": "X-Debug-Token|X-Runtime"
-}
-
-# Пути к метаданным облачных провайдеров (SSRF-targets)
-CLOUD_METADATA_ENDPOINTS: {
-  "AWS_GCP": "http://169.254.169.254/latest/meta-data/",
-  "AZURE": "http://169.254.169.254/metadata/instance",
-  "K8S": "/var/run/secrets/kubernetes.io/serviceaccount/token"
-}
-</GLOBAL_VARS>
-
-<CONTEXT_MAP>
-[ERROR_VERBOSITY] <- {from: error_verbosity.protocol, scope: "CLIENT_ERROR_STRATEGY"}
-[INFRA_CONFIG]    <- {from: network_infra.protocol, scope: "PROXY_SERVER_TOKENS"}
-[FEATURE_FLAGS]   <- {from: feature_flag_governance.protocol, scope: "EXPOSED_FLAGS"}
-</CONTEXT_MAP>
-
-<ASSERTIONS>
-# Логические инварианты утечки данных
-! ([HTTP_RESPONSE] -> [FINGERPRINTING_HEADERS] ~ ".*[0-9]+\.[0-9]+.*") : "HIGH: Version Disclosure. Server response headers contain specific software versions, enabling targeted attacks."
-! ([HTTP_RESPONSE] -> "X-Powered-By") : "MEDIUM: Technology Fingerprinting. Header reveals the underlying framework/language (e.g., Express, PHP)."
-! ([ERROR_VERBOSITY] -> "Internal_Server_IP|Internal_Path") : "CRITICAL: Infrastructure Leak. Error messages reveal internal network topology or absolute file system paths."
-? ([FEATURE_FLAGS] -> "Admin_Only_Flags") : "MEDIUM: Logic Leak. Client-side metadata reveals hidden features or administrative endpoints."
-</ASSERTIONS>
+@GOAL: MINIMIZE_SERVER_FINGERPRINTING
+@PARENT_CONTEXT: error_verbosity.protocol, network_infra.protocol
 
 <EXECUTION_PIPELINE>
-1. HEADER_SUPPRESSION_AUDIT:
-   - Проверить конфигурацию веб-сервера (Nginx `server_tokens off`, Apache `ServerTokens Prod`).
-   - Идентифицировать в коде отключение заголовка `X-Powered-By` (например, `app.disable('x-powered-by')` в Express).
+1. HEADER_SUPPRESSION_AUDIT: Проверка `X-Powered-By` и `Server` токенов.
+2. CLOUD_INIT_LEAK_CHECK: Если в Discovery есть AWS/GCP, проверить Sinks на доступ к `169.254.169.254`.
+3. SOURCE_MAP_EXPOSURE: Проверить доступность `.map` файлов в Production.
 
-2. COMMENT_AND_METADATA_SCRUBBING:
-   - Просканировать клиентские артефакты (HTML/JS) на наличие комментариев с именами авторов, внутренними URL или TODO-заметками.
-   - Проверить наличие `.git`, `.env.bak` или `phpinfo()` в публичной директории.
-
-3. ERROR_CONTEXT_VERIFICATION:
-   - Анализ [ERROR_VERBOSITY]. Убедиться, что при 500-х ошибках не возвращаются сырые дампы окружения (Environment Dumps).
-
-4. CLOUD_INIT_LEAK_CHECK:
-   - Проверить, не пробрасываются ли метаданные инстанса (Instance Metadata) в API-ответы для отладки.
-   - Анализ SSRF-уязвимых Sink-ов, которые могут дотянуться до [CLOUD_METADATA_ENDPOINTS].
-
-5. SOURCE_MAP_EXPOSURE_AUDIT:
-   - Проверить доступность `.map` файлов в Production. Если они доступны — атакующий может восстановить исходный код.
+   - HYBRID_ANALYSIS: Read JSON artifacts (syft.json, grype.json, kics.json) from .security_review/artifacts/raw_tools_output/. Treat these results as 'Hard Evidence'. Perform AI Reachability Analysis to verify if the vulnerable component is reachable from the code. If confirmed, elevate the finding status to BLOCKER.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_METADATA_LEAK_REPORT:
-  - LEAK_SOURCE | DATA_TYPE | SEVERITY | MITIGATION_STEP
-VISUALIZE: "Image of a web reconnaissance process: showing how an attacker uses 'Server' and 'X-Powered-By' headers to find matching CVEs in an exploit database."
+# ФОРМАТ ДЛЯ АВТОМАТИЧЕСКОГО ПАРСИНГА БЭКЕНДОМ
+🚨 FINDING [server_metadata_leak]:
+FILE: [PATH]
+LINE: [NUM]
+CODE: [LEAKY_CODE_OR_CONFIG]
+DESCRIPTION: [Tool_Name] found [Vulnerability_ID]. AI Analysis confirmed that the vulnerable path is active in the current code flow via [Function_Name].
+SCENARIO_OF_ATTACK: Attacker performs reconnaissance by analyzing server responses or error messages. Finding specific versions (e.g., "nginx/1.18.0") allows for searching known 1-day exploits to target the infrastructure.
+@ANALYTICS_DATA: {"domain": "INFRA", "impact": 0.4}
+VISUALIZE: "Image of a web reconnaissance process."
 </OUTPUT_SPEC>
-</DFD_MODELING_V3>
+</DEEP_SCAN_V3>

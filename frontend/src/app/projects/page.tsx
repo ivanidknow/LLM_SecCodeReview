@@ -115,7 +115,7 @@ function ProjectsContent() {
           <Flex align="center" gap="small">
             <GithubOutlined style={{ fontSize: 24, color: '#3b82f6' }} />
             <Title level={4} style={{ margin: 0, color: '#fff', letterSpacing: '1px' }}>
-              HEXSTRIKE <span style={{ color: '#888', fontWeight: 400 }}>| Projects</span>
+              SECCODEREVIEW <span style={{ color: '#888', fontWeight: 400 }}>| Projects</span>
             </Title>
           </Flex>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>

@@ -53,11 +53,29 @@ EXHAUSTION_STRATEGIES: {
 5. BOT_DETECTION_EVALUATION:
    - Проверить наличие поведенческого анализа (WAF/Bot Management).
    - Оценить, насколько легко имитировать легитимный путь пользователя для захвата ресурса.
+
+   - ANTI_HALLUCINATION_GUARD: If a function/endpoint is empty or has a TODO/Placeholder, DO NOT trigger high-impact logic vulnerabilities like Race Conditions or Discount Stacking unless there is actual code implementing that logic. If the code is missing, report it only once as 'Incomplete Implementation' under broken_access_control.protocol.
+   - ARCHITECTURE_SYNC: Use data from identity_model.protocol and authentication_strategy.protocol to verify if the found bypass contradicts the established architecture.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_COMPETITIVE_REPORT:
-  - RESOURCE_NAME | DISTRIBUTION_LOGIC | BYPASS_VECTOR | BOT_ADVANTAGE_LEVEL | SEVERITY
-VISUALIZE: "Image of a competitive resource exhaustion attack: illustrating how a bot farm bypasses a virtual waiting room to exhaust a limited inventory of concert tickets within seconds."
+To report a vulnerability, strictly use the following format:
+
+🚨 FINDING [COMPETITIVE_RESOURCE_EXHAUSTION]
+FILE: [FilePath]
+LINE: [LineNumber]
+CODE: [CodeSnippet]
+DESCRIPTION: [Description of the issue]
+SCENARIO_OF_ATTACK: [Must not be empty. Describe how an attacker manipulates business states step-by-step (e.g. 1. Login as User A -> 2. Change user_id in request to User B -> 3. Access private data without AuthZ check)]
 </OUTPUT_SPEC>
+
+@ANALYTICS_DATA: {
+  "domains": {
+    "IAM": 50,
+    "DATA_SAFETY": 10,
+    "LOGIC_INTEGRITY": 40,
+    "INFRA": 0,
+    "COMPLIANCE": 0
+  }
+}
 </DFD_MODELING_V3>

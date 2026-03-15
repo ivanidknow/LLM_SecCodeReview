@@ -52,11 +52,29 @@ VIOLATION_PATTERNS: {
 
 5. CONDITIONAL_BRANCHING_AUDIT:
    - Проверить логику `if/else`, зависящую от статуса. Искать пути, которые позволяют «провалиться» в защищенную ветку при неожиданном вводе.
+
+   - ANTI_HALLUCINATION_GUARD: If a function/endpoint is empty or has a TODO/Placeholder, DO NOT trigger high-impact logic vulnerabilities like Race Conditions or Discount Stacking unless there is actual code implementing that logic. If the code is missing, report it only once as 'Incomplete Implementation' under broken_access_control.protocol.
+   - ARCHITECTURE_SYNC: Use data from identity_model.protocol and authentication_strategy.protocol to verify if the found bypass contradicts the established architecture.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_WORKFLOW_INTEGRITY_REPORT:
-  - WORKFLOW_NAME | TARGET_STEP | BYPASS_METHOD | CURRENT_STATE_CHECK | RISK_IMPACT
-VISUALIZE: "Image of a broken state machine diagram: showing a legal transition from Step 1 to Step 2, and an illegal bypass arrow directly from Step 1 to the 'Success' state."
+To report a vulnerability, strictly use the following format:
+
+🚨 FINDING [STEP_SKIPPING_OUT_OF_ORDER_EXECUTION]
+FILE: [FilePath]
+LINE: [LineNumber]
+CODE: [CodeSnippet]
+DESCRIPTION: [Description of the issue]
+SCENARIO_OF_ATTACK: [Must not be empty. Describe how an attacker manipulates business states step-by-step (e.g. 1. Login as User A -> 2. Change user_id in request to User B -> 3. Access private data without AuthZ check)]
 </OUTPUT_SPEC>
+
+@ANALYTICS_DATA: {
+  "domains": {
+    "IAM": 50,
+    "DATA_SAFETY": 10,
+    "LOGIC_INTEGRITY": 40,
+    "INFRA": 0,
+    "COMPLIANCE": 0
+  }
+}
 </DFD_MODELING_V3>

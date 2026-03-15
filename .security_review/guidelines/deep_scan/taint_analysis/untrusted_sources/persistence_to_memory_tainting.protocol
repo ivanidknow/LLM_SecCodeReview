@@ -53,11 +53,28 @@ TRUST_BIAS_MARKERS: {
 5. BACKGROUND_WORKER_PROBE:
    - Проверить фоновые задачи (Cron jobs, Workers), которые читают данные из очереди или БД. 
    - Убедиться, что они применяют те же правила валидации, что и основные контроллеры.
+
+   - TAINT SPECIFICS: Check for Sanitizers and Validators from validation_chokepoints.protocol. If a sanitizer is found, downgrade or skip the finding. Focus on full Reachability analysis.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_SECOND_ORDER_REPORT:
-  - STORAGE_TYPE | SOURCE_QUERY | TAINTED_FIELD | SINK_REACHED | RISK_LEVEL
-VISUALIZE: "Image of a Second-Order attack flow: showing user input stored in a database and subsequently triggering a vulnerability in a separate administrative context."
+To report a vulnerability, strictly use the following format:
+
+🚨 FINDING [PERSISTENCE_TO_MEMORY_TAINTING]
+FILE: [FilePath]
+LINE: [LineNumber]
+CODE: [CodeSnippet]
+DESCRIPTION: [Description of the issue]
+SCENARIO_OF_ATTACK: [Must not be empty. Describe step-by-step: External Input -> Transformation -> Sensitive Sink]
 </OUTPUT_SPEC>
+
+@ANALYTICS_DATA: {
+  "domains": {
+    "IAM": 0,
+    "DATA_SAFETY": 80,
+    "LOGIC_INTEGRITY": 50,
+    "INFRA": 0,
+    "COMPLIANCE": 0
+  }
+}
 </DFD_MODELING_V3>

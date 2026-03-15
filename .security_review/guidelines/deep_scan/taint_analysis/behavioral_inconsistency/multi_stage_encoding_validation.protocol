@@ -52,11 +52,28 @@ DECODING_SINK_MARKERS: {
 
 5. TAINT_INTEGRITY_VERIFICATION:
    - Пометить данные как «недостаточно очищенные», если цепочка кодирования/декодирования позволяет восстановить опасные символы без финальной проверки.
+
+   - TAINT SPECIFICS: Check for Sanitizers and Validators from validation_chokepoints.protocol. If a sanitizer is found, downgrade or skip the finding. Focus on full Reachability analysis.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_MULTI_STAGE_REPORT:
-  - DATA_FLOW_ID | ENCODING_SEQUENCE | VALIDATION_SLOT | CONTEXT_LAYERS | RISK_LEVEL
-VISUALIZE: "Image of a multi-stage encoding attack: showing how an attacker uses nested encodings (like Base64 inside a URL parameter) to bypass a single-pass security filter."
+To report a vulnerability, strictly use the following format:
+
+🚨 FINDING [MULTI_STAGE_ENCODING_VALIDATION]
+FILE: [FilePath]
+LINE: [LineNumber]
+CODE: [CodeSnippet]
+DESCRIPTION: [Description of the issue]
+SCENARIO_OF_ATTACK: [Must not be empty. Describe step-by-step: External Input -> Transformation -> Sensitive Sink]
 </OUTPUT_SPEC>
+
+@ANALYTICS_DATA: {
+  "domains": {
+    "IAM": 0,
+    "DATA_SAFETY": 80,
+    "LOGIC_INTEGRITY": 50,
+    "INFRA": 0,
+    "COMPLIANCE": 0
+  }
+}
 </DFD_MODELING_V3>

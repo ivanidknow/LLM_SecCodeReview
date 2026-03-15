@@ -1,57 +1,44 @@
 <DFD_MODELING_V3>
 @ID: EXECUTIVE_SECURITY_SYNTHESIS
-@GOAL: TRANSLATE_DEEP_TECHNICAL_AUDIT_RESULTS_INTO_STRATEGIC_BUSINESS_INSIGHTS_FOR_STAKEHOLDERS
+@GOAL: TRANSLATE_DEEP_TECHNICAL_AUDIT_RESULTS_INTO_STRATEGIC_BUSINESS_INSIGHTS
 @PARENT_CONTEXT: remediation_roadmap.protocol, bia_risk_mapping.protocol, risk_prioritization.protocol
 
 <GLOBAL_VARS>
-# Ключевые метрики для руководства
 EXECUTIVE_METRICS: {
-  "SECURITY_POSTURE_SCORE": "Overall maturity rating (1-10) based on systemic gaps",
-  "BUSINESS_IMPACT_EXPOSURE": "Potential financial/legal loss linked to BIA",
-  "REMEDIATION_VELOCITY": "Estimated time to reach an acceptable risk level",
-  "CRITICAL_FIX_COUNT": "Number of high-priority actions required immediately"
+  "SECURITY_POSTURE_SCORE": "Overall rating (1-10)",
+  "BUSINESS_IMPACT_EXPOSURE": "Potential financial/legal loss",
+  "REMEDIATION_VELOCITY": "Estimated time",
+  "CRITICAL_FIX_COUNT": "Priority actions count"
 }
-
-# Темы синтеза
-SYNTHESIS_THEMES: ["Financial Risk", "Compliance & Regulatory", "Reputational Integrity", "Operational Continuity"]
+# НОВОЕ: Добавляем веса для отрисовки Radar Chart на фронте
+RADAR_CHART_DOMAINS: ["IAM", "DATA_SAFETY", "LOGIC", "INFRA", "COMPLIANCE"]
 </GLOBAL_VARS>
 
 <CONTEXT_MAP>
-[ROADMAP]        <- {from: remediation_roadmap.protocol, scope: "REMEDIATION_PHASES"}
-[BIA]            <- {from: bia_risk_mapping.protocol, scope: "REPUTATION_TRUST_LOSS"}
-[AGGREGATION]    <- {from: finding_aggregation.protocol, scope: "SYSTEMIC_GAP_NAME"}
+[ROADMAP]    <- {from: remediation_roadmap.protocol, scope: "REMEDIATION_PHASES"}
+[BIA]        <- {from: bia_risk_mapping.protocol, scope: "REPUTATION_TRUST_LOSS"}
+[AGGREGATION] <- {from: finding_aggregation.protocol, scope: "SYSTEMIC_GAP_NAME"}
 </CONTEXT_MAP>
 
 <ASSERTIONS>
-# Инварианты Executive Summary
-! (Summary -> "Contains_CVE_IDs") : "WARNING: Too technical. Executive summaries should avoid CVE IDs and focus on the nature of the risk (e.g., 'Data Leakage' instead of 'CVE-2024-XXXX')."
-! (Summary -> ![Business_Impact_Language]) : "BLOCKER: Missing Context. Findings must be linked to business consequences (e.g., 'Risk of 24h downtime')."
-! (Summary -> "Length" > "2 pages") : "CRITICAL: Excessive Detail. An executive synthesis must be concise and actionable."
+! (Summary -> "Contains_CVE_IDs") : "WARNING: Too technical."
+! (Summary -> ![Business_Impact_Language]) : "BLOCKER: Missing Context."
+! (Summary -> "Length" > "2 pages") : "CRITICAL: Excessive Detail."
 </ASSERTIONS>
 
 <EXECUTION_PIPELINE>
-1. KEY_RISK_DISTILLATION:
-   - Извлечь ТОП-3 системных проблемы из [AGGREGATION].
-   - Описать их через призму [SYNTHESIS_THEMES] (например, "Уязвимость в логике транзакций создает риск прямой финансовой потери").
-
-2. BUSINESS_CONSEQUENCE_MAPPING:
-   - Использовать данные из [BIA] для оценки ущерба.
-   - Сформулировать "Worst Case Scenario" в понятных терминах (штрафы регуляторов, отток клиентов).
-
-3. STRATEGIC_INVESTMENT_SUMMARY:
-   - Озвучить требования к ресурсам из [ROADMAP].
-   - Указать, какие бизнес-цели будут достигнуты после выполнения Phase 1 и Phase 2.
-
-4. MATURITY_SCORE_CALCULATION:
-   - Выставить оценку текущего состояния (Post-Audit Score) и целевого состояния (Target Score).
-
-5. FINAL_EXECUTIVE_PRESENTATION:
-   - Скомпоновать отчет: Главный вывод -> Матрица рисков -> Краткий план действий -> Запрос ресурсов.
+1. KEY_RISK_DISTILLATION: ТОП-3 проблемы через призму Financial/Operational риска.
+2. BUSINESS_CONSEQUENCE_MAPPING: Оценка ущерба через BIA.
+3. STRATEGIC_INVESTMENT_SUMMARY: Требования к ресурсам из [ROADMAP].
+4. MATURITY_SCORE_CALCULATION: Выставить SECURITY_POSTURE_SCORE.
+# НОВОЕ: Распределить риски по [RADAR_CHART_DOMAINS] (от 0.0 до 1.0)
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
 GENERATE_EXECUTIVE_SUMMARY:
-  - OVERALL_RISK_LEVEL | TOP_3_SYSTEMIC_ISSUES | POTENTIAL_IMPACT_USD | RECOMMENDED_BUDGET_TIME | SCORECARD
-VISUALIZE: "Image of an Executive Security Dashboard: showing high-level 'Traffic Light' indicators (Red/Amber/Green) for different business domains, a trend chart of risk reduction, and a summary of the 3 most critical strategic actions."
+  - OVERALL_RISK_LEVEL | TOP_3_SYSTEMIC_ISSUES | SCORECARD
+  # НОВОЕ: Метка для бэкенда, чтобы построить график
+  - @ANALYTICS_DATA: {"scores": [RADAR_CHART_DOMAINS_WEIGHTS]}
+VISUALIZE: "Image of an Executive Security Dashboard: showing Traffic Lights and a Radar Chart."
 </OUTPUT_SPEC>
 </DFD_MODELING_V3>

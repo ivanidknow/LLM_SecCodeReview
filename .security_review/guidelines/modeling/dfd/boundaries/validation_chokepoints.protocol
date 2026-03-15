@@ -1,53 +1,44 @@
 <DFD_MODELING_V3>
 @ID: INTEGRITY_VALIDATION_CHOKEPOINTS_AUDIT
-@GOAL: IDENTIFY_MANDATORY_FILTERS_AND_DETECT_DATA_CORRUPTION_VECTORS
+@GOAL: DEFINE_FILTER_CONTRACTS_FOR_CODE_VERIFICATION
 @PARENT_CONTEXT: validation_chokepoints.protocol, data_consistency_checksums.protocol
 
 <GLOBAL_VARS>
-# Типы контрольных точек
 CHOKEPOINT_TYPES: {
-  "SCHEMA": "(JSON_Schema|Protobuf_Validator|Pydantic_Model|DTO_Validator)",
-  "SANITIZER": "(HTML_Purifier|SQL_Parameterizer|Path_Sanitizer)",
-  "INTEGRITY": "(HMAC_Verifier|Digital_Signature_Check|Checksum_Validator)",
-  "FORMAT": "(MIME_Type_Checker|Magic_Bytes_Verify|Image_Magick_Safe_Mode)"
+  "SCHEMA": "(Pydantic|Joi|Zod|Marshmallow)",
+  "SANITIZER": "(Bleach|SQL_Params|Escape_HTML)",
+  "INTEGRITY": "(HMAC|JWT_Verify|Checksum)",
+  "FORMAT": "(Magic_Bytes|MIME_Check)"
+}
+EXPECTED_IMPLEMENTATION_PATTERNS: {
+  "AUTH_DECORATOR": "@app.post|@require_auth|@is_admin",
+  "VALIDATOR_LINK": "PydanticModel.parse_obj|validator.validate",
+  "SQL_SINK": "db.execute(params=...)|session.add"
 }
 </GLOBAL_VARS>
 
-<CONTEXT_MAP>
-[VALIDATION_ENGINE] <- {match: (joi|zod|class-validator|validator.is), scope: "MIDDLEWARE|DTO"}
-[INTEGRITY_CHECK]   <- {match: (crypto.createHmac|verifySignature|checksum), scope: "SECURITY_LAYERS"}
-[DATA_MARSHALLING]  <- {match: (JSON.parse|pickle.load|yaml.safeLoad), scope: "PARSERS"}
-</CONTEXT_MAP>
+<FILTER_CONTRACTS>
+# Контракты, которые Deep Scan обязан проверить на соответствие коду
+EXPECTED_FILTERS: [
+  {"location": "FUNC_NAME", "rule": "NO_HTML_TAGS", "implementation_hint": "PATTERNS_FROM_GLOBAL_VARS"}
+]
+</FILTER_CONTRACTS>
 
 <ASSERTIONS>
-# Логические инварианты узлов валидации
-! ([DATA_MARSHALLING] -> !VALIDATION_ENGINE) : "CRITICAL: Unchecked Deserialization. Data is parsed into memory/objects without immediate schema validation. Risk: RCE or Logic Abuse."
-! ([CHOKEPOINT] -> BYPASSABLE_BY_FLAG) : "HIGH: Voluntary Validation. Validation can be disabled by a client-side flag or an optional parameter (e.g., 'skipVerify=true')."
-! ([FILE_INGEST] -> !FORMAT_VERIFY) : "HIGH: Content-Type Spoofing. System trusts the 'Content-Type' header without verifying actual file 'Magic Bytes'."
-? ([CHOKEPOINT_LOCATION] == "Distributed") : "MEDIUM: Validation Drift. Validation logic is scattered across 10+ places instead of a central chokepoint, leading to inconsistent rules."
+! ([DATA_MARSHALLING] -> !VALIDATION_ENGINE) : "CRITICAL: Unchecked Deserialization. Risk: RCE."
+! ([CHOKEPOINT] -> BYPASSABLE_BY_FLAG) : "HIGH: Voluntary Validation (e.g. skipVerify=true)."
+! ([FILE_INGEST] -> !FORMAT_VERIFY) : "HIGH: MIME Spoofing. Trusting header over magic bytes."
 </ASSERTIONS>
 
 <EXECUTION_PIPELINE>
-1. CENTRAL_VALIDATOR_IDENTIFICATION:
-   - Найти базовые классы или декораторы, через которые проходят все запросы.
-   - Проверить "Strict Mode": отбрасываются ли неизвестные поля (Unknown Properties) или они игнорируются?
-2. TYPE_SAFETY_BOUNDARY_TRACE:
-   - Проследить путь данных от сырого HTTP-тела до типизированного объекта (например, TypeScript Interface или Java Class).
-   - Есть ли зазор, где данные уже в памяти, но еще не проверены?
-3. SIGNATURE_&_HMAC_CHOKEPOINTS:
-   - Если данные приходят от партнеров, найти точку проверки подписи. 
-   - Проверить "Timing Attack" устойчивость (использование `constantTimeExpressedEquality`).
-4. INPUT_CANONICALIZATION_AUDIT:
-   - Проверить, приводятся ли данные к каноническому виду (например, декодирование URL-кодировки или нормализация Unicode) ДО валидации. 
-   - Это защита от обхода фильтров через двойное кодирование.
-5. DOWNSTREAM_TRUST_ASSUMPTION:
-   - Анализ того, верят ли внутренние компоненты данным "на слово". 
-   - Если `Service_B` считает данные чистыми только потому, что их проверил `Service_A`, — это потенциальный риск при компрометации `Service_A`.
+1. CHOKEPOINT_LOCALIZATION: Найти центральные точки "очистки" данных.
+2. STRICTNESS_EVALUATION: Оценить режим "Allow-list" vs "Deny-list".
+3. VALIDATION_SPEC_GENERATION: Сформировать @FILTER_CONTRACTS для фазы Deep Scan.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
 GENERATE_CHOKEPOINT_MAP:
-  - POINT_NAME | TYPE | ENFORCEMENT_STRICTNESS | BYPASS_RISK
-VISUALIZE: "Mermaid: Represent Chokepoints as 'Funnel' icons on the DFD flow lines."
+  - @FILTER_CONTRACTS: [EXPECTED_FILTERS]
+VISUALIZE: "Mermaid: Use funnel icons to show where data 'shrinks' and becomes 'clean'."
 </OUTPUT_SPEC>
 </DFD_MODELING_V3>

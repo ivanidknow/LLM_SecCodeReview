@@ -50,11 +50,28 @@ VERIFICATION_STATUS: ["CONFIRMED", "MITIGATED", "PARTIAL_VALIDATION", "DEAD_END"
 5. EVIDENCE_PATH_EXTRACTION:
    - Зафиксировать последовательность строк кода, переменных и функций, формирующих [CHAIN_VALIDITY].
    - Подготовить данные для `evidence_generation.protocol`.
+
+   - TAINT SPECIFICS: Check for Sanitizers and Validators from validation_chokepoints.protocol. If a sanitizer is found, downgrade or skip the finding. Focus on full Reachability analysis.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_FULL_TRACE_REPORT:
-  - VULNERABILITY_TYPE | SOURCE_ENTRY | SINK_FUNCTION | PATH_STEPS (Array) | FINAL_STATUS
-VISUALIZE: "Image of a complete taint analysis flow: highlighting the path from a red-colored HTTP input through logic blocks directly to a critical sink like process.exec or db.query."
+To report a vulnerability, strictly use the following format:
+
+🚨 FINDING [FULL_PATH_VERIFICATION]
+FILE: [FilePath]
+LINE: [LineNumber]
+CODE: [CodeSnippet]
+DESCRIPTION: [Description of the issue]
+SCENARIO_OF_ATTACK: [Must not be empty. Describe step-by-step: External Input -> Transformation -> Sensitive Sink]
 </OUTPUT_SPEC>
+
+@ANALYTICS_DATA: {
+  "domains": {
+    "IAM": 0,
+    "DATA_SAFETY": 80,
+    "LOGIC_INTEGRITY": 50,
+    "INFRA": 0,
+    "COMPLIANCE": 0
+  }
+}
 </DFD_MODELING_V3>

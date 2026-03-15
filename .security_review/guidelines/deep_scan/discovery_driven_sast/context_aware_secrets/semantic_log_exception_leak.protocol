@@ -1,61 +1,37 @@
-<DFD_MODELING_V3>
+<DEEP_SCAN_V3>
 @ID: SEMANTIC_LOG_EXCEPTION_LEAK_ANALYSIS
 @GOAL: PREVENT_SENSITIVE_DATA_EXPOSURE_IN_LOGS_AND_ERROR_MESSAGES
 @PARENT_CONTEXT: error_verbosity.protocol, data_inventory.protocol, secrets_management.protocol
 
 <GLOBAL_VARS>
-# Паттерны функций логирования и вывода
 LOGGING_SINKS: {
   "STANDARD": "(console\.(log|debug|error|warn|info))",
   "LIBRARIES": "(logger\.(info|error|debug)|winston\.(log|info)|pino\.(info|error))",
   "EXCEPTIONS": "(throw\s+new\s+Error|panic|raise\s+Exception)"
 }
-
-# Семантические маркеры утечек (на основе имен объектов и свойств)
 SENSITIVE_OBJECT_PROPERTIES: {
   "AUTH": "(\.password|\.token|\.secret|\.apiKey|\.credential|\.authorization)",
-  "PII": "(\.email|\.phone|\.address|\.ssn|\.birthdate)",
-  "SYSTEM": "(\.connectionString|\.dbUrl|\.privateKey)"
+  "PII": "(\.email|\.phone|\.address|\.ssn|\.birthdate)"
 }
 </GLOBAL_VARS>
 
-<CONTEXT_MAP>
-[VERBOSITY_LEVEL] <- {from: error_verbosity.protocol, scope: "ERROR_HANDLING_STRATEGY"}
-[SENSITIVE_ASSETS] <- {from: data_inventory.protocol, scope: "SENSITIVE_FIELDS"}
-[SECRET_KEYS]      <- {from: secrets_management.protocol, scope: "KEY_NAMING_CONVENTIONS"}
-</CONTEXT_MAP>
-
-<ASSERTIONS>
-# Логические инварианты логирования
-! ([LOGGING_SINKS] -> [SENSITIVE_OBJECT_PROPERTIES]) : "CRITICAL: Direct Secret Logging. A sensitive property is passed directly to a logging function. Risk: Credential exposure in monitoring tools."
-! ([EXCEPTIONS] -> [SENSITIVE_ASSETS]) : "HIGH: Sensitive Data in Exception. Error message or object contains PII or secrets. Risk: Information disclosure via stack traces."
-! ([LOGGING_SINKS] -> "req.body" || "req.headers") : "MEDIUM: Over-logging. Logging the entire request object without filtering. Risk: Accidental capture of 'Authorization' headers or login payloads."
-? ([LOGGING_SINKS] -> [SECRET_KEYS]) : "BLOCKER: Hardcoded Secret Logging. A variable identified as a secret is being logged in plain text."
-</ASSERTIONS>
-
 <EXECUTION_PIPELINE>
-1. LOG_SINK_IDENTIFICATION:
-   - Идентифицировать все вызовы функций из [LOGGING_SINKS] в исходном коде.
-   - Определить конфигурацию уровня логирования (Debug/Info/Error) из [VERBOSITY_LEVEL].
+1. LOG_SINK_IDENTIFICATION: Найти вызовы из [LOGGING_SINKS].
+2. TAINT_TRACE_TO_LOGS: Отследить путь данных от переменных, помеченных в Discovery как SENSITIVE, до логгера.
+3. EXCEPTION_MAPPING: Проверить, не выводится ли объект исключения целиком (со стэктрейсом и данными) наружу.
+4. SCENARIO_GENERATION: Описать путь утечки в централизованную систему логов (Sentry/ELK), доступную атакующему.
 
-2. TAINT_TRACE_TO_LOGS:
-   - Применить Taint-анализ для отслеживания данных от [SENSITIVE_ASSETS] до входа в функции логирования.
-   - Особое внимание уделить интерполяции строк (например, `logger.info("User: ${user}")`).
-
-3. OBJECT_SERIALIZATION_CHECK:
-   - Проверить, логируются ли объекты целиком (например, `logger.info(userObject)`).
-   - Если объект содержит поля из [SENSITIVE_OBJECT_PROPERTIES] и не имеет метода `toJSON()` для маскирования — пометить как риск.
-
-4. EXCEPTION_MESSAGE_AUDIT:
-   - Анализ блоков `try...catch`. Проверка того, что исходная ошибка (содержащая детали БД или системные пути) не пробрасывается "как есть" конечному пользователю.
-
-5. MIDDLEWARE_PAYLOAD_LOGGING_SEARCH:
-   - Проверка HTTP-middleware на наличие функций типа `app.use(morgan('combined'))` или кастомных логгеров, записывающих `req.body` без предварительной очистки.
+   - HYBRID_ANALYSIS: Read JSON artifacts (syft.json, grype.json, kics.json) from .security_review/artifacts/raw_tools_output/. Treat these results as 'Hard Evidence'. Perform AI Reachability Analysis to verify if the vulnerable component is reachable from the code. If confirmed, elevate the finding status to BLOCKER.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_LOG_LEAK_REPORT:
-  - SINK_FUNCTION | SENSITIVE_DATA_DETECTED | SOURCE_LOCATION | LOG_LEVEL | REMEDIATION
+# ФОРМАТ ДЛЯ АВТОМАТИЧЕСКОГО ПАРСИНГА БЭКЕНДОМ
+🚨 FINDING [semantic_log_exception_leak]:
+FILE: [PATH]
+LINE: [NUM]
+CODE: [LOG_CALL_SNIPPET]
+DESCRIPTION: [Tool_Name] found [Vulnerability_ID]. AI Analysis confirmed that the vulnerable path is active in the current code flow via [Function_Name].
+SCENARIO_OF_ATTACK: Sensitive information (PII/Secrets) is stored in application logs or external monitoring services. An attacker with log access (via compromised developer account or log-injection) can harvest these credentials.
 VISUALIZE: "Image of a data leak path from a sensitive database record to a cloud-based logging service like ELK or Sentry."
 </OUTPUT_SPEC>
-</DFD_MODELING_V3>
+</DEEP_SCAN_V3>

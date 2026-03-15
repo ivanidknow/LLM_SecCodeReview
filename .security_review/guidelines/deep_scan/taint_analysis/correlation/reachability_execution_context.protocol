@@ -52,11 +52,28 @@ CONTEXT_MODES: {
 
 5. REACHABILITY_SCORING:
    - Присвоить каждому пути оценку достижимости: "Easily Reachable", "Complex Preconditions", "Unreachable in Current Config".
+
+   - TAINT SPECIFICS: Check for Sanitizers and Validators from validation_chokepoints.protocol. If a sanitizer is found, downgrade or skip the finding. Focus on full Reachability analysis.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_REACHABILITY_REPORT:
-  - PATH_ID | REQUIRED_PRIVILEGES | ENVIRONMENTAL_DEPENDENCIES | REACHABILITY_SCORE | FINAL_VERDICT
-VISUALIZE: "Image of a code execution tree: showing how security guards and environment checks can block or allow the flow of data to a sensitive function."
+To report a vulnerability, strictly use the following format:
+
+🚨 FINDING [REACHABILITY_EXECUTION_CONTEXT_ANALYSIS]
+FILE: [FilePath]
+LINE: [LineNumber]
+CODE: [CodeSnippet]
+DESCRIPTION: [Description of the issue]
+SCENARIO_OF_ATTACK: [Must not be empty. Describe step-by-step: External Input -> Transformation -> Sensitive Sink]
 </OUTPUT_SPEC>
+
+@ANALYTICS_DATA: {
+  "domains": {
+    "IAM": 0,
+    "DATA_SAFETY": 80,
+    "LOGIC_INTEGRITY": 50,
+    "INFRA": 0,
+    "COMPLIANCE": 0
+  }
+}
 </DFD_MODELING_V3>

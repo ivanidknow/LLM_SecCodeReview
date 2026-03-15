@@ -53,11 +53,28 @@ DECODING_LAYERS: {
 
 5. INCONSISTENCY_VERIFICATION:
    - Используя `behavioral_inconsistency.protocol`, подтвердить, что «вид» данных для валидатора отличается от «вида» для Sink из-за лишнего этапа декодирования.
+
+   - TAINT SPECIFICS: Check for Sanitizers and Validators from validation_chokepoints.protocol. If a sanitizer is found, downgrade or skip the finding. Focus on full Reachability analysis.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_DOUBLE_DECODING_REPORT:
-  - ENTRY_POINT | BYPASS_VECTOR | DECODING_LAYERS_INVOLVED | VULNERABLE_FILTER | RISK_LEVEL
-VISUALIZE: "Image of a double decoding attack sequence: showing a payload in a double-encoded state passing through a WAF, being single-decoded by a middleware, and then finally decoded into a malicious command by the application core."
+To report a vulnerability, strictly use the following format:
+
+🚨 FINDING [ENCODING_BYPASS_DOUBLE_DECODING_PROBE]
+FILE: [FilePath]
+LINE: [LineNumber]
+CODE: [CodeSnippet]
+DESCRIPTION: [Description of the issue]
+SCENARIO_OF_ATTACK: [Must not be empty. Describe step-by-step: External Input -> Transformation -> Sensitive Sink]
 </OUTPUT_SPEC>
+
+@ANALYTICS_DATA: {
+  "domains": {
+    "IAM": 0,
+    "DATA_SAFETY": 80,
+    "LOGIC_INTEGRITY": 50,
+    "INFRA": 0,
+    "COMPLIANCE": 0
+  }
+}
 </DFD_MODELING_V3>

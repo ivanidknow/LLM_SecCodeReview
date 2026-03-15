@@ -1,18 +1,9 @@
-<DFD_MODELING_V3>
+<DEEP_SCAN_V3>
 @ID: FRAMEWORK_SECURITY_FEATURES_ENFORCEMENT
-@GOAL: VERIFY_MAXIMAL_UTILIZATION_OF_BUILTIN_FRAMEWORK_PROTECTIONS_AND_DETECTION_OF_UNSAFE_OVERRIDES
-@PARENT_CONTEXT: validation_chokepoints.protocol, authentication_strategy.protocol, design_patterns.protocol
+@GOAL: VERIFY_UTILIZATION_OF_BUILTIN_PROTECTIONS_AND_DETECTION_OF_BYPASSES
+@PARENT_CONTEXT: validation_chokepoints.protocol, authentication_strategy.protocol
 
 <GLOBAL_VARS>
-# Нативные механизмы защиты по фреймворкам
-FRAMEWORK_PROTECTIONS: {
-  "NESTJS_EXPRESS": "(ValidationPipe|UseGuards|ThrottlerModule|Helmet)",
-  "DJANGO": "(CsrfViewMiddleware|XFrameOptionsMiddleware|SECURE_CONTENT_TYPE_NOSNIFF)",
-  "FASTAPI": "(OAuth2PasswordBearer|SecurityScopes|HTTPException)",
-  "SPRING_BOOT": "(WebSecurityConfigurerAdapter|@PreAuthorize|HttpSecurity.csrf())"
-}
-
-# Признаки отключения встроенной защиты
 SECURITY_OFF_FLAGS: {
   "CSRF_DISABLE": "(csrf().disable()|@csrf_exempt|enable_csrf: false)",
   "XSS_BYPASS": "(\.unsafe_render|dangerouslySetInnerHTML|Markup())",
@@ -20,44 +11,24 @@ SECURITY_OFF_FLAGS: {
 }
 </GLOBAL_VARS>
 
-<CONTEXT_MAP>
-[APP_STACK]      <- {from: third_party_surface.protocol, scope: "CORE_FRAMEWORKS|WEB_ENGINES"}
-[VALIDATION]     <- {from: validation_chokepoints.protocol, scope: "DTO_SCHEMAS"}
-[AUTH_MODEL]     <- {from: authentication_strategy.protocol, scope: "GUARDS_INTERCEPTORS"}
-</CONTEXT_MAP>
-
-<ASSERTIONS>
-# Логические инварианты использования фреймворка
-! ([APP_STACK] -> ![FRAMEWORK_PROTECTIONS]) : "HIGH: Underutilized Framework Security. Core security modules of the identified framework are not detected in the configuration."
-! ([SECURITY_OFF_FLAGS]) : "CRITICAL: Intentional Security Bypass. Built-in protection (e.g., CSRF or Validation) has been explicitly disabled in code."
-! ([VALIDATION] && ![FRAMEWORK_VALIDATOR]) : "MEDIUM: Custom Validation Debt. App uses custom logic instead of framework-native pipes/schemas, increasing the risk of edge-case bypasses."
-? ([AUTH_MODEL] -> "Custom_Auth_Middleware") : "INFO: Non-standard Auth Implementation. Application bypasses native auth guards in favor of custom middleware."
-</ASSERTIONS>
-
 <EXECUTION_PIPELINE>
-1. FRAMEWORK_STAPLE_IDENTIFICATION:
-   - Определить основной стек [APP_STACK] через анализ зависимостей (например, `package.json` или `requirements.txt`).
-   - Сопоставить стек с реестром [FRAMEWORK_PROTECTIONS].
+1. CONFIGURATION_MAPPING: Анализ `settings.py`, `main.ts` и т.д. на предмет включения CSRF, CORS и Helmet.
+2. BYPASS_SEARCH: Поиск явных отключений защиты из [SECURITY_OFF_FLAGS].
+3. DTO_PIPE_AUDIT: Проверка, используют ли эндпоинты нативные валидаторы (Pydantic/ValidationPipe).
+4. SCENARIO_GENERATION: Описание того, как отключение CSRF или нативной валидации позволяет провести атаку (например, XSRF или Injection).
 
-2. CONFIGURATION_MAPPING:
-   - Проанализировать файлы инициализации (например, `main.ts`, `settings.py`, `application.yaml`).
-   - Идентифицировать подключенные модули защиты (CORS, Rate Limiting, CSRF).
-
-3. BYPASS_SEARCH:
-   - Выполнить поиск всех вхождений [SECURITY_OFF_FLAGS].
-   - Для каждого найденного отключения проверить наличие обоснования (комментарии в коде) или компенсирующего контроля из `security_controls.protocol`.
-
-4. DTO_PIPE_AUDIT:
-   - Проверить, проходят ли входные данные через нативные пайпы валидации (например, `ValidationPipe` в NestJS).
-   - Убедиться, что включен режим `whitelist: true` (отсечение неизвестных полей в DTO).
-
-5. DEPRECATED_FEATURE_CHECK:
-   - Проверка использования устаревших функций безопасности фреймворка, которые имеют известные уязвимости или слабые дефолты.
+   - HYBRID_ANALYSIS: Read JSON artifacts (syft.json, grype.json, kics.json) from .security_review/artifacts/raw_tools_output/. Treat these results as 'Hard Evidence'. Perform AI Reachability Analysis to verify if the vulnerable component is reachable from the code. If confirmed, elevate the finding status to BLOCKER.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_FRAMEWORK_ENFORCEMENT_REPORT:
-  - FRAMEWORK | FEATURE_NAME | STATUS (ENABLED/DISABLED/BYPASSED) | RISK_IMPACT
-VISUALIZE: "Image of a framework security middleware stack: showing how requests pass through multiple native layers (Auth, Guard, Pipe, Interceptor) before reaching the controller."
+# ФОРМАТ ДЛЯ АВТОМАТИЧЕСКОГО ПАРСИНГА БЭКЕНДОМ
+🚨 FINDING [framework_security_enforcement]:
+FILE: [PATH]
+LINE: [NUM]
+CODE: [BYPASS_CODE_SNIPPET]
+DESCRIPTION: [Tool_Name] found [Vulnerability_ID]. AI Analysis confirmed that the vulnerable path is active in the current code flow via [Function_Name].
+SCENARIO_OF_ATTACK: By disabling built-in [FEATURE], the application becomes vulnerable to [ATTACK_TYPE]. Attackers can bypass standard security middleware to reach logic sinks directly.
+@ANALYTICS_DATA: {"domain": "LOGIC_INTEGRITY", "impact": 0.8} # Вес для Radar Chart
+VISUALIZE: "Image of a framework security middleware stack."
 </OUTPUT_SPEC>
-</DFD_MODELING_V3>
+</DEEP_SCAN_V3>

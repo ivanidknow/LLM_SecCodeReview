@@ -54,11 +54,29 @@ COUPON_ATTACK_VECTORS: {
 
 5. INFORMATION_LEAKAGE_ANALYSIS:
    - Анализ ответов сервера. Отличается ли ошибка «Код не существует» от «Код истек» или «Код для другого региона»? Это помогает сужать область перебора.
+
+   - ANTI_HALLUCINATION_GUARD: If a function/endpoint is empty or has a TODO/Placeholder, DO NOT trigger high-impact logic vulnerabilities like Race Conditions or Discount Stacking unless there is actual code implementing that logic. If the code is missing, report it only once as 'Incomplete Implementation' under broken_access_control.protocol.
+   - ARCHITECTURE_SYNC: Use data from identity_model.protocol and authentication_strategy.protocol to verify if the found bypass contradicts the established architecture.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_COUPON_SECURITY_REPORT:
-  - PROMO_INTERFACE | RATE_LIMIT_STATUS | ENTROPY_LEVEL | STACKING_POSSIBILITY | SEVERITY
-VISUALIZE: "Image of a coupon brute-forcing attack: showing a high-speed automated script iterating through alphanumeric combinations on a checkout API, capturing 200 OK responses for valid codes."
+To report a vulnerability, strictly use the following format:
+
+🚨 FINDING [COUPON_PROMO_CODE_BRUTE_FORCING]
+FILE: [FilePath]
+LINE: [LineNumber]
+CODE: [CodeSnippet]
+DESCRIPTION: [Description of the issue]
+SCENARIO_OF_ATTACK: [Must not be empty. Describe how an attacker manipulates business states step-by-step (e.g. 1. Login as User A -> 2. Change user_id in request to User B -> 3. Access private data without AuthZ check)]
 </OUTPUT_SPEC>
+
+@ANALYTICS_DATA: {
+  "domains": {
+    "IAM": 50,
+    "DATA_SAFETY": 10,
+    "LOGIC_INTEGRITY": 40,
+    "INFRA": 0,
+    "COMPLIANCE": 0
+  }
+}
 </DFD_MODELING_V3>

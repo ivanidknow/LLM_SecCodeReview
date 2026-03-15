@@ -1,0 +1,263 @@
+{
+	"kics_version": "v2.1.19",
+	"files_scanned": 2,
+	"lines_scanned": 69,
+	"files_parsed": 2,
+	"lines_parsed": 49,
+	"lines_ignored": 20,
+	"files_failed_to_scan": 0,
+	"queries_total": 52,
+	"queries_failed_to_execute": 0,
+	"queries_failed_to_compute_similarity_id": 0,
+	"scan_id": "console",
+	"severity_counters": {
+		"CRITICAL": 0,
+		"HIGH": 5,
+		"INFO": 0,
+		"LOW": 3,
+		"MEDIUM": 2,
+		"TRACE": 0
+	},
+	"total_counter": 10,
+	"total_bom_resources": 0,
+	"start": "2026-03-15T01:49:58.812066622Z",
+	"end": "2026-03-15T01:50:00.453893765Z",
+	"paths": [
+		"/path"
+	],
+	"queries": [
+		{
+			"query_name": "Missing User Instruction",
+			"query_id": "fd54f200-402c-4333-a5a4-36ef6709af2f",
+			"query_url": "https://docs.docker.com/engine/reference/builder/#user",
+			"severity": "HIGH",
+			"platform": "Dockerfile",
+			"cwe": "250",
+			"risk_score": "7.7",
+			"cloud_provider": "COMMON",
+			"category": "Build Process",
+			"experimental": false,
+			"description": "Always set a user in the runtime stage of your Dockerfile. Without it, the container defaults to root, even if earlier build stages define a user.",
+			"description_id": "eb49caf6",
+			"files": [
+				{
+					"file_name": "../../path/Dockerfile",
+					"similarity_id": "014b36aa7b648772c48b3a4b850189f43843296bda8984177125dbe385da45bf",
+					"line": 6,
+					"issue_type": "MissingAttribute",
+					"search_key": "FROM={{python:latest}}",
+					"search_line": -1,
+					"search_value": "",
+					"expected_value": "The 'Dockerfile' should contain the 'USER' instruction",
+					"actual_value": "The 'Dockerfile' does not contain any 'USER' instruction"
+				}
+			]
+		},
+		{
+			"query_name": "Passwords And Secrets - AWS Access Key",
+			"query_id": "76c0bcde-903d-456e-ac13-e58c34987852",
+			"query_url": "https://docs.kics.io/latest/secrets/",
+			"severity": "HIGH",
+			"platform": "Common",
+			"cwe": "798",
+			"risk_score": "7.8",
+			"cloud_provider": "COMMON",
+			"category": "Secret Management",
+			"experimental": false,
+			"description": "Query to find passwords and secrets in infrastructure code.",
+			"description_id": "d69d8a89",
+			"files": [
+				{
+					"file_name": "../../path/Dockerfile",
+					"similarity_id": "f817fcd36b3ee28763771c5d0f3e4c0491672990c4cb2d9fd20ef59c31b44c5f",
+					"line": 22,
+					"issue_type": "RedundantAttribute",
+					"search_key": "",
+					"search_line": 0,
+					"search_value": "",
+					"expected_value": "Hardcoded secret key should not appear in source",
+					"actual_value": "Hardcoded secret key appears in source"
+				},
+				{
+					"file_name": "../../path/.github/workflows/deploy.yml",
+					"similarity_id": "e4760c3d0ed91038e811448ae601d9823ebd0b898caa20140eb4f515c17f962a",
+					"line": 25,
+					"issue_type": "RedundantAttribute",
+					"search_key": "",
+					"search_line": 0,
+					"search_value": "",
+					"expected_value": "Hardcoded secret key should not appear in source",
+					"actual_value": "Hardcoded secret key appears in source"
+				}
+			]
+		},
+		{
+			"query_name": "Passwords And Secrets - Generic Secret",
+			"query_id": "3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99",
+			"query_url": "https://docs.kics.io/latest/secrets/",
+			"severity": "HIGH",
+			"platform": "Common",
+			"cwe": "798",
+			"risk_score": "7.8",
+			"cloud_provider": "COMMON",
+			"category": "Secret Management",
+			"experimental": false,
+			"description": "Query to find passwords and secrets in infrastructure code.",
+			"description_id": "d69d8a89",
+			"files": [
+				{
+					"file_name": "../../path/Dockerfile",
+					"similarity_id": "9aea95cd36a6fbac159e978a5c894687165d5e167b139c4b4f70ad01359b9c01",
+					"line": 21,
+					"issue_type": "RedundantAttribute",
+					"search_key": "",
+					"search_line": 0,
+					"search_value": "",
+					"expected_value": "Hardcoded secret key should not appear in source",
+					"actual_value": "Hardcoded secret key appears in source"
+				},
+				{
+					"file_name": "../../path/.github/workflows/deploy.yml",
+					"similarity_id": "72b5b829a969e86f6b247b70f7d3a2ba088332cc65e3bba7fb90f6f22e9ff1c2",
+					"line": 24,
+					"issue_type": "RedundantAttribute",
+					"search_key": "",
+					"search_line": 0,
+					"search_value": "",
+					"expected_value": "Hardcoded secret key should not appear in source",
+					"actual_value": "Hardcoded secret key appears in source"
+				}
+			]
+		},
+		{
+			"query_name": "Image Version Using 'latest'",
+			"query_id": "f45ea400-6bbe-4501-9fc7-1c3d75c32067",
+			"query_url": "https://docs.docker.com/develop/dev-best-practices/",
+			"severity": "MEDIUM",
+			"platform": "Dockerfile",
+			"cwe": "1357",
+			"risk_score": "5.1",
+			"category": "Best Practices",
+			"experimental": false,
+			"description": "When building images, always tag them with useful tags which codify version information, intended destination (prod or test, for instance), stability, or other information that is useful when deploying the application in different environments. Do not rely on the automatically-created latest tag",
+			"description_id": "22f535ec",
+			"files": [
+				{
+					"file_name": "../../path/Dockerfile",
+					"similarity_id": "6ec2562aebb4102e79e9ab48b116b889f98135cb410ac9cf446e8b19fa8c305d",
+					"line": 6,
+					"issue_type": "IncorrectValue",
+					"search_key": "FROM={{python:latest}}",
+					"search_line": -1,
+					"search_value": "",
+					"expected_value": "FROM python:latest:'version' where version should not be 'latest'",
+					"actual_value": "FROM python:latest'"
+				}
+			]
+		},
+		{
+			"query_name": "Unpinned Package Version in Pip Install",
+			"query_id": "02d9c71f-3ee8-4986-9c27-1a20d0d19bfc",
+			"query_url": "https://docs.docker.com/develop/develop-images/dockerfile_best-practices/",
+			"severity": "MEDIUM",
+			"platform": "Dockerfile",
+			"cwe": "1357",
+			"risk_score": "5.7",
+			"category": "Supply-Chain",
+			"experimental": false,
+			"description": "Package version pinning reduces the range of versions that can be installed, reducing the chances of failure due to unanticipated changes",
+			"description_id": "37db3a53",
+			"files": [
+				{
+					"file_name": "../../path/Dockerfile",
+					"similarity_id": "7ef915506847c659b545cb20068dd3da36829189e62c6f18e884867a72121228",
+					"line": 17,
+					"issue_type": "IncorrectValue",
+					"search_key": "FROM={{python:latest}}.{{RUN pip install fastapi uvicorn sqlite3}}",
+					"search_line": -1,
+					"search_value": "",
+					"expected_value": "RUN instruction with 'pip/pip3 install \u003cpackage\u003e' should use package pinning form 'pip/pip3 install \u003cpackage\u003e=\u003cversion\u003e'",
+					"actual_value": "RUN instruction pip install fastapi uvicorn sqlite3 does not use package pinning form"
+				}
+			]
+		},
+		{
+			"query_name": "Exposing Port 22 (SSH)",
+			"query_id": "5907595b-5b6d-4142-b173-dbb0e73fbff8",
+			"query_url": "https://sysdig.com/blog/dockerfile-best-practices/",
+			"severity": "LOW",
+			"platform": "Dockerfile",
+			"cwe": "710",
+			"risk_score": "2.9",
+			"category": "Best Practices",
+			"experimental": false,
+			"description": "Expose only the ports that your application needs and avoid exposing ports like SSH (22)",
+			"description_id": "79731185",
+			"files": [
+				{
+					"file_name": "../../path/Dockerfile",
+					"similarity_id": "99976a9684d159f2158e5a999fc384f31610dac042782f059768e4ae9aef7131",
+					"line": 26,
+					"issue_type": "IncorrectValue",
+					"search_key": "FROM={{python:latest}}.{{EXPOSE 8000 22 5432}}",
+					"search_line": -1,
+					"search_value": "",
+					"expected_value": "'EXPOSE' shouldn't contain the port 22 ",
+					"actual_value": "'EXPOSE' contains the port 22 "
+				}
+			]
+		},
+		{
+			"query_name": "Healthcheck Instruction Missing",
+			"query_id": "b03a748a-542d-44f4-bb86-9199ab4fd2d5",
+			"query_url": "https://docs.docker.com/engine/reference/builder/#healthcheck",
+			"severity": "LOW",
+			"platform": "Dockerfile",
+			"cwe": "710",
+			"risk_score": "3.6",
+			"category": "Insecure Configurations",
+			"experimental": false,
+			"description": "Ensure that HEALTHCHECK is being used. The HEALTHCHECK instruction tells Docker how to test a container to check that it is still working",
+			"description_id": "426121ee",
+			"files": [
+				{
+					"file_name": "../../path/Dockerfile",
+					"similarity_id": "0e3b2734aca413363960242427e284c17c56f04e0fdd42ddbe57f92020be5b77",
+					"line": 6,
+					"issue_type": "MissingAttribute",
+					"search_key": "FROM={{python:latest}}",
+					"search_line": -1,
+					"search_value": "",
+					"expected_value": "Dockerfile should contain instruction 'HEALTHCHECK'",
+					"actual_value": "Dockerfile doesn't contain instruction 'HEALTHCHECK'"
+				}
+			]
+		},
+		{
+			"query_name": "Pip install Keeping Cached Packages",
+			"query_id": "f2f903fb-b977-461e-98d7-b3e2185c6118",
+			"query_url": "https://docs.docker.com/develop/develop-images/dockerfile_best-practices/",
+			"severity": "LOW",
+			"platform": "Dockerfile",
+			"cwe": "459",
+			"risk_score": "0.9",
+			"category": "Best Practices",
+			"experimental": false,
+			"description": "When installing packages with pip, the '--no-cache-dir' flag should be set to make Docker images smaller",
+			"description_id": "a6eb5f34",
+			"files": [
+				{
+					"file_name": "../../path/Dockerfile",
+					"similarity_id": "cd222f8cc6a41e945396b958378c3d3177b0ea5287bd572cf5a7f2990d0f3c09",
+					"line": 17,
+					"issue_type": "IncorrectValue",
+					"search_key": "FROM={{python:latest}}.{{pip install fastapi uvicorn sqlite3}}",
+					"search_line": -1,
+					"search_value": "",
+					"expected_value": "The '--no-cache-dir' flag should be set when running 'pip/pip3 install'",
+					"actual_value": "The '--no-cache-dir' flag isn't set when running 'pip/pip3 install'"
+				}
+			]
+		}
+	]
+}

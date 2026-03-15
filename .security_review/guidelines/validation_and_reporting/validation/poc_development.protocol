@@ -1,61 +1,45 @@
 <DFD_MODELING_V3>
 @ID: POC_DEVELOPMENT_AND_EVIDENCE_GENERATION
-@GOAL: CREATE_SAFE_NON_DESTRUCTIVE_REPRODUCIBILITY_SCENARIOS_TO_CONFIRM_VULNERABILITIES
+@GOAL: CREATE_STEP_BY_STEP_ATTACK_SCENARIOS_AS_EVIDENCE
 @PARENT_CONTEXT: contextual_reachability.protocol, impact_realization.protocol, evidence_generation.protocol
 
 <GLOBAL_VARS>
-# Принципы безопасного PoC
 SAFE_POC_PRINCIPLES: {
   "NON_DESTRUCTIVE": "Do not delete, modify, or corrupt real production data",
-  "MINIMAL_INTRUSION": "Stop at the 'doorstep' (e.g., execute 'whoami' or 'version' instead of 'rm -rf')",
-  "READ_ONLY_VALIDATION": "Prove access by reading a harmless canary file or metadata",
-  "REVERSIBLE": "Any changes made during PoC (e.g., temporary user) must be easily reverted"
+  "MINIMAL_INTRUSION": "Stop at the 'doorstep' (e.g., execute 'whoami')",
+  "READ_ONLY_VALIDATION": "Prove access by reading metadata",
+  "REVERSIBLE": "Any changes must be easily reverted"
 }
-
-# Типы доказательств (Evidence)
 EVIDENCE_TYPES: [
-  "HTTP_REQUEST_RESPONSE_LOGS", "SCREENSHOTS_OF_UI_BYPASS", 
-  "SYSTEM_SHELL_OUTPUT", "DATABASE_QUERY_RESULT_METADATA",
-  "STACK_TRACE_ANALYSIS"
+  "HTTP_REQUEST_RESPONSE_LOGS", "SYSTEM_SHELL_OUTPUT", 
+  "DATABASE_QUERY_METADATA", "STACK_TRACE_ANALYSIS"
 ]
 </GLOBAL_VARS>
 
-<CONTEXT_MAP>
-[REACHABILITY]   <- {from: contextual_reachability.protocol, scope: "FINAL_REACHABILITY_STATUS"}
-[EVIDENCE_GEN]   <- {from: evidence_generation.protocol, scope: "EVIDENCE_STORAGE"}
-</CONTEXT_MAP>
-
 <ASSERTIONS>
-# Инварианты разработки PoC
-! (PoC -> "Action: DELETE|DROP|UPDATE") : "BLOCKER: Destructive PoC detected. Exploitation scenarios must use non-destructive commands (e.g., SELECT or id)."
-! (PoC -> "Target: Production" && ![Pre_Approval]) : "CRITICAL: Unauthorized Production Testing. PoC against live systems requires explicit management sign-off and monitoring."
-? (PoC -> "Payload: Obfuscated") : "WARNING: Complex Payload. Use clear, readable payloads for PoC to ensure developers understand the root cause."
+! (PoC -> "Action: DELETE|DROP|UPDATE") : "BLOCKER: Destructive PoC detected."
+! (PoC -> "Target: Production" && ![Pre_Approval]) : "CRITICAL: Unauthorized Production Testing."
 </ASSERTIONS>
 
 <EXECUTION_PIPELINE>
-1. POC_SCENARIO_DESIGN:
-   - Определить минимальный набор шагов для демонстрации уязвимости.
-   - Выбрать безопасный "Canary" (цель): например, чтение `/etc/hostname` вместо `/etc/shadow`.
-
+1. SCENARIO_CONSTRUCTION (SILK_STYLE):
+   - Описать пошаговый план: 1. Preparation -> 2. Delivery -> 3. Execution -> 4. Result.
 2. ENVIRONMENT_ISOLATION:
-   - Выполнять PoC в среде, максимально приближенной к целевой (Staging/Sandbox), используя результаты из [REACHABILITY].
-
-3. PAYLOAD_CRAFTING:
-   - Использовать стандартные маркеры (например, `dnslog.cn` для OAST или `{{7*7}}` для SSTI).
-   - Избегать полезных нагрузок, которые могут вызвать "отказ в обслуживании" (DoS) или зависание процесса.
-
-4. STEP_BY_STEP_EXECUTION:
-   - Задокументировать каждый шаг: от подготовки запроса до получения ответа.
-   - Зафиксировать состояние системы "до" и "после" выполнения эксплойта.
-
-5. EVIDENCE_PACKAGING:
-   - Собрать логи и скриншоты согласно [EVIDENCE_TYPES].
-   - Описать, как именно полученные данные подтверждают возможность эксплуатации.
+   - Использовать контекст из [REACHABILITY] для выбора точки входа.
+3. PAYLOAD_GENERATION:
+   - Сгенерировать безопасный Payload (например, `{{7*7}}` для SSTI).
+4. EVIDENCE_COLLECTION:
+   - Зафиксировать вывод системы и сопоставить с [EVIDENCE_TYPES].
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
 GENERATE_POC_REPORT:
-  - VULNERABILITY_ID | REPRODUCTION_STEPS | PAYLOAD_USED | EVIDENCE_ATTACHED | SAFETY_SCORE
-VISUALIZE: "Image of a Safe PoC execution: showing the attacker sending a benign payload that triggers a specific system response (like a pop-up or a DNS ping) to prove the vulnerability without causing harm."
+  - VULNERABILITY_ID: "[ID_FROM_SCAN]"
+  - SCENARIO_OF_ATTACK: "Detailed step-by-step exploit guide for developers" # НОВОЕ (Стиль Silk)
+  - REPRODUCTION_STEPS: "List of commands or API calls"
+  - PAYLOAD: "The exact malicious input"
+  - EVIDENCE: "Logs or Shell output"
+  - SAFETY_SCORE: "1-10 (High means very safe PoC)"
+VISUALIZE: "Image of a Safe PoC execution: showing the attacker sending a benign payload that triggers a specific system response."
 </OUTPUT_SPEC>
 </DFD_MODELING_V3>

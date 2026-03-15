@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vulnerable-deployment
+  namespace: prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vulnerable-app
+  template:
+    metadata:
+      labels:
+        app: vulnerable-app
+    spec:
+      # VULNERABILITY: ServiceAccount with potentially excessive privileges
+      serviceAccountName: cluster-admin-sa 
+      containers:
+      - name: vulnerable-app
+        image: vulnerable-corp/app:latest
+        
+        # VULNERABILITY: No resource limits (DoS vector)
+        
+        securityContext:
+          # VULNERABILITY: Privileged container
+          privileged: true
+          # VULNERABILITY: Running as root inside the privileged container
+          runAsNonRoot: false
+          runAsUser: 0
+          
+        volumeMounts:
+        - mountPath: /var/run/docker.sock
+          name: docker-socket
+          
+      volumes:
+      # VULNERABILITY: Exposing host Docker socket
+      - name: docker-socket
+        hostPath:
+          path: /var/run/docker.sock

@@ -1,7 +1,7 @@
 {
   "discovery": {
     "completed": true,
-    "timestamp": "2026-03-10T21:36:59.376753+00:00",
+    "timestamp": "2026-03-15T03:23:12.143967+00:00",
     "tech_stack": "",
     "project_type": "",
     "architecture": "",
@@ -9,8 +9,8 @@
     "entry_points": [],
     "warnings": [],
     "secrets": [],
-    "raw_log_length": 3510
+    "raw_log_length": 335
   },
-  "workflow_step": "report",
-  "last_updated": "2026-03-10T22:36:04.620037+00:00"
+  "workflow_step": "modeling",
+  "last_updated": "2026-03-15T03:24:52.891183+00:00"
 }

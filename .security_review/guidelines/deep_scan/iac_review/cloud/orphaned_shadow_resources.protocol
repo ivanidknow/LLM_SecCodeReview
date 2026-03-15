@@ -46,11 +46,31 @@ DRIFT_TOOLS: ["terraform plan", "driftctl", "cloudsploit", "aws-nuke (dev only)"
 
 5. COST_ANOMALY_CORRELATION:
    - Проверить отчеты по затратам (AWS Cost Explorer). Внезапные расходы в неиспользуемых регионах часто указывают на взлом аккаунта и запуск майнеров.
+
+   - IAC_SPECIFICS: For Dockerfile verify least privilege, base image provenance, secret leakage in layers. For Kubernetes verify RBAC, Network Policies, Security Contexts. For Terraform/Cloud verify Public exposure, IAM over-privileging, encryption at rest.
+   - ENV_AWARENESS: Use data from network_infra.protocol to distinguish between Production and Development hardening levels.
+
+   - HYBRID_ANALYSIS: Read JSON artifacts (syft.json, grype.json, kics.json) from .security_review/artifacts/raw_tools_output/. Treat these results as 'Hard Evidence'. Perform AI Reachability Analysis to verify if the vulnerable component is reachable from the code. If confirmed, elevate the finding status to BLOCKER.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_SHADOW_RESOURCE_REPORT:
-  - RESOURCE_ID | CATEGORY | CREATED_BY | ESTIMATED_RISK | ACTION_REQUIRED
-VISUALIZE: "Image of cloud drift detection process: illustrating how a tool compares the 'Desired State' defined in Terraform with the 'Actual State' in the Cloud Provider, highlighting unmanaged resources as security gaps."
+To report a vulnerability, strictly use the following format:
+
+🚨 FINDING [ORPHANED_SHADOW_RESOURCES_DETECTION]
+FILE: [FilePath]
+LINE: [LineNumber]
+CODE: [CodeSnippet]
+DESCRIPTION: [Tool_Name] found [Vulnerability_ID]. AI Analysis confirmed that the vulnerable path is active in the current code flow via [Function_Name].
+SCENARIO_OF_ATTACK: [Must not be empty. Describe how a misconfiguration in infrastructure impacts the application security. Example: 1. Container runs as root -> 2. Attacker exploits RCE in app -> 3. Attacker gains full host access due to lack of isolation.]
 </OUTPUT_SPEC>
+
+@ANALYTICS_DATA: {
+  "domains": {
+    "IAM": 0,
+    "DATA_SAFETY": 50,
+    "LOGIC_INTEGRITY": 0,
+    "INFRA": 90,
+    "COMPLIANCE": 10
+  }
+}
 </DFD_MODELING_V3>

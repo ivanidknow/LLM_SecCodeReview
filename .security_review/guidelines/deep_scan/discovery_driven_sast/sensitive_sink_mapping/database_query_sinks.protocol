@@ -1,65 +1,26 @@
-<DFD_MODELING_V3>
+<DEEP_SCAN_V3>
 @ID: DATABASE_QUERY_SINKS
-@GOAL: DETECT_INSECURE_DATABASE_INTERACTIONS_LEADING_TO_SQLI_NOSQLI_AND_UNAUTHORIZED_DATA_ACCESS
-@PARENT_CONTEXT: persistent_storage.protocol, validation_chokepoints.protocol, data_inventory.protocol
-
-<GLOBAL_VARS>
-# Приемники для реляционных БД (SQL Injection)
-SQL_SINKS: {
-  "NODEJS": "(db\.query|sequelize\.query|knex\.raw|prisma\.\$queryRaw)",
-  "PYTHON": "(cursor\.execute|session\.execute|engine\.execute)",
-  "JAVA": "(Statement\.executeQuery|PreparedStatement\.addBatch|EntityManager\.createNativeQuery)"
-}
-
-# Приемники для NoSQL БД (NoSQL Injection / Object Injection)
-NOSQL_SINKS: {
-  "MONGODB": "(\$where|mapReduce|group|aggregate|\.find\(\{.*\$.*\)\})",
-  "REDIS": "(redis\.call|eval|evalsha)",
-  "ELASTIC": "(_search|scroll|explain)"
-}
-
-# Опасные паттерны конкатенации строк в запросах
-INJECTION_PATTERNS: "(\+|=|\$\{.*\})|(%s|%f|%d)|(\.format\(.*\))"
-</GLOBAL_VARS>
-
-<CONTEXT_MAP>
-[DB_ASSETS]      <- {from: persistent_storage.protocol, scope: "DATABASE_TYPES|TABLE_SCHEMAS"}
-[VALIDATORS]     <- {from: validation_chokepoints.protocol, scope: "DTO_SCHEMAS|SANITIZERS"}
-[SENSITIVE_DATA] <- {from: data_inventory.protocol, scope: "PII|FINANCIAL_RECORDS"}
-</CONTEXT_MAP>
-
-<ASSERTIONS>
-# Логические инварианты безопасности данных
-! ([SQL_SINKS] -> [INJECTION_PATTERNS]) : "BLOCKER: SQL Injection. Raw query constructed using string concatenation/interpolation instead of parameterized inputs."
-! ([NOSQL_SINKS] -> "Unvalidated_Object") : "CRITICAL: NoSQL Injection. External object passed directly to query operator without key-level validation. Risk: Bypass of authentication or mass data leak."
-! ([SQL_SINKS] -> [SENSITIVE_DATA] && ![VALIDATORS]) : "HIGH: Sensitive Data Exposure. Access to PII/Financial records without documented validation/authorization chokepoint."
-? ("ORM_Method" -> "raw_attribute") : "MEDIUM: ORM Bypass. Use of raw query capabilities within an ORM, potentially bypassing built-in sanitization."
-</ASSERTIONS>
+@GOAL: DETECT_INSECURE_DATABASE_INTERACTIONS_LEADING_TO_SQLI_AND_NOSQLI
+@PARENT_CONTEXT: persistent_storage.protocol, validation_chokepoints.protocol
 
 <EXECUTION_PIPELINE>
-1. DB_CLIENT_IDENTIFICATION:
-   - Идентифицировать используемые драйверы и библиотеки из [DB_ASSETS].
-   - Загрузить специфичные для драйвера паттерны [SQL_SINKS] или [NOSQL_SINKS].
+1. DB_CLIENT_IDENTIFICATION: Определить драйвер (sqlite3, sqlalchemy и т.д.).
+2. INJECTION_PATTERN_SCAN: Поиск конкатенации строк (`f"SELECT..."`, `+`) в запросах.
+3. PARAMETERIZATION_CHECK: Проверить наличие плейсхолдеров (`?`, `:id`).
+4. SCENARIO_GENERATION: Сформировать PoC (например, `' OR '1'='1`).
 
-2. QUERY_CONSTRUCTION_ANALYSIS:
-   - Анализ AST-узлов, отвечающих за формирование строк запросов.
-   - Поиск использования переменных, пришедших из внешних источников (Taint-анализ), внутри этих строк.
-
-3. PARAMETERIZATION_VERIFY:
-   - Проверить, используются ли подготовленные выражения (Prepared Statements) или именованные параметры (`:id`, `?`).
-   - Если используется конкатенация — проверить, не являются ли входные данные "безопасными константами" (например, жестко заданные имена таблиц).
-
-4. NOSQL_OPERATOR_AUDIT:
-   - Для NoSQL: Проверка того, что ключи в объекте запроса (например, `$gt`, `$ne`) не могут быть переданы пользователем.
-   - Проверка наличия схем валидации (например, Mongoose Schema), ограничивающих типы входящих данных.
-
-5. SECOND_ORDER_INJECTION_PROBE:
-   - Отследить данные, считанные из одной таблицы и используемые в запросе к другой (Second-order SQLi).
+   - HYBRID_ANALYSIS: Read JSON artifacts (syft.json, grype.json, kics.json) from .security_review/artifacts/raw_tools_output/. Treat these results as 'Hard Evidence'. Perform AI Reachability Analysis to verify if the vulnerable component is reachable from the code. If confirmed, elevate the finding status to BLOCKER.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_DB_SINK_REPORT:
-  - DATABASE_TYPE | SINK_FUNCTION | QUERY_TYPE (Raw/ORM) | INJECTION_RISK | LOCATION
-VISUALIZE: "Image of an SQL Injection flow: showing user input bypassing application logic and directly manipulating a database query."
+# ФОРМАТ ДЛЯ АВТОМАТИЧЕСКОГО ПАРСИНГА БЭКЕНДОМ
+🚨 FINDING [database_query_sinks]:
+FILE: [PATH]
+LINE: [NUM]
+CODE: [QUERY_EXECUTION_LINE]
+DESCRIPTION: [Tool_Name] found [Vulnerability_ID]. AI Analysis confirmed that the vulnerable path is active in the current code flow via [Function_Name].
+SCENARIO_OF_ATTACK: An attacker provides a malicious string in [INPUT_VARIABLE]. This payload alters the SQL command structure, allowing the attacker to bypass authentication, read sensitive data (PII), or modify the database content.
+@ANALYTICS_DATA: {"domain": "DATA_SAFETY", "impact": 1.0}
+VISUALIZE: "Image of an SQL Injection flow: showing user input bypassing application logic."
 </OUTPUT_SPEC>
-</DFD_MODELING_V3>
+</DEEP_SCAN_V3>

@@ -1,58 +1,39 @@
-<DFD_MODELING_V3>
+<DEEP_SCAN_V3>
 @ID: IDENTITY_LINKED_VARIABLE_CORRELATION
 @GOAL: DETECT_HARDCODED_CREDENTIALS_BY_MAPPING_VARIABLE_NAMES_TO_DISCOVERY_ASSETS
 @PARENT_CONTEXT: identity_model.protocol, data_inventory.protocol, authentication_strategy.protocol
 
 <GLOBAL_VARS>
-# Словарь семантических признаков чувствительных данных
 SEMANTIC_DICT: {
   "AUTH": "(password|passwd|pwd|token|secret|key|access|credential)",
   "DATABASE": "(db_pass|connection_string|pg_password|database_url)",
   "ADMIN": "(admin_val|root_access|su_pass)",
   "PROVIDER_SPECIFIC": "(aws_key|stripe_secret|sendgrid_api|vault_token)"
 }
-
-# Исключения для снижения шума
 NOISE_FILTER: "(example|placeholder|dummy|test_user|your_password_here)"
 </GLOBAL_VARS>
 
-<CONTEXT_MAP>
-[IDENTITY_TYPES] <- {from: identity_model.protocol, scope: "ROLES|SERVICE_ACCOUNTS"}
-[DATA_ASSETS]    <- {from: data_inventory.protocol, scope: "SENSITIVE_FIELDS"}
-[AUTH_FLOWS]     <- {from: authentication_strategy.protocol, scope: "MECHANISMS"}
-</CONTEXT_MAP>
-
 <ASSERTIONS>
-# Логические инварианты именования и значений
-! ([VAR_NAME] ~ [SEMANTIC_DICT] && [VAR_VALUE] == "LiteralString" && ![VAR_VALUE] ~ "^process\.env") : "CRITICAL: Hardcoded Credential. Variable name implies sensitivity, but value is a static string."
-! ([VAR_NAME] ~ [DATA_ASSETS] && [FILE_TYPE] == "CONFIG_FILE") : "HIGH: Sensitive Asset exposure. Data asset name found in a plain-text configuration."
-! ([VAR_NAME] ~ [IDENTITY_TYPES] && [VAR_VALUE_ENTROPY] < 3.0) : "MEDIUM: Weak Hardcoded Identity. Role-related variable has a very simple literal value."
-? ([VAR_NAME] ~ "TEST|MOCK" && [VAR_VALUE_ENTROPY] > 4.5) : "WARNING: Live Secret in Mock. Variable is labeled for testing but contains a high-entropy string."
+! ([VAR_NAME] ~ [SEMANTIC_DICT] && [VAR_VALUE] == "LiteralString" && ![VAR_VALUE] ~ "^process\.env") : "CRITICAL: Hardcoded Credential."
 </ASSERTIONS>
 
 <EXECUTION_PIPELINE>
-1. AST_TOKEN_EXTRACTION:
-   - Разобрать код в абстрактное синтаксическое дерево (AST).
-   - Идентифицировать все VariableDeclarations, PropertyAssignments и ConstantDefinitions.
+1. AST_TOKEN_EXTRACTION: Анализ дерева кода (AST) для поиска VariableDeclarations.
+2. SEMANTIC_FILTERING: Сопоставление имен переменных с [SEMANTIC_DICT].
+3. DISCOVERY_CORRELATION: Проверка, используется ли данный провайдер в проекте согласно [KNOWN_PROVIDERS] из Discovery.
+4. IMPACT_ASSESSMENT: Оценка, куда передается переменная (Sinks) — в БД, Лог или Внешний API.
 
-2. SEMANTIC_FILTERING:
-   - Сопоставить имена переменных со словарем [SEMANTIC_DICT] и активами [DATA_ASSETS] из инвентаря данных.
-
-3. PROVENANCE_ANALYSIS:
-   - Проверить источник значения. Если это литерал — пометить как "Hardcoded".
-   - Если значение берется из внешнего источника — проверить цепочку до secrets_management.protocol.
-
-4. DISCOVERY_CORRELATION:
-   - Если переменная называется `AWS_KEY`, проверить в external_interactors.protocol, действительно ли в проекте используется AWS.
-   - Использовать [IDENTITY_TYPES] для проверки, не присваиваются ли пароли напрямую сервисным аккаунтам.
-
-5. LOGICAL_SINK_CORRELATION:
-   - Проверить, передается ли эта переменная в "чувствительные приемники" (Sinks), такие как логгеры (exception_leak.protocol) или внешние API.
+   - HYBRID_ANALYSIS: Read JSON artifacts (syft.json, grype.json, kics.json) from .security_review/artifacts/raw_tools_output/. Treat these results as 'Hard Evidence'. Perform AI Reachability Analysis to verify if the vulnerable component is reachable from the code. If confirmed, elevate the finding status to BLOCKER.
 </EXECUTION_PIPELINE>
 
 <OUTPUT_SPEC>
-GENERATE_IDENTITY_CORRELATION_REPORT:
-  - VARIABLE_NAME | VALUE_TYPE | DISCOVERY_ASSET_LINK | RISK_LEVEL | LOCATION
+# ФОРМАТ ДЛЯ АВТОМАТИЧЕСКОГО ПАРСИНГА БЭКЕНДОМ
+🚨 FINDING [identity_variable_correlation]:
+FILE: [PATH]
+LINE: [NUM]
+CODE: [VAR_NAME] = [VAR_VALUE]
+DESCRIPTION: [Tool_Name] found [Vulnerability_ID]. AI Analysis confirmed that the vulnerable path is active in the current code flow via [Function_Name].
+SCENARIO_OF_ATTACK: An attacker with access to the source code or binary can extract the static credential to bypass authentication on the [ASSET_NAME] service.
 VISUALIZE: "Image of code AST tree highlighting nodes where sensitive variable names are assigned to literal strings."
 </OUTPUT_SPEC>
-</DFD_MODELING_V3>
+</DEEP_SCAN_V3>
