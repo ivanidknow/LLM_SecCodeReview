@@ -7,6 +7,7 @@ from app.api.projects import router as projects_router
 from app.api.analysis import router as analysis_router
 from app.api.history import router as history_router
 from app.api.utils import router as utils_router
+from app.api.reporting import router as reporting_router
 from app.services.database import init_db
 
 app = FastAPI(title="Security Code Review API")
@@ -47,6 +48,7 @@ app.include_router(projects_router)
 app.include_router(analysis_router)
 app.include_router(history_router)
 app.include_router(utils_router)
+app.include_router(reporting_router, prefix="/api/analysis")
 
 
 if __name__ == "__main__":

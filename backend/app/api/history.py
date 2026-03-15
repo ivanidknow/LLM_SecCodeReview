@@ -11,7 +11,8 @@ from app.services.database import (
     get_audits_for_project,
     get_project_by_path,
     get_session_logs,
-    clear_session_logs
+    clear_session_logs,
+    update_project_stage
 )
 
 router = APIRouter(prefix="/api/history", tags=["history"])
@@ -95,31 +96,33 @@ async def download_report(audit_id: str, report_path: str):
                         project_id = row[0]
             
             if project_id:
-                _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                raw_path = os.path.join(_BACKEND_DIR, "data", "reports", f"raw_{project_id}.json")
-                if os.path.exists(raw_path):
-                    import json as _json
-                    with open(raw_path, "r", encoding="utf-8") as f:
-                        findings = _json.load(f)
-                        
-                    # Generate fallback markdown
-                    fallback_report = f"# [FALLBACK] Security Assessment Report\n\n"
-                    fallback_report += f"> This report was generated natively from raw JSON data because the AI generation process timed out or was interrupted.\n\n"
-                    fallback_report += f"## 1. Детальный реестр уязвимостей (Raw Data)\n\n"
+                from app.services.database import get_findings_for_project
+                aggregated_findings = await get_findings_for_project(project_id)
+                
+                if aggregated_findings:
+                    # Deterministic python assembly (Fallback Mode)
+                    _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                     
-                    for i, f_item in enumerate(findings, 1):
-                        fallback_report += f"### [SEC-{i:02d}] {f_item.get('protocol_id', 'Vulnerability')}\n"
-                        fallback_report += f"* *Phase:* {f_item.get('phase', 'N/A')}\n"
-                        fallback_report += f"* *File:* `{f_item.get('file', 'N/A')}:{f_item.get('line', 'N/A')}`\n"
-                        fallback_report += f"* *Description:* {f_item.get('description', '')}\n\n"
-                        if f_item.get('code') and f_item.get('code') != 'N/A':
-                             fallback_report += f"```\n{f_item.get('code')}\n```\n\n"
-                        fallback_report += "---\n\n"
+                    report_out = f"# [FALLBACK] Security Assessment Report\n\n"
+                    report_out += f"> This report was generated natively from raw database findings because the main file was missing.\n\n"
+                    report_out += f"## 1. Детальный реестр уязвимостей\n\n"
                     
-                    # Ensure the report path directory exists
+                    for i, f in enumerate(aggregated_findings, 1):
+                        report_out += f"### [SEC-{i:02d}] {f.get('protocol_id', 'Vulnerability')}\n"
+                        report_out += f"* *Критичность:* *{f.get('severity', 'HIGH')}*\n" 
+                        report_out += f"* *CWE:* [CWE-000: Auto-Assigned by Engine]\n"
+                        report_out += f"* *Локация:* `{f.get('file_path', 'N/A')}:{f.get('line_number', 'N/A')}`\n"
+                        report_out += f"* *Root Cause:* Проблема безопасности обнаружена анализатором на этапе {f.get('phase', 'N/A')}.\n"
+                        report_out += f"* *Сценарий атаки:* Злоумышленник может использовать данную уязвимость ({f.get('protocol_id', 'N/A')}).\n"
+                        report_out += f"* *Рекомендация:* Изучите детали и исправьте логику:\n\n"
+                        report_out += f"{f.get('description', '')}\n\n"
+                        if f.get('code_snippet') and f.get('code_snippet') != 'N/A':
+                            report_out += f"```\n{f.get('code_snippet')}\n```\n\n"
+                        report_out += "---\n\n"
+                    
                     os.makedirs(os.path.dirname(report_path), exist_ok=True)
                     with open(report_path, "w", encoding="utf-8") as f:
-                        f.write(fallback_report)
+                        f.write(report_out)
         except Exception as e:
             print(f"Fallback generation error: {e}")
 
@@ -140,6 +143,13 @@ async def get_project_by_path_endpoint(path: str):
     project = await get_project_by_path(path)
     if not project:
         raise HTTPException(404, "Project not found")
+        
+    # State Persistence Fix checking
+    artifact_path = os.path.join(path, ".security_review", "artifacts", "discovery_report.json")
+    if os.path.exists(artifact_path) and project.get("current_stage") == "discovery":
+        await update_project_stage(project["id"], "deep_scan")
+        project = await get_project_by_path(path)
+        
     return {"project": project}
 
 

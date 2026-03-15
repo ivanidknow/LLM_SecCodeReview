@@ -38,7 +38,7 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(_BACKEND_DIR, ".."))
 class ChatRequest(BaseModel):
     project_path: str
     user_query: str
-    model: str = "llama3"
+    model: str = os.getenv("DEFAULT_MODEL", "deepseek-coder-v2:16b")
 
     @field_validator("project_path")
     @classmethod
@@ -57,7 +57,7 @@ class ChatRequest(BaseModel):
 
 class DiscoveryRequest(BaseModel):
     project_path: str
-    model: str = "llama3"
+    model: str = os.getenv("DEFAULT_MODEL", "qwen2.5-coder:7b")
 
     @field_validator("project_path")
     @classmethod
@@ -70,7 +70,7 @@ class DiscoveryRequest(BaseModel):
 class OptimizeRequest(BaseModel):
     discovery_log: str
     current_selected_ids: list[str]
-    model: str = "llama3"
+    model: str = os.getenv("DEFAULT_MODEL", "deepseek-coder-v2:16b")
     is_full_scan: bool = False
 
     @field_validator("discovery_log")
@@ -84,7 +84,8 @@ class OptimizeRequest(BaseModel):
 class ModelingRequest(BaseModel):
     project_path: str
     discovery_log: str = ""
-    model: str = "llama3"
+    model: str = os.getenv("DEFAULT_MODEL", "qwen2.5-coder:7b")
+    use_persistent_context: bool = False
 
     @field_validator("project_path")
     @classmethod
@@ -97,7 +98,8 @@ class ModelingRequest(BaseModel):
 class DeepScanRequest(BaseModel):
     project_path: str
     modeling_log: str = ""
-    model: str = "llama3"
+    model: str = os.getenv("DEFAULT_MODEL", "qwen2.5-coder:14b")
+    use_persistent_context: bool = False
 
     @field_validator("project_path")
     @classmethod
@@ -107,10 +109,30 @@ class DeepScanRequest(BaseModel):
         return v.strip()
 
 
+class RescanFileRequest(BaseModel):
+    project_path: str
+    target_file: str
+    model: str = os.getenv("DEFAULT_MODEL", "qwen2.5-coder:14b")
+
+    @field_validator("project_path")
+    @classmethod
+    def path_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("project_path is required")
+        return v.strip()
+
+    @field_validator("target_file")
+    @classmethod
+    def file_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("target_file is required")
+        return v.strip()
+
+
 class FinalReportRequest(BaseModel):
     project_path: str
     all_logs: str = ""
-    model: str = "llama3"
+    model: str = os.getenv("DEFAULT_MODEL", "mistral-small:22b")
 
     @field_validator("project_path")
     @classmethod
@@ -221,7 +243,7 @@ def _scan_project(project_path: str) -> tuple[list[str], str]:
 
 
 _DISCOVERY_SYSTEM = """\
-You are the Hexstrike Security Sentinel performing a DISCOVERY phase audit.
+You are the SecCodeReview Engine v3.5 performing a DISCOVERY phase audit.
 Your task is to analyze a software project's structure and source code.
 
 You MUST output findings in this EXACT format with these prefixes:
@@ -301,21 +323,29 @@ Use the exact prefix format specified in your instructions.
             return chunk
 
         # Emit a header
-        yield emit("[DISCOVERY] ═══ Scanning project... ═══\n")
+        yield emit("[DISCOVERY] ═══ Starting SecCodeReview project analysis... ═══\n")
         yield emit(f"[DISCOVERY] Path: {resolved}\n")
         yield emit(f"[DISCOVERY] Files: {len(tree_lines)} entries found\n")
         yield emit("[DISCOVERY] Sending to AI Sentinel for analysis...\n")
         yield emit("---\n")
 
+        full_response = ""
         async for chunk in ollama.generate_response(
             prompt=prompt,
             system=_DISCOVERY_SYSTEM,
             model=req.model,
         ):
+            full_response += chunk
             yield emit(chunk)
 
         yield emit("\n---\n")
         yield emit("[DISCOVERY] ═══ Analysis COMPLETE ═══\n")
+        
+        try:
+            from app.services.database import update_progress_metadata
+            await update_progress_metadata(pid, "discovery", {"raw_log": full_response})
+        except Exception as e:
+            logger.error(f"Failed to save discovery metadata: {e}")
 
     return StreamingResponse(
         stream_discovery(),
@@ -327,7 +357,7 @@ Use the exact prefix format specified in your instructions.
 # ─── Modeling ─────────────────────────────────────────────────
 
 _MODELING_SYSTEM = """\
-You are the Hexstrike Security Sentinel performing a MODELING phase audit.
+You are the SecCodeReview Engine v3.5 performing a MODELING phase audit.
 You have already completed the Discovery phase. Now analyze the codebase for:
 
 1. TRUST BOUNDARIES — Where does external/untrusted data enter the application?
@@ -369,6 +399,15 @@ async def run_modeling(req: ModelingRequest):
         raise HTTPException(400, detail=f"Directory not found: {req.project_path}")
 
     logger.info(f"Modeling scan: {resolved}")
+
+    # Read persistent context if requested
+    if req.use_persistent_context:
+        from app.services.database import get_project_by_path
+        project_record = await get_project_by_path(req.project_path)
+        if project_record and "progress_metadata" in project_record:
+            meta = project_record["progress_metadata"]
+            if "discovery" in meta and "raw_log" in meta["discovery"]:
+                req.discovery_log = f"You are continuing an audit. Here is the established context from the previous stage:\n{meta['discovery']['raw_log']}"
 
     # Read session context if available
     session_context = ""
@@ -452,8 +491,11 @@ Analyze the architecture for:
             plan_path = os.path.join(resolved, "recommended_plan.json")
             with open(plan_path, "w", encoding="utf-8") as f:
                 json.dump({"modeling_output": full_response}, f, indent=2)
+                
+            from app.services.database import update_progress_metadata
+            await update_progress_metadata(pid, "modeling", {"raw_log": full_response})
         except Exception as e:
-            logger.error(f"Failed to save recommended_plan.json: {e}")
+            logger.error(f"Failed to save recommended_plan.json or update metadata: {e}")
 
     return StreamingResponse(
         stream_modeling(),
@@ -478,6 +520,15 @@ async def run_deep_scan(req: DeepScanRequest):
     assert resolved is not None  # type hints
 
     logger.info(f"Deep scan: {resolved}")
+
+    # Read persistent context if requested
+    if req.use_persistent_context:
+        from app.services.database import get_project_by_path
+        project_record = await get_project_by_path(req.project_path)
+        if project_record and "progress_metadata" in project_record:
+            meta = project_record["progress_metadata"]
+            if "modeling" in meta and "raw_log" in meta["modeling"]:
+                req.modeling_log = f"You are continuing an audit. Here is the established context from the previous stage:\n{meta['modeling']['raw_log']}"
 
     # Read session context if available
     session_context = ""
@@ -527,9 +578,12 @@ async def run_deep_scan(req: DeepScanRequest):
                     
         import re
         import json
+        from app.services.database import add_finding
         
         total_vulns = []
-        all_findings = []   # Global Finding Store for report aggregation
+        # all_findings kept only for fallback/legacy JSON save if needed, but primary is DB
+        all_findings = []
+        file_finding_counts = {}
         global_refused = False
 
         # Apply File Exclusions
@@ -736,18 +790,32 @@ FILE CONTENTS:
                         f_code = code_match.group(1).strip() if code_match else "N/A"
                         f_desc = desc_match.group(1).strip() if desc_match else detail.strip()[:2000]
 
-                        # Deduplication: check if same protocol_id + file already exists
-                        dedup_key = f"{proto_id}::{f_file}"
-                        existing = None
-                        for f_item in all_findings:
-                            if f"{f_item.get('protocol_id')}::{f_item.get('file')}" == dedup_key:
-                                existing = f_item
-                                break
-                        if existing:
-                            # Merge: append new detail if substantially different
-                            if f_desc[:100] not in existing.get("description", ""):
-                                existing["description"] = existing.get("description", "") + f"\n---\n{f_desc}"
-                            continue  # Skip duplicate
+                        # --- Diversity Guard ---
+                        current_file_count = file_finding_counts.get(f_file, 0)
+                        if current_file_count >= 5:
+                            if f_code == "N/A" or len(f_code.split('\n')) <= 5:
+                                yield emit(f"[WARN] Diversity Guard: Skipping repetitive short finding in {f_file}.\n")
+                                continue
+                            else:
+                                f_desc = "[FLAGGED FOR MANUAL REVIEW - HIGH DENSITY] " + f_desc
+
+                        # Pre-emptive DB Save
+                        # Deduplication is handled inside add_finding (returns None if merged/skipped)
+                        fid = await add_finding(
+                            project_id=pid,
+                            protocol_id=proto_id,
+                            file_path=f_file,
+                            line_number=f_line,
+                            code_snippet=f_code,
+                            severity="HIGH", # Naive parsing for now, updated in report
+                            description=f_desc,
+                            attack_scenario=""
+                        )
+                        
+                        if not fid:
+                            continue  # Skipped duplicate
+
+                        file_finding_counts[f_file] = current_file_count + 1
 
                         all_findings.append({
                             "protocol_id": proto_id,
@@ -784,278 +852,17 @@ FILE CONTENTS:
             with open(raw_path, "w", encoding="utf-8") as f:
                 _json.dump(all_findings, f, indent=2, ensure_ascii=False)
                 
-            yield emit(f"[DEEP_SCAN] Saved {len(all_findings)} findings to findings_aggregate.json and raw_{pid}.json\n")
+            from app.services.database import update_progress_metadata
+            await update_progress_metadata(pid, "deep_scan", {
+                "total_vulns": len(all_findings)
+            })
+                
+            yield emit(f"[DEEP_SCAN] Saved {len(all_findings)} findings to database and aggregate maps.\n")
         except Exception as e:
             yield emit(f"[WARN] Could not save findings: {e}\n")
 
     return StreamingResponse(
         stream_deep_scan(),
-        media_type="text/plain",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-# ─── Final Report ─────────────────────────────────────────────
-
-_REPORT_SYSTEM = """\
-You are the Hexstrike Security Sentinel writing a GOLD STANDARD Security Assessment Report.
-Output ONLY strict GitHub-formatted Markdown. Do NOT output any [LOG] tags.
-Use Russian language for descriptions, Root Cause, Сценарий атаки, and Рекомендация sections.
-Use English for technical terms, CWE IDs, and code references.
-
-Follow this EXACT structure from the reference report (sec_review_SILK-BACKEND.md):
-
-# Security Assessment Report: {PROJECT_NAME_PLACEHOLDER} ({SCAN_DATE_PLACEHOLDER})
-
-## 1. Детальный реестр уязвимостей
-
-For EVERY finding, use this EXACT template with a sequential [SEC-XX] ID:
-
-### [SEC-XX] [Vulnerability Title]
-* *Критичность:* *CRITICAL / HIGH / MEDIUM / LOW*
-* *CWE:* [CWE-XXX: Name](https://cwe.mitre.org/data/definitions/XXX.html)
-* *Локация:* `file_path:line_numbers` (`function_name`)
-* *Root Cause:* [Technical root cause in Russian — what exactly is wrong in the code]
-* *Сценарий атаки:* [Step-by-step attack scenario in Russian — how an attacker exploits this]
-* *Рекомендация:* [Specific fix recommendation in Russian — exact code changes needed]
-
-If evidence code exists, include it inline with backticks or as a code block.
-
----
-
-## 2. Технический долг и архитектурные риски (Technical Debt)
-
-### [TD-XX] [Problem Title]
-* *Проблема:* [Description]
-* *Риск:* [Risk if not addressed]
-* *Решение:* [Solution]
-
----
-
-## 3. Анализ зависимостей (SCA/SBOM)
-
-### [SCA-XX] [Dependency Issue]
-* *Статус:* *HIGH / MEDIUM / LOW*
-* *Применимость:* [Applicability analysis]
-* *Действие:* [Required action]
-
----
-
-## 4. Инфраструктурный аудит (IaC)
-
-### [INF-XX] [Infrastructure Issue]
-* *Критичность:* *HIGH / MEDIUM / LOW*
-* *Локация:* `file_path`
-* *Root Cause:* [Description]
-* *Рекомендация:* [Fix]
-
----
-
-## 5. Сводная таблица приоритетов
-
-| ID | Тип | Проблема | Приоритет |
-|----|-----|----------|-----------|
-| *SEC-XX* | Security | *[Problem summary]* | *CRITICAL / HIGH / MEDIUM / LOW* |
-(Include ALL {TOTAL_FINDINGS_PLACEHOLDER} findings in this table)
-
----
-
-## 6. Глобальные рекомендации
-
-1. [Numbered global recommendations based on the most critical systemic patterns found]
-
-CRITICAL RULES:
-- Do NOT skip ANY findings. ALL {TOTAL_FINDINGS_PLACEHOLDER} findings from the raw data MUST appear.
-- Do NOT summarize multiple findings into one. Each finding gets its own ### section.
-- Do NOT say "No significant issues" or "No vulnerabilities found" if findings exist.
-- The priority table MUST list every single finding.
-- Use Russian for all descriptive text. Use English only for technical terms and code.
-- Every finding MUST have Root Cause, Сценарий атаки, and Рекомендация.
-"""
-
-@router.post("/final_report")
-async def generate_final_report(req: FinalReportRequest):
-    """
-    Generate the Final Gold Standard Markdown Report.
-    """
-    if not await ollama.health_check():
-        raise HTTPException(503, detail="OLLAMA_OFFLINE: Start Ollama with: ollama serve")
-
-    resolved = _resolve_path(req.project_path)
-    if resolved is None:
-        raise HTTPException(400, detail=f"Directory not found: {req.project_path}")
-
-    # Read session context if available
-    session_context = ""
-    try:
-        from app.services.session import ProjectSession
-        session = ProjectSession(resolved)
-        session_context = session.get_ai_context()
-    except Exception:
-        pass
-
-    import datetime
-    scan_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    project_name = os.path.basename(resolved)
-
-    # Load aggregated findings from Deep Scan
-    import json as _json
-    aggregated_findings = []
-    try:
-        agg_path = os.path.join(resolved, "findings_aggregate.json")
-        if os.path.exists(agg_path):
-            with open(agg_path, "r", encoding="utf-8") as f:
-                aggregated_findings = _json.load(f)
-    except Exception:
-        pass
-
-    pid = await upsert_project(project_name, resolved)
-    await update_project_stage(pid, "report")
-
-    report_system_formatted = _REPORT_SYSTEM.replace(
-        "{PROJECT_NAME_PLACEHOLDER}", project_name
-    ).replace(
-        "{SCAN_DATE_PLACEHOLDER}", scan_date
-    ).replace(
-        "{TOTAL_FINDINGS_PLACEHOLDER}", str(len(aggregated_findings))
-    )
-    
-    _DATA_DIR = os.path.join(_BACKEND_DIR, "data", "reports")
-    if not os.path.exists(_DATA_DIR):
-        os.makedirs(_DATA_DIR)
-    
-    # Pre-create empty report file
-    report_file_path = os.path.join(_DATA_DIR, f"report_{pid}.md")
-    if not os.path.exists(report_file_path):
-        with open(report_file_path, "w", encoding="utf-8") as f:
-            f.write(f"# Initializing Security Report for {project_name}...\n")
-
-    async def stream_report():
-        markdown_buffer = []
-        def emit(chunk: str):
-            markdown_buffer.append(chunk)
-            asyncio.create_task(append_audit_log(pid, "INFO", chunk))
-            return chunk
-
-        try:
-            yield emit("[REPORT] ═══ Generating Gold Standard Report ═══\n")
-        
-            if len(aggregated_findings) > 20:
-                yield emit(f"[REPORT] Found {len(aggregated_findings)} findings. Using Native Markdown Template strategy...\n")
-            
-                summary_prompt = "Generate ONLY '## 0. Executive Summary' (Top systemic issues and overall posture) and '## 6. Глобальные рекомендации' for this project based on the findings below.\n"
-                summary_prompt += f"\nRAW FINDINGS DATA:\n{str(aggregated_findings[:5])}\n(Truncated for brevity)"
-            
-                yield emit("[REPORT] Generating Chapter 1: Executive Summary...\n")
-                llm_summary = await ollama.generate_response_full(prompt=summary_prompt, system=report_system_formatted, model=req.model)
-                if not llm_summary.strip():
-                     llm_summary = "Timeout generating summary."
-                 
-                yield emit(f"[REPORT] Building {len(aggregated_findings)} finding entries natively (Template Mode)...\n")
-            
-                report_out = f"# Security Assessment Report: {project_name}\n\n"
-                report_out += llm_summary + "\n\n"
-                report_out += f"## 1. Детальный реестр уязвимостей\n\n"
-            
-                for i, f in enumerate(aggregated_findings, 1):
-                     report_out += f"### [SEC-{i:02d}] {f.get('protocol_id', 'Vulnerability')}\n"
-                     report_out += f"* *Критичность:* *HIGH*\n" # Naive fallback criticality
-                     report_out += f"* *CWE:* [CWE-000: Unknown]\n"
-                     report_out += f"* *Локация:* `{f.get('file', 'N/A')}:{f.get('line', 'N/A')}`\n"
-                     report_out += f"* *Root Cause:* Проблема безопасности обнаружена анализатором на этапе {f.get('phase', 'N/A')}.\n"
-                     report_out += f"* *Сценарий атаки:* Злоумышленник может использовать данную уязвимость ({f.get('protocol_id', 'N/A')}).\n"
-                     report_out += f"* *Рекомендация:* Изучите детали и исправьте логику:\n\n"
-                     report_out += f"{f.get('description', '')}\n\n"
-                     if f.get('code') and f.get('code') != 'N/A':
-                          report_out += f"```\n{f.get('code')}\n```\n\n"
-                     report_out += "---\n\n"
-
-                yield emit(report_out)
-            else:
-                yield emit(f"[REPORT] Formatting {len(aggregated_findings)} findings (Segmented)...\n")
-            
-                def format_chunk(findings_list, start_idx=1):
-                    text = ""
-                    for i, finding in enumerate(findings_list, start_idx):
-                        text += f"\n--- Finding #{i} ---\n"
-                        text += f"Protocol ID: {finding.get('protocol_id', 'UNKNOWN')}\n"
-                        text += f"File: {finding.get('file', 'N/A')}\n"
-                        text += f"Line: {finding.get('line', 'N/A')}\n"
-                        text += f"Code:\n{finding.get('code', 'N/A')}\n"
-                        text += f"Phase: {finding.get('phase', 'N/A')}\n"
-                        text += f"Description: {finding.get('description', 'No detail')}\n"
-                    return text
-
-                # Chapter 1: Exec Summary
-                c1_prompt = f"Generate ONLY the starting headers `# Security Assessment Report` and the Executive Summary. There are {len(aggregated_findings)} findings total. Do NOT output individual findings.\n"
-                c1_prompt += format_chunk(aggregated_findings)
-                yield emit("[REPORT] Generating Chapter 1: Executive Summary...\n")
-            
-                c1_resp = ""
-                async for chunk in ollama.generate_response(prompt=c1_prompt, system=report_system_formatted, model=req.model):
-                     c1_resp += chunk
-                     yield emit(chunk)
-                if not c1_resp.strip(): yield emit("[TIMEOUT] Chapter 1 failed.\n")
-                yield emit("\n\n")
-
-                # Chapter 2: First Half
-                midpoint = len(aggregated_findings) // 2 or 1
-                first_half = aggregated_findings[:midpoint]
-                second_half = aggregated_findings[midpoint:]
-
-                if first_half:
-                     yield emit(f"[REPORT] Generating Chapter 2: Vulnerabilities 1 to {len(first_half)}...\n")
-                     c2_prompt = f"Generate ONLY the `## 1. Детальный реестр уязвимостей` section with exactly these {len(first_half)} findings. Number them from [SEC-01]. Do NOT include the global recommendations or summary.\n"
-                     c2_prompt += format_chunk(first_half, 1)
-                 
-                     c2_resp = ""
-                     async for chunk in ollama.generate_response(prompt=c2_prompt, system=report_system_formatted, model=req.model):
-                          c2_resp += chunk
-                          yield emit(chunk)
-                     if not c2_resp.strip(): yield emit("[TIMEOUT] Chapter 2 failed.\n")
-                     yield emit("\n\n")
-
-                if second_half:
-                     yield emit(f"[REPORT] Generating Chapter 3: Vulnerabilities {midpoint+1} to {len(aggregated_findings)}...\n")
-                     c3_prompt = f"Continue the registry (or create `## 2. Технический долг`) for the remaining {len(second_half)} findings. Number them starting from [SEC-{midpoint+1:02d}]. Do NOT output the summary.\n"
-                     c3_prompt += format_chunk(second_half, midpoint+1)
-
-                     c3_resp = ""
-                     async for chunk in ollama.generate_response(prompt=c3_prompt, system=report_system_formatted, model=req.model):
-                          c3_resp += chunk
-                          yield emit(chunk)
-                     if not c3_resp.strip(): yield emit("[TIMEOUT] Chapter 3 failed.\n")
-                     yield emit("\n\n")
-
-                # Chapter 4: Priority & Recommendations
-                yield emit("[REPORT] Generating Chapter 4: Priority Table & Remediation...\n")
-                c4_prompt = f"Generate ONLY `## 5. Сводная таблица приоритетов` and `## 6. Глобальные рекомендации` for ALL {len(aggregated_findings)} findings below.\n"
-                c4_prompt += format_chunk(aggregated_findings)
-            
-                c4_resp = ""
-                async for chunk in ollama.generate_response(prompt=c4_prompt, system=report_system_formatted, model=req.model):
-                     c4_resp += chunk
-                     yield emit(chunk)
-                if not c4_resp.strip(): yield emit("[TIMEOUT] Chapter 4 failed.\n")
-                yield emit("\n\n")
-
-                yield emit("\n---\n")
-                yield emit("[REPORT] ═══ Report COMPLETE ═══\n")
-            
-        except Exception as e:
-            yield emit(f"\n\n[ERROR] Report generation interrupted: {str(e)}\n")
-        finally:
-            # Always flush whatever markdown buffer we have to the file to prevent "File not found"
-            try:
-                content = "".join([c for c in markdown_buffer if not c.startswith("[REPORT]") and not c.startswith("[TIMEOUT]")])
-                if content.strip():
-                    with open(report_file_path, "w", encoding="utf-8") as f:
-                        f.write(content)
-            except Exception:
-                pass
-
-    return StreamingResponse(
-        stream_report(),
         media_type="text/plain",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -1106,6 +913,101 @@ async def optimize_scan(req: OptimizeRequest):
             f"for this architecture ({result.architecture_type}). Optimize to save time?"
         )
     return response
+
+
+@router.post("/rescan_file")
+async def rescan_file(req: RescanFileRequest):
+    """Run a focused deep scan on a single file with higher temperature."""
+    resolved = _resolve_path(req.project_path)
+    if not resolved:
+        raise HTTPException(400, detail=f"Directory not found: {req.project_path}")
+
+    target_path = os.path.join(resolved, req.target_file)
+    if not os.path.exists(target_path):
+        raise HTTPException(404, detail=f"File not found: {req.target_file}")
+
+    project_name = os.path.basename(resolved)
+    pid = await upsert_project(project_name, resolved)
+
+    async def stream_rescan():
+        def emit(chunk: str):
+            level = "VULN" if "[VULN]" in chunk or "🚨 FINDING" in chunk else "INFO"
+            asyncio.create_task(append_audit_log(pid, level, chunk))
+            return chunk
+
+        yield emit(f"[RESCAN] ═══ Focused Rescan: {req.target_file} ═══\n")
+        
+        try:
+            with open(target_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            yield emit(f"[ERROR] Could not read {req.target_file}: {e}\n")
+            return
+            
+        prompt = f"Analyze the following file located at `{req.target_file}`. Find unique, high-severity vulnerabilities.\n\n```{req.target_file}\n{content}\n```\n"
+
+        import re
+        from app.services.database import add_finding
+
+        got_response = False
+        full_response = ""
+        
+        async for chunk in ollama.generate_response(
+            prompt=prompt,
+            system=DEEP_SCAN_JAILBREAK_PROMPT,
+            model=req.model,
+            temperature=0.7
+        ):
+            if chunk.strip():
+                got_response = True
+            full_response += chunk
+            yield emit(chunk)
+            
+        yield emit("\n\n")
+
+        finding_blocks = re.findall(
+            r"(?s)🚨 FINDING \[([a-zA-Z0-9_-]+)\][:\s]*(.*?)(?=🚨 FINDING|$)",
+            full_response
+        )
+        
+        if finding_blocks:
+            added_count = 0
+            for proto_id, detail in finding_blocks:
+                file_match = re.search(r"FILE:\s*(.*?)\n", detail)
+                line_match = re.search(r"LINE:\s*(.*?)\n", detail)
+                code_match = re.search(r"CODE:\s*(.*?)\nDESCRIPTION:", detail, re.DOTALL)
+                desc_match = re.search(r"DESCRIPTION:\s*(.*)", detail, re.DOTALL)
+
+                f_file = file_match.group(1).strip() if file_match else req.target_file
+                f_line = line_match.group(1).strip() if line_match else "N/A"
+                f_code = code_match.group(1).strip() if code_match else "N/A"
+                f_desc = desc_match.group(1).strip() if desc_match else detail.strip()[:2000]
+
+                fid = await add_finding(
+                    project_id=pid,
+                    protocol_id=proto_id,
+                    file_path=f_file,
+                    line_number=f_line,
+                    code_snippet=f_code,
+                    severity="HIGH",
+                    description=f_desc,
+                    attack_scenario="[FOCUSED RESCAN] "
+                )
+                        
+                if not fid:
+                    continue
+                added_count += 1
+            yield emit(f"[VULN] Focused Rescan detected {len(finding_blocks)} findings ({added_count} new) in {req.target_file}.\n")
+        else:
+            yield emit(f"[SUMMARY] No vulnerabilities found during focused rescan of {req.target_file}.\n")
+            
+        yield emit("[RESCAN] ═══ Rescan COMPLETE ═══\n")
+
+    return StreamingResponse(
+        stream_rescan(),
+        media_type="text/plain",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/status")

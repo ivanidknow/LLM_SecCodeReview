@@ -12,11 +12,16 @@ import logging
 import os
 import subprocess
 
-from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
+from fastapi import APIRouter, HTTPException
+import datetime
+import json
+import uuid
+import aiosqlite
 
 from app.core.parser import ProtocolParser
 from app.services.cursor_sync import CursorOrchestrator
+from app.services.database import get_db_connection, DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -170,9 +175,9 @@ def _resolve_project_path(raw_path: str) -> str | None:
         if path in seen:
             continue
         seen.add(path)
-        logger.info(f"  [{label}] Trying: {path}")
+        logger.info(f"  [SecCodeReview] [{label}] Trying: {path}")
         if os.path.isdir(path):
-            logger.info(f"  ✓ Resolved via [{label}]: {path}")
+            logger.info(f"  [SecCodeReview] ✓ Resolved via [{label}]: {path}")
             return path
 
     return None
@@ -186,7 +191,7 @@ async def sync_cursor(req: SyncRequest):
     """Sync selected protocols + project context → .cursorrules"""
     warnings: list[str] = []
 
-    logger.info(f"sync-cursor: raw project_path = '{req.project_path}'")
+    logger.info(f"[SecCodeReview] sync-cursor: raw project_path = '{req.project_path}'")
     expanded_path = _resolve_project_path(req.project_path)
 
     if expanded_path is None:
@@ -203,7 +208,7 @@ async def sync_cursor(req: SyncRequest):
             ),
         )
 
-    logger.info(f"sync-cursor: resolved_path = '{expanded_path}'")
+    logger.info(f"[SecCodeReview] sync-cursor: resolved_path = '{expanded_path}'")
 
     git_warn = _check_git_tracked(expanded_path)
     if git_warn:
@@ -245,4 +250,77 @@ async def sync_cursor(req: SyncRequest):
         categories_expanded=expanded_cats,
         warnings=warnings,
     )
+
+
+# ─── Projects CRUD Endpoints ──────────────────────────────────
+
+class ProjectCreateRequest(BaseModel):
+    name: str
+    absolute_path: str
+
+@router.get("/")
+async def list_all_projects_endpoint():
+    """Return a list of all projects sorted by last_scanned."""
+    async with get_db_connection() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM projects ORDER BY last_scanned DESC") as cursor:
+            rows = await cursor.fetchall()
+            return {"projects": [dict(r) for r in rows]}
+
+@router.post("/")
+async def create_or_update_project(req: ProjectCreateRequest):
+    """Accept name and absolute_path. Use an UPSERT logic."""
+    if not req.name or not req.absolute_path:
+        raise HTTPException(400, "Missing name or absolute_path")
+
+    abs_path = os.path.abspath(req.absolute_path)
+    now = datetime.datetime.utcnow().isoformat()
+    
+    async with get_db_connection() as db:
+        async with db.execute("SELECT id FROM projects WHERE absolute_path = ?", (abs_path,)) as cursor:
+            row = await cursor.fetchone()
+            
+        if row:
+            pid = row[0]
+            await db.execute("UPDATE projects SET name = ?, last_scanned = ? WHERE id = ?", (req.name, now, pid))
+            await db.commit()
+            return {"message": "Project updated", "project_id": pid}
+            
+        pid = str(uuid.uuid4())
+        await db.execute(
+            "INSERT INTO projects (id, name, absolute_path, created_at, last_scanned, progress_metadata) VALUES (?, ?, ?, ?, ?, ?)",
+            (pid, req.name, abs_path, now, now, '{}')
+        )
+        await db.commit()
+        return {"message": "Project created", "project_id": pid}
+
+
+@router.get("/{project_id}/status")
+async def get_project_status(project_id: str):
+    """Return current_stage, progress_metadata, and a summary of logs for that project."""
+    async with get_db_connection() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT current_stage, progress_metadata FROM projects WHERE id = ?", (project_id,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                raise HTTPException(404, "Project not found")
+        
+        # summary of logs
+        async with db.execute("SELECT COUNT(*) as log_count, MAX(timestamp) as last_log FROM audit_logs WHERE project_id = ?", (project_id,)) as cursor:
+            log_row = await cursor.fetchone()
+            
+        # parse progress_metadata
+        try:
+            parsed_metadata = json.loads(row["progress_metadata"]) if row["progress_metadata"] else {}
+        except Exception:
+            parsed_metadata = {}
+            
+        return {
+            "current_stage": row["current_stage"],
+            "progress_metadata": parsed_metadata,
+            "logs_summary": {
+                "count": log_row["log_count"] if log_row else 0,
+                "last_log": log_row["last_log"] if log_row else None
+            }
+        }
 
